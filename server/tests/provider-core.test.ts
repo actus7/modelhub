@@ -48,7 +48,7 @@ describe("provider payload limits", () => {
     expect(await response.json()).toEqual({ error: "Request body too large" });
   });
 
-  /** OpenClaw / clientes OpenAI podem enviar developer, content null e arguments como objeto. */
+  /** Clientes OpenAI-compatible podem enviar developer, content null e arguments como objeto. */
   it("accepts OpenAI-compatible payloads (developer role, null content, tool arguments as object)", async () => {
     const chat = vi.fn().mockResolvedValue(new Response("ok"));
 
@@ -114,7 +114,7 @@ describe("provider payload limits", () => {
     expect(response.status).toBe(200);
   });
 
-  it("accepts the large OpenClaw system prompt with tool inventory", async () => {
+  it("accepts a large system prompt with tool inventory", async () => {
     const chat = vi.fn().mockResolvedValue(new Response("ok"));
     const app = createProviderApp({
       basePath: "/test-provider",
@@ -124,7 +124,7 @@ describe("provider payload limits", () => {
       providerId: "test-provider",
     });
 
-    const giantSystemPrompt = `You are OpenClaw.\n${"tool: read, write, edit, exec, browser\n".repeat(2500)}`;
+    const giantSystemPrompt = `You are an agentic runtime.\n${"tool: read, write, edit, exec, browser\n".repeat(2500)}`;
 
     const response = await app.request("/test-provider/api/chat", {
       body: JSON.stringify({

@@ -172,55 +172,6 @@ const response = await client.chat.completions.create({
 console.log(response.choices[0].message.content);
 ```
 
-## 🐾 OpenClaw em poucos passos
-
-### Configuração mínima (OpenAI-compatible)
-
-No OpenClaw, configure:
-
-- Base URL: `http://localhost:3000/v1`
-- Auth: `Bearer SUA_API_KEY`
-- Modelo: valor retornado por `GET /v1/models` no formato `provider/model-id`
-
-### Setup real do OpenClaw com `npx`
-
-```bash
-# Bootstrap guiado (discovery + catalogo + escrita no ~/.openclaw/openclaw.json)
-npx @model-hub/openclaw-cli setup \
-  --base-url https://www.modelhub.com.br \
-  --api-key SUA_API_KEY \
-  --model quillbot/quillbot-ai
-
-# Trocar o modelo primario depois
-npx @model-hub/openclaw-cli use quillbot/quillbot-ai
-
-# Diagnostico completo de integracao
-npx @model-hub/openclaw-cli doctor \
-  --base-url https://www.modelhub.com.br \
-  --api-key SUA_API_KEY \
-  --model quillbot/quillbot-ai
-```
-
-O CLI cria um provider `modelhub` no OpenClaw com:
-
-- `baseUrl`: `https://www.modelhub.com.br/v1`
-- `api`: `openai-completions`
-- `model.primary`: `modelhub/<provider/model-id>`
-
-### Wrapper legado do repositório
-
-```bash
-modelhub openclaw setup --base-url https://www.modelhub.com.br --api-key SUA_API_KEY
-modelhub openclaw use quillbot/quillbot-ai
-modelhub doctor
-```
-
-### Presets recomendados
-
-- Coding: modelos com melhor reasoning/tool-use
-- Low cost: modelos `:free`, `mini`, `flash`
-- Long context: modelos com contexto estendido (`128k+`)
-
 ## 🎯 Próximos Passos
 
 ### Explore as Features
@@ -258,20 +209,6 @@ modelhub doctor
 1. Verifique se copiou a key completa
 2. Verifique se a key não expirou
 3. Teste a key diretamente no site do provedor
-
-### Erro: "Invalid model" no OpenClaw
-
-**Solução:**
-1. Faça `npx @model-hub/openclaw-cli models`
-2. Copie o `model-id` exatamente como retornado depois de `modelhub/`
-3. Rode `npx @model-hub/openclaw-cli use <model-id>`
-
-### Erro: timeout no OpenClaw
-
-**Solução:**
-1. Rode `npx @model-hub/openclaw-cli doctor` para validar health/status/catalogo
-2. Troque para preset low-cost/flash
-3. Reduza `max_tokens` no cliente
 
 ### Erro: "Port 3000 already in use"
 

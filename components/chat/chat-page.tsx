@@ -39,7 +39,6 @@ import {
   ShieldOffIcon,
   SparklesIcon,
   SquareIcon,
-  TerminalSquareIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
   UserIcon,
@@ -49,7 +48,6 @@ import { toast } from "sonner";
 
 import { useAppState } from "@/components/app-state-provider";
 import { ChatHistorySidebar } from "@/components/chat/chat-history-sidebar";
-import { OpenClawGatewayGuideDialog } from "@/components/chat/openclaw-gateway-guide";
 import { SettingsDialog } from "@/components/chat/settings-dialog";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -79,25 +77,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { apiFetch, apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
-import {
-  isBridgeConnectionError,
-  loadOpenClawBridgeSessionKey,
-  OpenClawBridgeClient,
-  type OpenClawBridgeEvent,
-  saveOpenClawBridgeSessionKey,
-} from "@/lib/openclaw-bridge-client";
-import {
-  OPENCLAW_PROVIDER_ID,
-  conversationToOpenAiMessages,
-  buildOpenClawDashboardUrl,
-  hasOpenClawGatewayToken,
-  normalizeGatewayBaseUrl,
-  setBridgeModel,
-} from "@/lib/openclaw-gateway";
-import { useOpenClawConnection } from "@/lib/use-openclaw-connection";
 import { useProviderModels } from "@/lib/use-provider-models";
-import { OpenClawDiagnosticDetails } from "@/components/chat/openclaw-diagnostic-details";
-import { OpenClawSetupDialog } from "@/components/chat/openclaw-setup";
 import {
   estimateSerializedPayloadBytes,
   formatBytes,
@@ -164,13 +144,6 @@ const STREAM_INTERRUPTED_NOTE = "\n\n_Resposta interrompida. Tente novamente._";
 type ChatRequestError = Error & {
   status?: number;
   suppressToast?: boolean;
-};
-
-type BridgeStreamResult = {
-  aborted?: boolean;
-  errorMessage?: string;
-  hadPartialOutput: boolean;
-  text: string;
 };
 
 function resolveAssistantModelLabel(input: {
@@ -296,16 +269,9 @@ async function trimConversation(conversationId: string, input: {
 
 function resolveModelSelectPlaceholder(input: {
   hasModels: boolean;
-  isOpenClaw: boolean;
-  isGatewayLoading: boolean;
-  isBridgeLoading: boolean;
-  isOpenClawNotReady: boolean;
   providerReady: boolean;
 }): string {
   if (!input.hasModels) return "Sem modelo";
-  if (input.isOpenClaw && input.isGatewayLoading) return "A verificar gateway…";
-  if (input.isOpenClaw && input.isBridgeLoading) return "A verificar integração local...";
-  if (input.isOpenClaw && input.isOpenClawNotReady) return "Configurar…";
   if (input.providerReady) return "Modelo";
   return "Credenciais…";
 }
@@ -321,7 +287,6 @@ export function ChatPage() {
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [savingCredentials, setSavingCredentials] = useState(false);
 
-  const openclaw = useOpenClawConnection(selectedProviderId);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
 
   // Conversation persistence state
@@ -333,16 +298,11 @@ export function ChatPage() {
 
   // Settings/personalization dialog
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [openClawGuideOpen, setOpenClawGuideOpen] = useState(false);
 
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
 
   // Stop generation
   const abortControllerRef = useRef<AbortController | null>(null);
-  const bridgeClientRef = useRef<OpenClawBridgeClient | null>(null);
-  const bridgeRunRef = useRef<{ client: OpenClawBridgeClient; requestId: string } | null>(null);
-  const temporaryOpenClawConversationIdRef = useRef<string>("");
-  const [bridgeFallbackMode, setBridgeFallbackMode] = useState(false);
 
   // Smart auto-scroll: only auto-scroll if user is near the bottom
   const userScrolledUpRef = useRef(false);
@@ -367,7 +327,7 @@ export function ChatPage() {
     [providers, selectedProviderId],
   );
   const providersWithoutApiKey = useMemo(
-    () => providers.filter((p) => !(p.requiredKeys?.length) && p.id !== OPENCLAW_PROVIDER_ID),
+    () => providers.filter((p) => !(p.requiredKeys?.length)),
     [providers],
   );
   const providersWithApiKey = useMemo(
@@ -385,22 +345,8 @@ export function ChatPage() {
     () => providersWithApiKey.filter((provider) => !providerHasRequiredCredentials(provider, credentials)),
     [credentials, providersWithApiKey],
   );
-  const selectedProviderReady =
-    selectedProviderId === OPENCLAW_PROVIDER_ID
-      ? openclaw.isOpenClawReady
-      : providerHasRequiredCredentials(selectedProvider, credentials);
-  const openClawDashboardUrl =
-    selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "gateway"
-      ? buildOpenClawDashboardUrl(openclaw.gatewaySettings)
-      : null;
-
-  /** Check discreto no dropdown: só OpenClaw/bridge e provedores com chave, quando já configurados. */
+  const selectedProviderReady = providerHasRequiredCredentials(selectedProvider, credentials);
   const providerModels = useProviderModels({
-    bridgeSettings: openclaw.bridgeSettings,
-    credentials,
-    gatewaySettings: openclaw.gatewaySettings,
-    mode: openclaw.mode,
-    providers,
     selectedProvider,
     selectedProviderId,
     selectedProviderReady,
@@ -410,46 +356,18 @@ export function ChatPage() {
 
   const showConfiguredCheck = useCallback(
     (provider: UiProvider) => {
-      if (provider.id === OPENCLAW_PROVIDER_ID) {
-        return openclaw.isOpenClawConfigured;
-      }
       if ((provider.requiredKeys?.length ?? 0) > 0) {
         return providerHasRequiredCredentials(provider, credentials);
       }
       return false;
     },
-    [credentials, openclaw.isOpenClawConfigured],
+    [credentials],
   );
-
-  const getBridgeClient = useCallback(async () => {
-    const baseUrl = normalizeGatewayBaseUrl(openclaw.bridgeSettings.baseUrl);
-    let client = bridgeClientRef.current;
-    if (!client || client.baseUrl !== baseUrl) {
-      client?.disconnect();
-      client = new OpenClawBridgeClient(baseUrl);
-      bridgeClientRef.current = client;
-    }
-    await client.connect();
-    return client;
-  }, [openclaw.bridgeSettings.baseUrl]);
 
 
   const allowImageAttachments = selectedModel?.capabilities.images ?? false;
   const allowDocumentAttachments = selectedModel?.capabilities.documents ?? true;
   const composerHasUploadingAttachments = attachments.some((attachment) => attachment.status === "uploading");
-
-  const openClawGuideModelId = useMemo(() => {
-    if (!selectedProvider || !selectedModelId) return null;
-    if (selectedModelId.startsWith("modelhub/")) {
-      return selectedModelId.slice("modelhub/".length);
-    }
-    if (selectedProvider.id === OPENCLAW_PROVIDER_ID) {
-      // OpenClaw gateway-native models aren't served by the ModelHub catalog,
-      // so we can't reuse them in the OpenClaw → ModelHub setup commands.
-      return null;
-    }
-    return `${selectedProvider.id}/${selectedModelId}`;
-  }, [selectedProvider, selectedModelId]);
 
   useEffect(() => {
     if (providers.length === 0 || selectedProviderId) {
@@ -481,35 +399,6 @@ export function ChatPage() {
       attachmentsRef.current.forEach(releaseAttachmentPreview);
     };
   }, []);
-
-  useEffect(() => {
-    return () => {
-      bridgeClientRef.current?.disconnect();
-      bridgeClientRef.current = null;
-      bridgeRunRef.current = null;
-    };
-  }, []);
-
-  useEffect(() => {
-    const isOpenClawBridgeActive =
-      selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "bridge";
-    const baseUrl = openclaw.bridgeSettings.baseUrl.trim();
-
-    bridgeClientRef.current?.disconnect();
-    bridgeClientRef.current = null;
-    bridgeRunRef.current = null;
-    setBridgeFallbackMode(false);
-
-    if (!isOpenClawBridgeActive || !baseUrl) {
-      return;
-    }
-
-    const client = new OpenClawBridgeClient(normalizeGatewayBaseUrl(baseUrl));
-    bridgeClientRef.current = client;
-    void client.connect().catch(() => {
-      // erros de conexão são reportados no envio/fluxo; aqui apenas garantimos que não propagam
-    });
-  }, [selectedProviderId, openclaw.mode, openclaw.bridgeSettings.baseUrl]);
 
   // Smart auto-scroll: scroll to bottom only if user hasn't scrolled up
   useEffect(() => {
@@ -780,15 +669,10 @@ export function ChatPage() {
     setEditingMessageId(null);
     setAttachments([]);
     setTemporaryChat(false);
-    temporaryOpenClawConversationIdRef.current = "";
   }, []);
 
   // Stop generation
   const handleStopGeneration = useCallback(() => {
-    if (bridgeRunRef.current) {
-      void bridgeRunRef.current.client.abort(bridgeRunRef.current.requestId);
-      bridgeRunRef.current = null;
-    }
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     setPending(false);
@@ -813,35 +697,6 @@ export function ChatPage() {
     } catch {
       // Revert on failure
       setReactions((prev) => ({ ...prev, [messageId]: current ?? null }));
-    }
-  }
-
-  async function handleOpenClawToolApproval(toolCall: ParsedToolCall, approved: boolean) {
-    if (!toolCall.approvalId) {
-      return;
-    }
-
-    try {
-      const client = await getBridgeClient();
-      await client.resolveApproval({ approvalId: toolCall.approvalId, approved });
-      setMessages((current) =>
-        current.map((message) => ({
-          ...message,
-          toolCalls: message.toolCalls.map((entry) => {
-            if (entry.toolCallId !== toolCall.toolCallId) {
-              return entry;
-            }
-            return {
-              ...entry,
-              requiresApproval: false,
-              result: approved ? entry.result : { approved: false },
-              status: approved ? "running" : "completed",
-            };
-          }),
-        })),
-      );
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao responder a aprovacao.");
     }
   }
 
@@ -915,150 +770,6 @@ export function ChatPage() {
     );
   }
 
-  async function streamBridgeMessage(input: {
-    assistantMessageId: string;
-    conversationId: string;
-    text: string;
-  }): Promise<BridgeStreamResult> {
-    const bridgeClient = await getBridgeClient();
-    const storedSessionKey = loadOpenClawBridgeSessionKey(input.conversationId);
-    const ensuredSession = await bridgeClient.ensureSession({
-      conversationId: input.conversationId,
-      model: selectedModelId || undefined,
-      sessionKey: storedSessionKey || undefined,
-    });
-    if (input.conversationId && ensuredSession.sessionKey) {
-      saveOpenClawBridgeSessionKey(input.conversationId, ensuredSession.sessionKey);
-    }
-
-    const requestId = crypto.randomUUID();
-    const toolMap = new Map<string, ParsedToolCall>();
-
-    return new Promise<BridgeStreamResult>((resolve, reject) => {
-      let fullText = "";
-      let resolved = false;
-      bridgeRunRef.current = { client: bridgeClient, requestId };
-
-      const finish = (result: BridgeStreamResult) => {
-        if (resolved) {
-          return;
-        }
-        resolved = true;
-        unsubscribe();
-        if (bridgeRunRef.current?.requestId === requestId) {
-          bridgeRunRef.current = null;
-        }
-        resolve(result);
-      };
-
-      const fail = (error: Error) => {
-        if (resolved) {
-          return;
-        }
-        resolved = true;
-        unsubscribe();
-        if (bridgeRunRef.current?.requestId === requestId) {
-          bridgeRunRef.current = null;
-        }
-        reject(error);
-      };
-
-      const unsubscribe = bridgeClient.onMessage((event: OpenClawBridgeEvent) => {
-        const eventRequestId = "requestId" in event ? event.requestId : undefined;
-        if (eventRequestId && eventRequestId !== requestId) {
-          return;
-        }
-
-        if (event.type === "chat.delta") {
-          fullText += event.delta;
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === input.assistantMessageId
-                ? { ...message, content: `${message.content}${event.delta}` }
-                : message,
-            ),
-          );
-          return;
-        }
-
-        if (event.type === "tool.approval.requested") {
-          const toolCallId = event.toolCallId ?? event.approvalId;
-          const pendingApproval: ParsedToolCall = {
-            approvalId: event.approvalId,
-            args: event.args ?? {},
-            requiresApproval: true,
-            status: "pending-approval",
-            toolCallId,
-            toolName: event.toolName ?? "system.run",
-          };
-          toolMap.set(toolCallId, pendingApproval);
-          updateAssistantToolCall(input.assistantMessageId, pendingApproval);
-          return;
-        }
-
-        if (event.type === "tool.update") {
-          const existing = toolMap.get(event.toolCallId);
-          const nextToolCall: ParsedToolCall = {
-            approvalId: existing?.approvalId,
-            args: event.args ?? existing?.args ?? {},
-            requiresApproval: existing?.requiresApproval,
-            result: event.result ?? existing?.result,
-            status: event.result !== undefined || event.status === "completed" ? "completed" : "running",
-            toolCallId: event.toolCallId,
-            toolName: event.toolName ?? existing?.toolName ?? "tool",
-          };
-          toolMap.set(event.toolCallId, nextToolCall);
-          updateAssistantToolCall(input.assistantMessageId, nextToolCall);
-          return;
-        }
-
-        if (event.type === "tool.approval.resolved" && event.approvalId) {
-          for (const [toolCallId, toolCall] of toolMap.entries()) {
-            if (toolCall.approvalId !== event.approvalId) {
-              continue;
-            }
-            const updated: ParsedToolCall = {
-              ...toolCall,
-              requiresApproval: false,
-              status: toolCall.result !== undefined ? "completed" : "running",
-            };
-            toolMap.set(toolCallId, updated);
-            updateAssistantToolCall(input.assistantMessageId, updated);
-          }
-          return;
-        }
-
-        if (event.type === "chat.aborted") {
-          finish({ aborted: true, hadPartialOutput: fullText.length > 0, text: fullText });
-          return;
-        }
-
-        if (event.type === "run.error") {
-          finish({
-            errorMessage: event.error,
-            hadPartialOutput: fullText.length > 0,
-            text: fullText,
-          });
-          return;
-        }
-
-        if (event.type === "run.completed") {
-          finish({ hadPartialOutput: fullText.length > 0, text: fullText });
-        }
-      });
-
-      void bridgeClient.sendChat({
-        content: input.text,
-        conversationId: input.conversationId,
-        model: selectedModelId || undefined,
-        requestId,
-        sessionKey: ensuredSession.sessionKey,
-      }).catch((error) => {
-        fail(error instanceof Error ? error : new Error(String(error)));
-      });
-    });
-  }
-
   async function sendMessage(options?: {
     baseConversation?: ConversationMessage[];
     overrideAttachments?: HydratedAttachmentPart[];
@@ -1082,23 +793,12 @@ export function ChatPage() {
     }
 
     if (!selectedProviderReady) {
-      if (selectedProviderId === OPENCLAW_PROVIDER_ID) {
-        openclaw.setSetupOpen(true);
-      } else {
-        setCredentialDialogOpen(true);
-      }
+      setCredentialDialogOpen(true);
       return;
     }
 
-    const isOpenClawProvider = selectedProviderId === OPENCLAW_PROVIDER_ID;
-
-    if (isOpenClawProvider && hasAttachments) {
-      toast.error("No modo OpenClaw envie apenas texto (anexos ainda não suportados).");
-      return;
-    }
-
-    if (isOpenClawProvider && selectedProvider.hasModels && !selectedModelId) {
-      toast.error("Selecione um modelo do OpenClaw.");
+    if (selectedProvider.hasModels && !selectedModelId) {
+      toast.error("Selecione um modelo.");
       return;
     }
 
@@ -1141,14 +841,12 @@ export function ChatPage() {
       trigger: "submit-message",
     };
 
-    if (!isOpenClawProvider) {
-      const estimatedPayloadBytes = estimateSerializedPayloadBytes(requestPayload);
-      if (estimatedPayloadBytes > MAX_SERIALIZED_CHAT_REQUEST_BYTES) {
-        toast.error(
-          `Mensagem muito grande para o runtime serverless. Reduza texto/anexos para ficar abaixo de ${formatBytes(MAX_SERIALIZED_CHAT_REQUEST_BYTES)} por request.`,
-        );
-        return;
-      }
+    const estimatedPayloadBytes = estimateSerializedPayloadBytes(requestPayload);
+    if (estimatedPayloadBytes > MAX_SERIALIZED_CHAT_REQUEST_BYTES) {
+      toast.error(
+        `Mensagem muito grande para o runtime serverless. Reduza texto/anexos para ficar abaixo de ${formatBytes(MAX_SERIALIZED_CHAT_REQUEST_BYTES)} por request.`,
+      );
+      return;
     }
 
     setConversation(nextConversation);
@@ -1175,209 +873,124 @@ export function ChatPage() {
     abortControllerRef.current = controller;
 
     try {
-      let ensuredConversationId: string | null = null;
-      let parsedStream: BridgeStreamResult | Awaited<ReturnType<typeof parseChatStream>> | null = null;
-      let response: Response | null = null;
-      if (selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "gateway") {
-        response = await apiFetch("/api/openclaw/chat-completions", {
-          body: JSON.stringify({
-            baseUrl: normalizeGatewayBaseUrl(openclaw.gatewaySettings.baseUrl),
-            payload: {
-              messages: conversationToOpenAiMessages(nextConversation),
-              model: selectedModelId,
-              stream: true,
-            },
-            token: openclaw.gatewaySettings.token.trim(),
-          }),
-          headers: {
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          signal: controller.signal,
-        });
-      } else if (selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "bridge") {
+      let parsedStream: Awaited<ReturnType<typeof parseChatStream>> | null = null;
+      const response = await apiFetch(`${selectedProvider.base}/api/chat`, {
+        body: JSON.stringify(requestPayload),
+        headers: {
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        let errorMessage = `HTTP ${response.status}`;
         try {
-          if (!temporaryOpenClawConversationIdRef.current) {
-            temporaryOpenClawConversationIdRef.current = `temp:${crypto.randomUUID()}`;
+          const payload = (await response.json()) as { error?: unknown };
+          if (payload.error) {
+            errorMessage =
+              typeof payload.error === "string"
+                ? payload.error
+                : typeof payload.error === "object" && payload.error !== null && "message" in payload.error
+                  ? String((payload.error as { message: unknown }).message)
+                  : JSON.stringify(payload.error);
           }
-          const bridgeConversationId = temporaryChat
-            ? temporaryOpenClawConversationIdRef.current
-            : await ensureConversationId(text || currentAttachments[0]?.fileName || "Nova conversa");
-          ensuredConversationId = bridgeConversationId;
-          parsedStream = await streamBridgeMessage({
-            assistantMessageId,
-            conversationId: bridgeConversationId,
-            text,
-          });
-          setBridgeFallbackMode(false);
-        } catch (bridgeError) {
-          if (!isBridgeConnectionError(bridgeError)) {
-            throw bridgeError;
-          }
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantMessageId
-                ? { ...message, content: "", toolCalls: [] }
-                : message,
-            ),
-          );
-          const bridgeBase = normalizeGatewayBaseUrl(openclaw.bridgeSettings.baseUrl);
-          const bridgeHeaders: Record<string, string> = { "Content-Type": "application/json" };
-          // Prefere o token recebido via WS hello (gerado pelo CLI). Cai para o
-          // token salvo nas settings se o usuario tiver colado um manualmente.
-          const fallbackToken =
-            bridgeClientRef.current?.bridgeToken?.trim() || openclaw.bridgeSettings.token.trim();
-          if (fallbackToken) {
-            bridgeHeaders.Authorization = `Bearer ${fallbackToken}`;
-          }
-          response = await fetch(`${bridgeBase}/v1/chat/completions`, {
-            body: JSON.stringify({
-              messages: conversationToOpenAiMessages(nextConversation),
-              model: selectedModelId,
-              stream: true,
-            }),
-            headers: bridgeHeaders,
-            method: "POST",
-            signal: controller.signal,
-          });
-          setBridgeFallbackMode(true);
-          console.warn("[openclaw-bridge] WS unavailable, using HTTP fallback:", bridgeError);
+        } catch {
+          // Keep fallback.
         }
-      } else {
-        response = await apiFetch(`${selectedProvider.base}/api/chat`, {
-          body: JSON.stringify(requestPayload),
-          headers: {
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          signal: controller.signal,
-        });
+        const requestError = new Error(errorMessage) as ChatRequestError;
+        requestError.status = response.status;
+        requestError.suppressToast = selectedProviderId === "duckai" && response.status === 503;
+        throw requestError;
       }
 
-      if (response) {
-        if (!response.ok) {
-          let errorMessage = `HTTP ${response.status}`;
-          try {
-            const payload = (await response.json()) as { error?: unknown };
-            if (payload.error) {
-              errorMessage =
-                typeof payload.error === "string"
-                  ? payload.error
-                  : typeof payload.error === "object" && payload.error !== null && "message" in payload.error
-                    ? String((payload.error as { message: unknown }).message)
-                    : JSON.stringify(payload.error);
-            }
-          } catch {
-            // Keep fallback.
-          }
-          const requestError = new Error(errorMessage) as ChatRequestError;
-          requestError.status = response.status;
-          requestError.suppressToast = selectedProviderId === "duckai" && response.status === 503;
-          throw requestError;
-        }
+      const effectiveModelIdFromHeader =
+        response.headers.get(MODELHUB_EFFECTIVE_MODEL_HEADER)?.trim() ?? "";
+      const requestedModelFromHeader =
+        response.headers.get(MODELHUB_REQUESTED_MODEL_HEADER)?.trim() ?? "";
+      const fallbackUsedHeader =
+        response.headers.get(MODELHUB_MODEL_FALLBACK_USED_HEADER) === "true";
+      const attemptedRaw = response.headers.get(MODELHUB_MODELS_ATTEMPTED_HEADER) ?? "";
+      const attemptedIds = attemptedRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
 
-        if (isOpenClawProvider) {
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === assistantMessageId
-                ? { ...message, modelLabel: assistantModelLabel }
-                : message,
-            ),
-          );
-        } else {
-          const effectiveModelIdFromHeader =
-            response.headers.get(MODELHUB_EFFECTIVE_MODEL_HEADER)?.trim() ?? "";
-          const requestedModelFromHeader =
-            response.headers.get(MODELHUB_REQUESTED_MODEL_HEADER)?.trim() ?? "";
-          const fallbackUsedHeader =
-            response.headers.get(MODELHUB_MODEL_FALLBACK_USED_HEADER) === "true";
-          const attemptedRaw = response.headers.get(MODELHUB_MODELS_ATTEMPTED_HEADER) ?? "";
-          const attemptedIds = attemptedRaw
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean);
+      const resolvedAssistantLabel =
+        effectiveModelIdFromHeader.length > 0
+          ? resolveAssistantModelLabel({
+              modelId: effectiveModelIdFromHeader,
+              models,
+              providerLabel: selectedProvider.label,
+            })
+          : assistantModelLabel;
 
-          const resolvedAssistantLabel =
-            effectiveModelIdFromHeader.length > 0
-              ? resolveAssistantModelLabel({
-                  modelId: effectiveModelIdFromHeader,
+      const modelFallbackMeta =
+        fallbackUsedHeader &&
+        requestedModelFromHeader.length > 0 &&
+        effectiveModelIdFromHeader.length > 0 &&
+        attemptedIds.length > 0
+          ? {
+              requestedLabel:
+                resolveAssistantModelLabel({
+                  modelId: requestedModelFromHeader,
                   models,
                   providerLabel: selectedProvider.label,
-                })
-              : assistantModelLabel;
-
-          const modelFallbackMeta =
-            fallbackUsedHeader &&
-            requestedModelFromHeader.length > 0 &&
-            effectiveModelIdFromHeader.length > 0 &&
-            attemptedIds.length > 0
-              ? {
-                  requestedLabel:
-                    resolveAssistantModelLabel({
-                      modelId: requestedModelFromHeader,
-                      models,
-                      providerLabel: selectedProvider.label,
-                    }) ?? requestedModelFromHeader,
-                  effectiveLabel: resolvedAssistantLabel ?? effectiveModelIdFromHeader,
-                  attemptedIds: [...attemptedIds],
-                }
-              : undefined;
-
-          setMessages((current) =>
-            current.map((message) => {
-              if (message.id !== assistantMessageId) {
-                return message;
-              }
-              const next: ChatMessage = {
-                ...message,
-                modelLabel: resolvedAssistantLabel,
-              };
-              if (modelFallbackMeta) {
-                next.modelFallbackMeta = modelFallbackMeta;
-              } else {
-                delete next.modelFallbackMeta;
-              }
-              return next;
-            }),
-          );
-        }
-
-        const toolMap = new Map<string, ParsedToolCall>();
-        parsedStream = await parseChatStream(response, {
-          onTextDelta(delta) {
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantMessageId
-                  ? { ...message, content: `${message.content}${delta}` }
-                  : message,
-              ),
-            );
-          },
-          onToolResult(toolCallId, result) {
-            const existing = toolMap.get(toolCallId);
-            if (!existing) {
-              return;
+                }) ?? requestedModelFromHeader,
+              effectiveLabel: resolvedAssistantLabel ?? effectiveModelIdFromHeader,
+              attemptedIds: [...attemptedIds],
             }
+          : undefined;
 
-            const updated: ParsedToolCall = { ...existing, result, status: "completed" };
-            toolMap.set(toolCallId, updated);
-            updateAssistantToolCall(assistantMessageId, updated);
-          },
-          onToolStart(toolCall) {
-            toolMap.set(toolCall.toolCallId, toolCall);
-            updateAssistantToolCall(assistantMessageId, toolCall);
-          },
-        });
-      }
+      setMessages((current) =>
+        current.map((message) => {
+          if (message.id !== assistantMessageId) {
+            return message;
+          }
+          const next: ChatMessage = {
+            ...message,
+            modelLabel: resolvedAssistantLabel,
+          };
+          if (modelFallbackMeta) {
+            next.modelFallbackMeta = modelFallbackMeta;
+          } else {
+            delete next.modelFallbackMeta;
+          }
+          return next;
+        }),
+      );
+
+      const toolMap = new Map<string, ParsedToolCall>();
+      parsedStream = await parseChatStream(response, {
+        onTextDelta(delta) {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantMessageId
+                ? { ...message, content: `${message.content}${delta}` }
+                : message,
+            ),
+          );
+        },
+        onToolResult(toolCallId, result) {
+          const existing = toolMap.get(toolCallId);
+          if (!existing) {
+            return;
+          }
+
+          const updated: ParsedToolCall = { ...existing, result, status: "completed" };
+          toolMap.set(toolCallId, updated);
+          updateAssistantToolCall(assistantMessageId, updated);
+        },
+        onToolStart(toolCall) {
+          toolMap.set(toolCall.toolCallId, toolCall);
+          updateAssistantToolCall(assistantMessageId, toolCall);
+        },
+      });
 
       if (!parsedStream) {
         throw new Error("Nenhum stream recebido.");
       }
       const fullText = parsedStream.text;
-
-      if ("aborted" in parsedStream && parsedStream.aborted) {
-        return;
-      }
 
       if (parsedStream.errorMessage) {
         let nextContent: string;
@@ -1412,8 +1025,8 @@ export function ChatPage() {
 
         // Persist conversation (skip in temporary chat mode)
         if (!temporaryChat) try {
-          let convId = activeConversationId ?? ensuredConversationId;
-          let isNewConversation = !activeConversationId && Boolean(ensuredConversationId);
+          let convId = activeConversationId;
+          let isNewConversation = false;
           if (!convId) {
             convId = await ensureConversationId(text || currentAttachments[0]?.fileName || "Nova conversa");
             isNewConversation = true;
@@ -1466,7 +1079,7 @@ export function ChatPage() {
           setSidebarRefreshKey((k) => k + 1);
 
           // Generate AI title for new conversations (fire-and-forget)
-          if (isNewConversation && selectedProvider && !isOpenClawProvider) {
+          if (isNewConversation && selectedProvider) {
             const titleConvId = convId;
             void (async () => {
               try {
@@ -1695,30 +1308,6 @@ export function ChatPage() {
                 </SelectGroup>
               )}
               {providersWithoutApiKey.length > 0 ? <SelectSeparator /> : null}
-              <SelectGroup>
-                <SelectLabel>Este computador</SelectLabel>
-                {(() => {
-                  const openClawProvider = providers.find((p) => p.id === OPENCLAW_PROVIDER_ID);
-                  const check =
-                    openClawProvider !== undefined
-                      ? showConfiguredCheck(openClawProvider)
-                      : openclaw.isOpenClawConfigured;
-                  return (
-                    <SelectItem value={OPENCLAW_PROVIDER_ID}>
-                      <span className="flex min-w-0 items-center gap-1.5">
-                        <span className="truncate">OpenClaw</span>
-                        <span className="rounded bg-muted px-1 py-0.5 text-[9px] font-medium text-muted-foreground">{openclaw.mode === "bridge" ? "local" : "gateway"}</span>
-                        {check ? (
-                          <CheckIcon
-                            className="size-3 shrink-0 text-emerald-600/65 dark:text-emerald-500/70"
-                            aria-label="Configurado"
-                          />
-                        ) : null}
-                      </span>
-                    </SelectItem>
-                  );
-                })()}
-              </SelectGroup>
               {unconfiguredProvidersWithApiKey.length > 0 ? <SelectSeparator /> : null}
               {unconfiguredProvidersWithApiKey.length > 0 && (
                 <SelectGroup>
@@ -1749,24 +1338,13 @@ export function ChatPage() {
           ) : (
             <Select
               value={selectedModelId}
-              onValueChange={(modelId: string) => {
-                setSelectedModelId(modelId);
-                if (selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "bridge" && openclaw.bridgeProbe.status === "ok") {
-                  const token =
-                    bridgeClientRef.current?.bridgeToken?.trim() || openclaw.bridgeSettings.token.trim();
-                  void setBridgeModel(openclaw.bridgeSettings.baseUrl, modelId, token);
-                }
-              }}
+              onValueChange={setSelectedModelId}
               disabled={!selectedProvider?.hasModels || !selectedProviderReady || models.length === 0}
             >
               <SelectTrigger className="h-8 w-auto max-w-[min(240px,60vw)] shrink-0 text-xs sm:min-w-[140px] sm:max-w-[240px]">
                 <SelectValue
                   placeholder={resolveModelSelectPlaceholder({
                     hasModels: !!selectedProvider?.hasModels,
-                    isBridgeLoading: selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "bridge" && openclaw.bridgeProbe.status === "loading",
-                    isGatewayLoading: selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "gateway" && openclaw.gatewayProbe.status === "loading",
-                    isOpenClaw: selectedProviderId === OPENCLAW_PROVIDER_ID,
-                    isOpenClawNotReady: !selectedProviderReady,
                     providerReady: !!selectedProviderReady,
                   })}
                 />
@@ -1783,42 +1361,12 @@ export function ChatPage() {
             </Select>
           )}
 
-          {openClawDashboardUrl ? (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 shrink-0 text-xs"
-              onClick={() => globalThis.open(openClawDashboardUrl, "_blank", "noopener,noreferrer")}
-              title="Abre o painel oficial do OpenClaw (WebSocket / chat nativo) com o mesmo token — numa nova aba"
-            >
-              <ExternalLinkIcon className="size-3.5" />
-              <span className="hidden sm:inline">Painel OpenClaw</span>
-            </Button>
-          ) : null}
-
           <Badge
             variant={selectedProviderReady ? "outline" : "destructive"}
             className="shrink-0 whitespace-nowrap text-xs"
           >
             {selectedProviderReady ? (
               "Pronto"
-            ) : selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "gateway" && openclaw.gatewayProbe.status === "loading" ? (
-              <>
-                <Loader2Icon className="mr-1 inline size-3 animate-spin" />
-                <span className="hidden sm:inline">A verificar gateway</span>
-                <span className="sm:hidden">…</span>
-              </>
-            ) : selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "bridge" && openclaw.bridgeProbe.status === "loading" ? (
-              <>
-                <Loader2Icon className="mr-1 inline size-3 animate-spin" />
-                <span className="hidden sm:inline">A verificar integração local</span>
-                <span className="sm:hidden">…</span>
-              </>
-            ) : selectedProviderId === OPENCLAW_PROVIDER_ID ? (
-              <>
-                <span className="sm:hidden">Pendente</span>
-                <span className="hidden sm:inline">{openclaw.mode === "bridge" ? "Integração local pendente" : "Gateway pendente"}</span>
-              </>
             ) : (
               <>
                 <span className="sm:hidden">Pendente</span>
@@ -1849,17 +1397,6 @@ export function ChatPage() {
             <span className="hidden sm:inline">Personalizar</span>
           </Button>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 text-xs"
-            onClick={() => setOpenClawGuideOpen(true)}
-            title="Usar o ModelHub como gateway no OpenClaw"
-          >
-            <TerminalSquareIcon className="size-3.5" />
-            <span>Usar no OpenClaw</span>
-          </Button>
-
           {activeConversationId && (
             <Button
               variant="ghost"
@@ -1872,17 +1409,12 @@ export function ChatPage() {
             </Button>
           )}
 
-          {((selectedProvider?.requiredKeys?.length ?? 0) > 0 || selectedProviderId === OPENCLAW_PROVIDER_ID) &&
-          !selectedProviderReady ? (
+          {(selectedProvider?.requiredKeys?.length ?? 0) > 0 && !selectedProviderReady ? (
             <Button
               variant="outline"
               size="sm"
               className="h-8 shrink-0 text-xs"
-              onClick={() =>
-                selectedProviderId === OPENCLAW_PROVIDER_ID
-                  ? openclaw.setSetupOpen(true)
-                  : setCredentialDialogOpen(true)
-              }
+              onClick={() => setCredentialDialogOpen(true)}
             >
               <Settings2Icon className="size-3.5" />
               <span className="hidden sm:inline">Configurar</span>
@@ -1909,98 +1441,6 @@ export function ChatPage() {
           Chat temporário — as mensagens não serão salvas no histórico
         </div>
       )}
-
-      {selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.degradedProviders.length > 0 ? (
-        <div className="shrink-0 px-3 pt-3 md:px-4">
-          <Alert variant="destructive">
-            <KeyRoundIcon data-icon="inline-start" />
-            <AlertTitle>Credencial do OpenClaw precisa ser recadastrada</AlertTitle>
-            <AlertDescription>
-              {openclaw.degradedProviders.map((provider) => provider.providerId).join(", ")} não pôde ser decriptada.
-              Recadastre a credencial antes de usar esses modelos.
-            </AlertDescription>
-          </Alert>
-        </div>
-      ) : null}
-
-      {/* OpenClaw: verificação reativa */}
-      {selectedProviderId === OPENCLAW_PROVIDER_ID && !openclaw.isOpenClawReady ? (
-        <div className="shrink-0 space-y-3 px-3 pt-3 md:px-4">
-          {openclaw.mode === "gateway" && !hasOpenClawGatewayToken(openclaw.gatewaySettings) ? (
-            <Alert>
-              <KeyRoundIcon data-icon="inline-start" />
-              <AlertTitle>Configure o gateway OpenClaw local</AlertTitle>
-              <AlertDescription>
-                É necessário um token e um gateway a responder. Use <strong>Configurar</strong> para copiar comandos
-                ao terminal, inicie o processo OpenClaw e depois <strong>Verificar e guardar</strong> no diálogo — o
-                ModelHub só confia após testar a ligação (GET /v1/models). Nada é enviado aos nossos servidores.
-              </AlertDescription>
-            </Alert>
-          ) : openclaw.mode === "gateway" && openclaw.gatewayProbe.status === "error" ? (
-            <Alert variant="destructive">
-              <AlertTitle>Gateway OpenClaw não confirmado</AlertTitle>
-              <AlertDescription className="space-y-3">
-                <OpenClawDiagnosticDetails diagnostic={openclaw.gatewayProbe.diagnostic} />
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Button type="button" size="sm" variant="secondary" onClick={() => openclaw.setSetupOpen(true)}>
-                    Abrir configuração
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={openclaw.retryProbe}>
-                    <RefreshCwIcon className="mr-1 size-3.5" />
-                    Tentar novamente
-                  </Button>
-                </div>
-              </AlertDescription>
-            </Alert>
-          ) : openclaw.mode === "gateway" ? (
-            <Alert>
-              <Loader2Icon className="size-4 animate-spin" data-icon="inline-start" />
-              <AlertTitle>A verificar o gateway</AlertTitle>
-              <AlertDescription>
-                A contactar{" "}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                  {normalizeGatewayBaseUrl(openclaw.gatewaySettings.baseUrl)}
-                </code>{" "}
-                (GET /v1/models). Aguarde ou confirme que o processo está em execução no seu PC.
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <Alert>
-              <KeyRoundIcon data-icon="inline-start" />
-              <AlertTitle>Configure o OpenClaw</AlertTitle>
-              <AlertDescription className="space-y-3">
-                <p>
-                  A integração local liga a interface web ao OpenClaw local. No terminal, execute{" "}
-                  <code className="rounded bg-muted px-1 py-0.5 text-xs">npx @model-hub/openclaw-cli run</code> e
-                  depois clique <strong>Configurar</strong>.
-                </p>
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Button type="button" size="sm" variant="secondary" onClick={() => openclaw.setSetupOpen(true)}>
-                    Configurar
-                  </Button>
-                  <Button type="button" size="sm" variant="outline" onClick={openclaw.retryProbe}>
-                    <RefreshCwIcon className="mr-1 size-3.5" />
-                    Tentar novamente
-                  </Button>
-                </div>
-              </AlertDescription>
-            </Alert>
-          )}
-        </div>
-      ) : null}
-
-      {selectedProviderId === OPENCLAW_PROVIDER_ID && openclaw.mode === "bridge" && bridgeFallbackMode ? (
-        <div className="shrink-0 px-3 pt-3 md:px-4">
-          <Alert>
-            <ShieldOffIcon data-icon="inline-start" />
-            <AlertTitle>Integração local em modo limitado</AlertTitle>
-            <AlertDescription>
-              O WebSocket da integração local não respondeu e o chat caiu para o fallback HTTP. As mensagens continuam a funcionar,
-              mas approvals e isolamento completo de sessao ficam indisponiveis ate o WS voltar.
-            </AlertDescription>
-          </Alert>
-        </div>
-      ) : null}
 
       {/* Alerta de credenciais pendentes */}
       {!selectedProviderReady && selectedProvider && (selectedProvider.requiredKeys?.length ?? 0) > 0 ? (
@@ -2208,27 +1648,6 @@ export function ChatPage() {
                                 2,
                               )}
                             </pre>
-                            {toolCall.status === "pending-approval" && toolCall.approvalId ? (
-                              <div className="mt-2 flex flex-wrap gap-2">
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  className="h-7 text-xs"
-                                  onClick={() => void handleOpenClawToolApproval(toolCall, true)}
-                                >
-                                  Aprovar
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => void handleOpenClawToolApproval(toolCall, false)}
-                                >
-                                  Negar
-                                </Button>
-                              </div>
-                            ) : null}
                           </div>
                         ))}
                       </div>
@@ -2418,7 +1837,6 @@ export function ChatPage() {
                   title="Anexar arquivo"
                   disabled={
                     pending ||
-                    selectedProviderId === OPENCLAW_PROVIDER_ID ||
                     (!allowImageAttachments && !allowDocumentAttachments)
                   }
                 >
@@ -2519,21 +1937,6 @@ export function ChatPage() {
         </DialogContent>
       </Dialog>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <OpenClawGatewayGuideDialog
-        currentModelId={openClawGuideModelId}
-        currentModelLabel={selectedModel?.name ?? null}
-        currentProviderLabel={selectedProvider?.label ?? null}
-        open={openClawGuideOpen}
-        onOpenChange={setOpenClawGuideOpen}
-      />
-      <OpenClawSetupDialog
-        mode={openclaw.mode}
-        onModeChange={openclaw.setMode}
-        onGatewaySaved={openclaw.onGatewaySaved}
-        onBridgeSaved={openclaw.onBridgeSaved}
-        open={openclaw.setupOpen}
-        onOpenChange={openclaw.setSetupOpen}
-      />
       </div>
       <ChatHistorySidebar
         activeConversationId={activeConversationId}

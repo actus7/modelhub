@@ -34,9 +34,6 @@
     "pnpm": ">=10.0.0"
   },
   "packageManager": "pnpm@10.33.0",
-  "bin": {
-    "modelhub": "./scripts/modelhub-cli.mjs"
-  },
   "scripts": {
     "build": "next build",
     "build:vercel": "node scripts/vercel-build.mjs",
@@ -52,8 +49,6 @@
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage",
     "test:duckai-live": "node scripts/run-duckai-live-test.mjs",
-    "openclaw:setup": "node ./scripts/modelhub-cli.mjs openclaw setup",
-    "openclaw:doctor": "node ./scripts/modelhub-cli.mjs doctor",
     "typecheck": "tsc --noEmit",
     "vercel:env:pull": "vercel env pull .env.local -y --environment development",
     "vercel:env:pull:preview": "vercel env pull .env.vercel.preview.local -y --environment preview",
@@ -74,7 +69,7 @@
     "jszip": "^3.10.1",
     "katex": "^0.16.45",
     "lucide-react": "^1.14.0",
-    "next": "16.2.4",
+    "next": "16.2.6",
     "next-themes": "^0.4.6",
     "pdfjs-dist": "^5.7.284",
     "pg": "^8.20.0",
@@ -114,7 +109,12 @@
   },
   "pnpm": {
     "overrides": {
-      "better-auth": "1.4.9",
+      "better-auth": "1.4.17",
+      "@better-auth/core": "1.4.17",
+      "@better-auth/telemetry": "1.4.17",
+      "kysely": "0.28.17",
+      "fast-uri": "3.1.2",
+      "basic-ftp": "5.3.1",
       "vite": "7.3.2",
       "@hono/node-server": "1.19.13"
     }

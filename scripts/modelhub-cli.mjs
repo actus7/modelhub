@@ -1,8 +1,0 @@
-#!/usr/bin/env node
-
-import { runLegacyModelHubCli } from '../packages/openclaw-cli/src/index.mjs';
-
-runLegacyModelHubCli().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});

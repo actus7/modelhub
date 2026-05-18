@@ -120,37 +120,6 @@ curl -X POST http://localhost:3000/v1/chat/completions \
   }'
 ```
 
-### OpenClaw (OpenAI-compatible mode)
-
-Minimal OpenClaw configuration:
-
-- **Base URL:** `https://YOUR_MODELHUB/v1`
-- **API:** OpenAI-compatible chat completions
-- **Auth:** `Authorization: Bearer <MODELHUB_API_KEY>`
-- **Model:** use `provider/model-id` (example: `openrouter/openai/gpt-oss-20b:free`)
-
-Recommended presets:
-
-- **Coding:** reasoning + tool-use models
-- **Low cost:** `:free`, `mini`, `flash`
-- **Long context:** `128k+` / long-context models
-
-Quick troubleshooting:
-
-- **401/403 auth:** validate API key and Bearer header
-- **invalid model:** run `GET /v1/models` and use the returned `id` exactly
-- **timeouts:** switch to a low-cost/flash model and reduce `max_tokens`
-
-### OpenClaw (ModelHub CLI bootstrap)
-
-```bash
-modelhub openclaw setup --base-url http://localhost:3000 --api-key YOUR_API_KEY
-modelhub openclaw login --api-key YOUR_API_KEY
-modelhub openclaw models
-modelhub openclaw use openrouter/openai/gpt-oss-20b:free
-modelhub doctor
-```
-
 ## Contributing
 
 Contributions are very welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.

@@ -12,7 +12,7 @@ export type ProviderModelCapabilities = {
   tools?: boolean;
 };
 
-export type AttachmentReferencePart = {
+type AttachmentReferencePart = {
   attachmentId: string;
   kind: AttachmentKind;
   mimeType: string;
@@ -20,7 +20,7 @@ export type AttachmentReferencePart = {
   type: "attachment";
 };
 
-export type TextPart = {
+type TextPart = {
   text: string;
   type: "text";
 };

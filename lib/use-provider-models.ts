@@ -3,17 +3,8 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import type { ProviderModel, ProviderCredentialSummary, UiProvider } from "@/lib/contracts";
+import type { ProviderModel, UiProvider } from "@/lib/contracts";
 import { apiJson } from "@/lib/api";
-import {
-  OPENCLAW_PROVIDER_ID,
-  type OpenClawMode,
-  fetchModelhubCatalogModelsForOpenClaw,
-  fetchOpenClawGatewayModelsOrEmpty,
-  fetchOpenClawBridgeModels,
-  mergeOpenClawModelLists,
-  type OpenClawGatewaySettings,
-} from "@/lib/openclaw-gateway";
 
 function resolveSelectedModel(
   current: string,
@@ -50,11 +41,6 @@ function dedupeModels(models: ProviderModel[]): ProviderModel[] {
 }
 
 type UseProviderModelsInput = {
-  credentials: ProviderCredentialSummary[];
-  gatewaySettings: OpenClawGatewaySettings;
-  bridgeSettings: OpenClawGatewaySettings;
-  mode: OpenClawMode;
-  providers: UiProvider[];
   selectedProvider: UiProvider | null;
   selectedProviderId: string;
   selectedProviderReady: boolean;
@@ -68,17 +54,8 @@ type UseProviderModelsReturn = {
   setSelectedModelId: (id: string) => void;
 };
 
-/**
- * Fetches models for the selected provider (OpenClaw or regular).
- * For OpenClaw, routes to gateway or bridge based on the active mode.
- */
 export function useProviderModels(input: UseProviderModelsInput): UseProviderModelsReturn {
   const {
-    credentials,
-    gatewaySettings,
-    bridgeSettings,
-    mode,
-    providers,
     selectedProvider,
     selectedProviderId,
     selectedProviderReady,
@@ -131,47 +108,15 @@ export function useProviderModels(input: UseProviderModelsInput): UseProviderMod
       if (!cancelled) setLoading(false);
     };
 
-    if (selectedProviderId === OPENCLAW_PROVIDER_ID) {
-      if (mode === "bridge") {
-        fetchOpenClawBridgeModels(bridgeSettings.baseUrl, bridgeSettings.token || undefined)
-          .then((m) =>
-            handleModels(
-              m,
-              "Nenhum modelo listado. Inicie a integração local com `npx @model-hub/openclaw-cli run`.",
-            ),
-          )
-          .catch((e) => handleError(e, "Falha ao carregar modelos da integração local."))
-          .finally(handleFinally);
-      } else {
-        Promise.all([
-          fetchOpenClawGatewayModelsOrEmpty(gatewaySettings),
-          fetchModelhubCatalogModelsForOpenClaw({ credentials, providers }),
-        ])
-          .then(([gw, catalog]) =>
-            handleModels(
-              mergeOpenClawModelLists(gw, catalog),
-              "Nenhum modelo listado. Inicie o gateway OpenClaw e/ou use o CLI do ModelHub no terminal: npx @model-hub/openclaw-cli setup …",
-            ),
-          )
-          .catch((e) => handleError(e, "Falha ao carregar modelos para OpenClaw."))
-          .finally(handleFinally);
-      }
-    } else {
-      apiJson<{ models: ProviderModel[] }>(`${selectedProvider.base}/api/models`)
-        .then((payload) => handleModels(payload.models ?? [], "Nenhum modelo disponível."))
-        .catch((e) => handleError(e, "Falha ao carregar modelos."))
-        .finally(handleFinally);
-    }
+    apiJson<{ models: ProviderModel[] }>(`${selectedProvider.base}/api/models`)
+      .then((payload) => handleModels(payload.models ?? [], "Nenhum modelo disponível."))
+      .catch((e) => handleError(e, "Falha ao carregar modelos."))
+      .finally(handleFinally);
 
     return () => {
       cancelled = true;
     };
   }, [
-    credentials,
-    gatewaySettings,
-    bridgeSettings,
-    mode,
-    providers,
     selectedProvider,
     selectedProviderId,
     selectedProviderReady,

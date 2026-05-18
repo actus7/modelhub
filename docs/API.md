@@ -23,8 +23,6 @@ Authorization: Bearer YOUR_API_KEY
 https://www.modelhub.com.br/v1
 ```
 
-> Para endpoints de discovery/onboarding OpenClaw, use `https://www.modelhub.com.br/openclaw/*`.
-
 ## 🚀 Endpoints
 
 ### Chat Completions
@@ -169,77 +167,6 @@ Authorization: Bearer YOUR_API_KEY
 }
 ```
 
-### OpenClaw Manifest
-
-Resposta autocontida para onboarding e sincronizacao do OpenClaw.
-
-**Endpoint:** `GET /openclaw/manifest`
-
-**Headers:**
-```
-Authorization: Bearer YOUR_API_KEY
-```
-
-Inclui `api`, `auth`, `provider`, `catalog.models`, `catalog.presets`, `catalog.summary`, `coverage`, `config`, `generatedAt` e `degradedProviders`.
-
-### OpenClaw Discovery
-
-Metadados para onboarding de provider de primeira classe.
-
-**Endpoint:** `GET /openclaw/discovery`
-
-> Deprecated: use `GET /openclaw/manifest`.
-
-**Headers:**
-```
-Authorization: Bearer YOUR_API_KEY
-```
-
-**Resposta (resumo):**
-```json
-{
-  "provider": { "id": "modelhub", "name": "ModelHub" },
-  "api": {
-    "chatCompletions": "https://www.modelhub.com.br/v1/chat/completions",
-    "models": "https://www.modelhub.com.br/v1/models",
-    "catalog": "https://www.modelhub.com.br/openclaw/catalog",
-    "health": "https://www.modelhub.com.br/openclaw/health",
-    "status": "https://www.modelhub.com.br/openclaw/status"
-  },
-  "auth": {
-    "methods": ["api_key", "session_cookie"]
-  },
-  "onboarding": {
-    "headless": true,
-    "presets": [
-      { "preset": "coding", "model": "quillbot/quillbot-ai" }
-    ]
-  }
-}
-```
-
-### OpenClaw Catalog
-
-Catálogo dinâmico de modelos por tenant/workspace com metadados operacionais.
-
-**Endpoint:** `GET /openclaw/catalog`
-
-> Deprecated: use `GET /openclaw/manifest`.
-
-### OpenClaw Status
-
-Status de autenticação e permissões de uso.
-
-**Endpoint:** `GET /openclaw/status`
-
-> Deprecated para clientes novos: `GET /openclaw/manifest` tambem expoe `degradedProviders`.
-
-### OpenClaw Health
-
-Health probe para diagnóstico de integração OpenClaw.
-
-**Endpoint:** `GET /openclaw/health`
-
 ## 🔌 Provedores Suportados
 
 ### OpenAI
@@ -342,32 +269,6 @@ const stream = await client.chat.completions.create({
   messages: [{ role: 'user', content: 'Hello!' }],
   stream: true
 });
-
-### Bootstrap OpenClaw com CLI
-
-```bash
-npx @model-hub/openclaw-cli setup \
-  --base-url https://www.modelhub.com.br \
-  --api-key YOUR_API_KEY
-
-npx @model-hub/openclaw-cli models
-npx @model-hub/openclaw-cli doctor
-```
-
-Esse CLI escreve a configuracao real do OpenClaw em `~/.openclaw/openclaw.json`, criando:
-
-- provider customizado `modelhub`
-- `baseUrl` apontando para `https://www.modelhub.com.br/v1`
-- `api: openai-completions`
-- modelo primario em `agents.defaults.model.primary` no formato `modelhub/<provider/model-id>`
-
-Wrapper legado local:
-
-```bash
-modelhub openclaw setup --base-url https://www.modelhub.com.br --api-key YOUR_API_KEY
-modelhub openclaw models
-modelhub doctor
-```
 
 for await (const chunk of stream) {
   const content = chunk.choices[0]?.delta?.content || '';
