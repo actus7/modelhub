@@ -62,7 +62,7 @@
     "vercel:env:sync": "node scripts/vercel-env-sync.mjs --pull"
   },
   "dependencies": {
-    "@hono/zod-validator": "^0.7.6",
+    "@hono/zod-validator": "^0.8.0",
     "@neondatabase/auth": "0.2.0-beta.1",
     "@prisma/adapter-pg": "^7.8.0",
     "@prisma/client": "^7.8.0",
