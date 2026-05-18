@@ -15,7 +15,7 @@ export type AuthUser = {
   };
 };
 
-export type ProviderKeyField = {
+type ProviderKeyField = {
   envName: string;
   label: string;
   placeholder: string;
@@ -32,22 +32,22 @@ export type UiProvider = {
   signupLabel?: string;
 };
 
-export type UsageProviderStat = {
+type UsageProviderStat = {
   provider: string;
   count: number;
 };
 
-export type UsageModelStat = {
+type UsageModelStat = {
   model: string | null;
   count: number;
 };
 
-export type UsageStatusStat = {
+type UsageStatusStat = {
   status: number;
   count: number;
 };
 
-export type UsageDailyStat = {
+type UsageDailyStat = {
   date: string;
   count: number;
 };
@@ -107,20 +107,20 @@ export type ProviderCredentialSummary = {
   updatedAt: string;
 };
 
-export type ToolStartEvent = {
+type ToolStartEvent = {
   type: "tool-start";
   toolCallId: string;
   toolName: string;
   args: unknown;
 };
 
-export type ToolResultEvent = {
+type ToolResultEvent = {
   type: "tool-result";
   toolCallId: string;
   result: unknown;
 };
 
-export type TextDeltaEvent = {
+type TextDeltaEvent = {
   type: "text-delta";
   delta: string;
 };

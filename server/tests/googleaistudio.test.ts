@@ -37,11 +37,11 @@ describe("Google AI Studio provider", () => {
     vi.restoreAllMocks();
   });
 
-  it("exposes static Gemini models as tool-capable for OpenClaw", () => {
+  it("exposes static Gemini models as tool-capable", () => {
     expect(models.every((model) => model.capabilities.tools === true)).toBe(true);
   });
 
-  it("maps fetched Gemini models as tool-capable for OpenClaw", async () => {
+  it("maps fetched Gemini models as tool-capable", async () => {
     const fetched = await fetchGoogleAiStudioModels({
       GOOGLE_AI_STUDIO_API_KEY: "AIza-test",
     });

@@ -14,7 +14,7 @@ import {
 } from './conversation-attachments'
 import { ensureProtectedAccess, isProductionEnv, protectedCors, securityHeaders } from './security'
 
-export type ChatMessageToolCall = {
+type ChatMessageToolCall = {
   id: string
   type: 'function'
   function: { name: string; arguments: string }
@@ -28,7 +28,7 @@ export type ChatMessage = {
   name?: string
 }
 
-export type ChatMessageContentPart =
+type ChatMessageContentPart =
   | { type: 'text'; text: string }
   | { type: 'image_url'; image_url: { url: string; detail?: string } }
 
@@ -66,7 +66,7 @@ type RawMessagePart = {
   image_url?: { url?: string; detail?: string }
 }
 
-/** Entrada bruta (OpenAI/OpenClaw): tool_calls podem vir sem id ou com arguments como objeto. */
+/** Entrada bruta OpenAI-compatible: tool_calls podem vir sem id ou com arguments como objeto. */
 type RawIncomingToolCall = {
   id?: string
   type?: 'function'
@@ -74,7 +74,7 @@ type RawIncomingToolCall = {
 }
 
 type RawChatMessage = {
-  /** Qualquer string compatível com OpenAI/Claude/OpenClaw; normalizamos em normalizeMessages. */
+  /** Qualquer string compatível com OpenAI/Claude; normalizamos em normalizeMessages. */
   role?: string
   content?: string | RawMessagePart[] | null
   parts?: RawMessagePart[]
@@ -119,13 +119,13 @@ type UserMemoryRecord = {
   content: string
 }
 
-/** Agentes (OpenClaw, etc.) podem enviar histórico longo com várias tool rounds — 50 era pouco. */
+/** Agentes podem enviar histórico longo com várias tool rounds — 50 era pouco. */
 const MAX_MESSAGES = 256
 const MAX_PARTS_PER_MESSAGE = 64
 /**
- * OpenClaw can prepend a very large system prompt containing the active tool
- * inventory and safety/runtime instructions. Keep this comfortably above that
- * prompt size while still bounded below the total request-body cap.
+ * Agent runtimes can prepend a very large system prompt containing the active
+ * tool inventory and safety/runtime instructions. Keep this comfortably above
+ * that prompt size while still bounded below the total request-body cap.
  */
 const MAX_MESSAGE_TEXT_LENGTH = 256_000
 export const MAX_PROVIDER_REQUEST_BODY_BYTES = 4 * 1024 * 1024
@@ -158,7 +158,7 @@ const rawMessagePartSchema = z
   })
   .passthrough()
 
-/** OpenAI e clientes (ex.: OpenClaw) podem enviar arguments como string JSON ou objeto. */
+/** Clientes OpenAI-compatible podem enviar arguments como string JSON ou objeto. */
 const toolCallFunctionSchema = z.object({
   name: z.string().max(256),
   arguments: z
@@ -1228,7 +1228,7 @@ export function createProviderApp(config: ProviderConfig) {
       const parsedBody = providerChatBodySchema.safeParse(rawJson)
       if (!parsedBody.success) {
         const zodIssues = parsedBody.error.issues
-        // Clientes (ex.: OpenClaw) muitas vezes só mostram error.message; o Zod guarda a causa em issues.
+        // Alguns clientes só mostram error.message; o Zod guarda a causa em issues.
         console.error('[modelhub] providerChatBodySchema failed', {
           providerId: config.providerId,
           issueCount: zodIssues.length,

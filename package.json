@@ -34,9 +34,6 @@
     "pnpm": ">=10.0.0"
   },
   "packageManager": "pnpm@10.33.0",
-  "bin": {
-    "modelhub": "./scripts/modelhub-cli.mjs"
-  },
   "scripts": {
     "build": "next build",
     "build:vercel": "node scripts/vercel-build.mjs",
@@ -52,8 +49,6 @@
     "test": "vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage",
     "test:duckai-live": "node scripts/run-duckai-live-test.mjs",
-    "openclaw:setup": "node ./scripts/modelhub-cli.mjs openclaw setup",
-    "openclaw:doctor": "node ./scripts/modelhub-cli.mjs doctor",
     "typecheck": "tsc --noEmit",
     "vercel:env:pull": "vercel env pull .env.local -y --environment development",
     "vercel:env:pull:preview": "vercel env pull .env.vercel.preview.local -y --environment preview",

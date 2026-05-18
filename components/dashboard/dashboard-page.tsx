@@ -10,7 +10,6 @@ import type {
 import {
   ActivityIcon,
   AlertTriangleIcon,
-  BotIcon,
   BarChart3Icon,
   CheckCircle2Icon,
   CheckIcon,
@@ -28,7 +27,6 @@ import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from "recharts";
 import { toast } from "sonner";
 
 import { ApiQuickStartCard } from "@/components/dashboard/api-quick-start-card";
-import { OpenClawWizard } from "@/components/dashboard/openclaw-wizard";
 import { useAppState } from "@/components/app-state-provider";
 import { Badge } from "@/components/ui/badge";
 import { DEFAULT_MODEL_ID } from "@/lib/defaults";
@@ -308,42 +306,6 @@ export function DashboardPage() {
                   Copiar cURL
                 </Button>
               </div>
-
-              <div className="min-w-0 space-y-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10">
-                    <BotIcon className="size-4 text-primary" />
-                  </div>
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-sm font-medium">Integrar com OpenClaw (opcional)</p>
-                    <p className="text-xs leading-relaxed text-muted-foreground">
-                      Se quiser usar o ModelHub no terminal com o OpenClaw, copie os comandos abaixo.
-                    </p>
-                  </div>
-                </div>
-                <div className="flex min-w-0 flex-wrap gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      handleCopyCommand("dialog-setup", `npx @model-hub/openclaw-cli setup --base-url https://www.modelhub.com.br --api-key ${newApiKey ?? "SUA_API_KEY"} --model ${DEFAULT_MODEL_ID}`, "Comando de setup copiado!")
-                    }
-                  >
-                    {copiedCommandId === "dialog-setup" ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-                    Copiar setup
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      handleCopyCommand("dialog-doctor", `npx @model-hub/openclaw-cli doctor --base-url https://www.modelhub.com.br --api-key ${newApiKey ?? "SUA_API_KEY"} --model ${DEFAULT_MODEL_ID}`, "Comando de validação copiado!")
-                    }
-                  >
-                    {copiedCommandId === "dialog-doctor" ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
-                    Copiar doctor
-                  </Button>
-                </div>
-              </div>
             </div>
           ) : null}
         </DialogContent>
@@ -458,8 +420,7 @@ export function DashboardPage() {
                 <CardTitle>Quick Start</CardTitle>
               </div>
               <CardDescription className="max-w-2xl leading-relaxed">
-                Gere uma API key e use o ModelHub de imediato — pelo browser ou pela API. Se quiser
-                usar no terminal, integre com o OpenClaw com um comando.
+                Gere uma API key e use o ModelHub de imediato pelo browser ou pela API.
               </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -467,45 +428,23 @@ export function DashboardPage() {
                 <CheckCircle2Icon className="size-3" />
                 API OpenAI-compatible
               </Badge>
-              <Badge variant="secondary" className="gap-1.5 px-3 py-1.5">
-                <BotIcon className="size-3" />
-                Integração com OpenClaw
-              </Badge>
             </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
           <ApiQuickStartCard apiKey={newApiKey} hasApiKey={hasAnyApiKey} />
 
-          <div className="border-t border-border/40 pt-5">
-            <OpenClawWizard
-              apiKey={newApiKey}
-              hasApiKey={hasAnyApiKey}
-              onCreateKey={() => setNewKeyDialogOpen(true)}
-            />
-          </div>
-
           <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/70 p-4 md:flex-row md:items-center md:justify-between">
             <div className="space-y-1">
               <p className="text-sm font-medium">Precisa de uma API key?</p>
               <p className="text-xs leading-relaxed text-muted-foreground">
-                Gere uma chave para acessar a API ou configurar o OpenClaw.
+                Gere uma chave para acessar a API.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <Button onClick={() => setNewKeyDialogOpen(true)}>
                 <KeyRoundIcon data-icon="inline-start" />
                 Nova key
-              </Button>
-              <Button asChild variant="outline">
-                <a
-                  href="https://www.npmjs.com/package/openclaw"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <ExternalLinkIcon data-icon="inline-start" />
-                  Instalar OpenClaw
-                </a>
               </Button>
             </div>
           </div>

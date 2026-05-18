@@ -1,11 +1,9 @@
 import "./env";
 
-import { createHash } from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
 import { zValidator } from "@hono/zod-validator";
-import type { Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { Hono } from "hono";
 import { z } from "zod";
@@ -20,14 +18,6 @@ import {
   protectedCors,
   securityHeaders,
 } from "./lib/security";
-import { prisma } from "./lib/db";
-import { decryptCredential } from "./lib/crypto";
-import {
-  buildOpenClawCatalog,
-  buildOpenClawConfig,
-  buildOpenClawPresetRecommendations,
-  summarizeProviderCoverage,
-} from "./lib/openclaw";
 import { providerRegistry } from "./providers/registry";
 import userFetch from "./routes/user";
 import conversationsFetch from "./routes/conversations";
@@ -40,151 +30,6 @@ type ApiAppEnv = {
     userId: string;
   };
 };
-
-type OpenClawProviderAccess = {
-  cacheKeySuffix: string;
-  configuredCredentialCountsByProvider: Record<string, number>;
-  configuredProviderIds: Set<string>;
-  credentialCountsByProvider: Record<string, number>;
-  credentialsByProvider: Record<string, Record<string, string>>;
-  degradedProviders: OpenClawDegradedProvider[];
-};
-
-type OpenClawDegradedProvider = {
-  credentialKey: string;
-  providerId: string;
-  reason: "decrypt_failed";
-};
-
-const OPENCLAW_DEPRECATION_SUNSET = "Wed, 24 Jun 2026 00:00:00 GMT";
-
-function buildOpenClawProviderCacheKey(
-  userId: string | undefined,
-  credentialsByProvider: Record<string, Record<string, string>>,
-): string {
-  const credentialEntries = Object.entries(credentialsByProvider)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([providerId, credentials]) => [
-      providerId,
-      Object.entries(credentials).sort(([a], [b]) => a.localeCompare(b)),
-    ]);
-  const digest = createHash("sha256")
-    .update(JSON.stringify(credentialEntries))
-    .digest("base64url")
-    .slice(0, 32);
-  return `${userId ?? "env"}:${digest}`;
-}
-
-function setCredentialKey(
-  map: Map<string, Set<string>>,
-  providerId: string,
-  credentialKey: string,
-): void {
-  let keys = map.get(providerId);
-  if (!keys) {
-    keys = new Set<string>();
-    map.set(providerId, keys);
-  }
-  keys.add(credentialKey);
-}
-
-function countCredentialKey(record: Record<string, number>, providerId: string): void {
-  record[providerId] = (record[providerId] ?? 0) + 1;
-}
-
-function countConfiguredCredentialKeys(map: Map<string, Set<string>>): Record<string, number> {
-  return Object.fromEntries([...map.entries()].map(([providerId, keys]) => [providerId, keys.size]));
-}
-
-async function getOpenClawProviderAccess(userId: string | undefined): Promise<OpenClawProviderAccess> {
-  const availableProviders = getAvailableProviders();
-  const availableProviderIds = new Set(availableProviders.map((provider) => provider.id));
-  const credentialKeysByProvider = new Map<string, Set<string>>();
-  const credentialCountsByProvider: Record<string, number> = {};
-  const credentialsByProvider: Record<string, Record<string, string>> = {};
-  const degradedProviders: OpenClawDegradedProvider[] = [];
-
-  if (userId && availableProviderIds.size > 0) {
-    const rows = await prisma.providerCredential.findMany({
-      where: { userId, providerId: { in: [...availableProviderIds] } },
-      select: { credentialKey: true, credentialValue: true, providerId: true },
-    });
-    for (const row of rows) {
-      if (typeof row.credentialKey !== "string" || !row.credentialKey) {
-        continue;
-      }
-
-      if (typeof row.credentialValue !== "string" || !row.credentialValue) {
-        continue;
-      }
-
-      countCredentialKey(credentialCountsByProvider, row.providerId);
-
-      try {
-        const decryptedValue = decryptCredential(row.credentialValue);
-        credentialsByProvider[row.providerId] ??= {};
-        credentialsByProvider[row.providerId][row.credentialKey] = decryptedValue;
-        setCredentialKey(credentialKeysByProvider, row.providerId, row.credentialKey);
-      } catch {
-        degradedProviders.push({
-          credentialKey: row.credentialKey,
-          providerId: row.providerId,
-          reason: "decrypt_failed",
-        });
-        console.error(`[openclaw] failed to decrypt credential "${row.credentialKey}" for provider ${row.providerId}`);
-      }
-    }
-  }
-
-  const configuredProviderIds = new Set(
-    availableProviders
-      .filter((provider) => {
-        const requiredKeys = provider.requiredKeys?.map((key) => key.envName) ?? [];
-        if (requiredKeys.length === 0) return true;
-        if (requiredKeys.every((envName) => Boolean(process.env[envName]?.trim()))) return true;
-
-        const configuredKeys = credentialKeysByProvider.get(provider.id) ?? new Set<string>();
-        return requiredKeys.every((envName) => configuredKeys.has(envName));
-      })
-      .map((provider) => provider.id),
-  );
-
-  const configuredCredentialsByProvider = Object.fromEntries(
-    Object.entries(credentialsByProvider).filter(([providerId]) => configuredProviderIds.has(providerId)),
-  );
-
-  return {
-    cacheKeySuffix: buildOpenClawProviderCacheKey(userId, configuredCredentialsByProvider),
-    configuredCredentialCountsByProvider: countConfiguredCredentialKeys(credentialKeysByProvider),
-    configuredProviderIds,
-    credentialCountsByProvider,
-    credentialsByProvider: configuredCredentialsByProvider,
-    degradedProviders,
-  };
-}
-
-async function buildOpenClawCatalogContextForUser(userId: string | undefined) {
-  const access = await getOpenClawProviderAccess(userId);
-  const catalog = await buildOpenClawCatalog({
-    cacheKeySuffix: access.cacheKeySuffix,
-    providerCredentials: access.credentialsByProvider,
-    providerIds: access.configuredProviderIds,
-  });
-  const filteredCatalog = catalog.filter((model) => access.configuredProviderIds.has(model.providerId));
-  const presets = buildOpenClawPresetRecommendations(filteredCatalog);
-  const summary = summarizeProviderCoverage(filteredCatalog);
-  return {
-    access,
-    catalog: filteredCatalog,
-    presets,
-    summary,
-  };
-}
-
-async function buildOpenClawCatalogForUser(userId: string | undefined) {
-  const context = await buildOpenClawCatalogContextForUser(userId);
-  return context.catalog;
-}
 
 function parseAllowedProxyDomains(): string[] {
   return (process.env.ALLOWED_PROXY_DOMAINS ?? "")
@@ -289,51 +134,6 @@ function sanitizeProxyResponseHeaders(responseHeaders: Headers): Headers {
   return sanitizedHeaders;
 }
 
-function resolveAuthenticatedVia(apiKeyId: string | undefined, sessionId: string | undefined): string {
-  if (apiKeyId) return "api_key";
-  if (sessionId) return "session_cookie";
-  return "unknown";
-}
-
-function markOpenClawEndpointDeprecated(c: Context<ApiAppEnv>): void {
-  c.header("Deprecation", "true");
-  c.header("Sunset", OPENCLAW_DEPRECATION_SUNSET);
-  c.header("Link", '</openclaw/manifest>; rel="successor-version"');
-  console.info(
-    `[openclaw-deprecated-endpoint] ${JSON.stringify({
-      method: c.req.method,
-      route: c.req.path,
-      successor: "/openclaw/manifest",
-    })}`,
-  );
-}
-
-function buildOpenClawApiLinks(origin: string): Record<string, string> {
-  return {
-    baseUrl: `${origin}/v1`,
-    catalog: `${origin}/openclaw/catalog`,
-    chatCompletions: `${origin}/v1/chat/completions`,
-    config: `${origin}/openclaw/config`,
-    discovery: `${origin}/openclaw/discovery`,
-    health: `${origin}/openclaw/health`,
-    manifest: `${origin}/openclaw/manifest`,
-    models: `${origin}/v1/models`,
-    status: `${origin}/openclaw/status`,
-  };
-}
-
-function buildOpenClawAuthInfo(): {
-  bearerFormat: string;
-  methods: string[];
-  recommended: string;
-} {
-  return {
-    bearerFormat: "Authorization: Bearer <modelhub-api-key>",
-    methods: ["api_key"],
-    recommended: "api_key",
-  };
-}
-
 export function createApiApp() {
   const app = new Hono<ApiAppEnv>();
 
@@ -372,7 +172,6 @@ export function createApiApp() {
   app.use("/:provider/*", protectedCors);
   app.use("/gateway/*", protectedCors);
   app.use("/embeddings/*", protectedCors);
-  app.use("/openclaw/*", protectedCors);
   app.use("/custom-model-proxy", protectedCors);
   app.use("/debug", protectedCors);
 
@@ -389,171 +188,6 @@ export function createApiApp() {
       authRequired: isAccessProtectionEnabled(),
       providers: getAvailableProviders(),
     });
-  });
-
-  app.get("/openclaw/manifest", async (c) => {
-    const accessError = await ensureProtectedAccess(c);
-    if (accessError) {
-      return accessError;
-    }
-
-    const url = new URL(c.req.url);
-    const api = buildOpenClawApiLinks(url.origin);
-    const context = await buildOpenClawCatalogContextForUser(c.get("userId") as string | undefined);
-    const config = buildOpenClawConfig(context.catalog, context.presets, api.baseUrl);
-
-    return c.json({
-      api,
-      auth: buildOpenClawAuthInfo(),
-      catalog: {
-        models: context.catalog,
-        presets: context.presets,
-        summary: context.summary,
-      },
-      config,
-      coverage: context.summary,
-      degraded: context.access.degradedProviders.length > 0,
-      degradedProviders: context.access.degradedProviders,
-      generatedAt: new Date().toISOString(),
-      onboarding: {
-        headless: true,
-        presets: context.presets,
-        requiresOpenClawInstalled: true,
-        supportsNativeProviderFlow: false,
-      },
-      provider: {
-        id: "modelhub",
-        modelCoverage: context.summary,
-        name: "ModelHub",
-        openaiCompatible: true,
-      },
-      version: "v2",
-    });
-  });
-
-  app.get("/openclaw/discovery", async (c) => {
-    const accessError = await ensureProtectedAccess(c);
-    if (accessError) {
-      return accessError;
-    }
-
-    markOpenClawEndpointDeprecated(c);
-    const url = new URL(c.req.url);
-    const api = buildOpenClawApiLinks(url.origin);
-    const context = await buildOpenClawCatalogContextForUser(c.get("userId") as string | undefined);
-
-    return c.json({
-      api,
-      auth: buildOpenClawAuthInfo(),
-      onboarding: {
-        headless: true,
-        presets: context.presets,
-        requiresOpenClawInstalled: true,
-        supportsNativeProviderFlow: false,
-      },
-      provider: {
-        id: "modelhub",
-        modelCoverage: context.summary,
-        name: "ModelHub",
-        openaiCompatible: true,
-      },
-      version: "v1",
-    });
-  });
-
-  app.get("/openclaw/catalog", async (c) => {
-    const accessError = await ensureProtectedAccess(c);
-    if (accessError) {
-      return accessError;
-    }
-
-    markOpenClawEndpointDeprecated(c);
-    const context = await buildOpenClawCatalogContextForUser(c.get("userId") as string | undefined);
-    return c.json({
-      generatedAt: new Date().toISOString(),
-      models: context.catalog,
-      presets: context.presets,
-      summary: context.summary,
-    });
-  });
-
-  app.get("/openclaw/status", async (c) => {
-    const accessError = await ensureProtectedAccess(c);
-    if (accessError) {
-      return accessError;
-    }
-
-    const userId = c.get("userId") as string | undefined;
-    const apiKeyId = c.get("apiKeyId") as string | undefined;
-    const sessionId = c.get("sessionId") as string | undefined;
-    markOpenClawEndpointDeprecated(c);
-    const access = await getOpenClawProviderAccess(userId);
-    const availableProviders = getAvailableProviders();
-
-    const providers = availableProviders.map((provider) => {
-      const requiredCount = provider.requiredKeys?.length ?? 0;
-      const configuredCount = access.configuredCredentialCountsByProvider[provider.id] ?? 0;
-      const storedCredentialCount = access.credentialCountsByProvider[provider.id] ?? 0;
-      return {
-        configured: requiredCount === 0 || configuredCount >= requiredCount,
-        configuredCount,
-        id: provider.id,
-        label: provider.label,
-        requiredCount,
-        storedCredentialCount,
-      };
-    });
-
-    return c.json({
-      authenticated: Boolean(userId),
-      authenticatedVia: resolveAuthenticatedVia(apiKeyId, sessionId),
-      degraded: access.degradedProviders.length > 0,
-      degradedProviders: access.degradedProviders,
-      permissions: {
-        canChatCompletions: true,
-        canListModels: true,
-      },
-      providers,
-      user: {
-        apiKeyId: apiKeyId ?? null,
-        id: userId ?? null,
-      },
-    });
-  });
-
-  app.get("/openclaw/health", async (c) => {
-    const accessError = await ensureProtectedAccess(c);
-    if (accessError) {
-      return accessError;
-    }
-
-    const providers = getAvailableProviders();
-    const checks: Array<{ name: string; ok: boolean; details?: string }> = [
-      { name: "auth", ok: true },
-      { name: "providers", ok: providers.length > 0, details: `providers=${providers.length}` },
-    ];
-
-    return c.json({
-      checks,
-      status: checks.every((check) => check.ok) ? "ok" : "degraded",
-      timestamp: Date.now(),
-    });
-  });
-
-  app.get("/openclaw/config", async (c) => {
-    const accessError = await ensureProtectedAccess(c);
-    if (accessError) {
-      return accessError;
-    }
-
-    markOpenClawEndpointDeprecated(c);
-    const url = new URL(c.req.url);
-    const baseUrl = `${url.origin}/v1`;
-    const catalog = await buildOpenClawCatalogForUser(c.get("userId") as string | undefined);
-    const presets = buildOpenClawPresetRecommendations(catalog);
-    const config = buildOpenClawConfig(catalog, presets, baseUrl);
-
-    return c.json(config);
   });
 
   app.use("/user/*", async (c) => await userFetch(c.req.raw));

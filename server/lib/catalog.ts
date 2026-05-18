@@ -7,12 +7,6 @@ type ProxyTarget = {
 
 export const PROVIDER_CATALOG: readonly UiProvider[] = [
   {
-    id: 'openclaw',
-    label: 'OpenClaw',
-    base: '/openclaw',
-    hasModels: true,
-  },
-  {
     id: 'gateway',
     label: 'Gateway (Chat)',
     base: '/gateway',

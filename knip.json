@@ -8,9 +8,7 @@
     "components/ui/**/*.tsx": ["exports", "types"],
     "lib/chat-parts.ts": ["exports"],
     "lib/chat-stream.ts": ["types"],
-    "packages/openclaw-cli/src/index.mjs": ["exports"],
     "server/lib/conversation-attachments.ts": ["exports"],
-    "server/lib/model-cache.ts": ["types"],
-    "server/lib/openclaw.ts": ["types"]
+    "server/lib/model-cache.ts": ["types"]
   }
 }
