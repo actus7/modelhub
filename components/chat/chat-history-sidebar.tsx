@@ -100,6 +100,7 @@ export function ChatHistorySidebar({
   async function handleDelete(id: string) {
     try {
       await apiJsonRequest(`/conversations/${id}`, "DELETE");
+      setPendingDelete(null);
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeConversationId === id) onNewChat();
     } catch {

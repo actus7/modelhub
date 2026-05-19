@@ -75,6 +75,27 @@ function LoadingShell() {
 }
 
 function getPageCopy(pathname: string) {
+  if (pathname.startsWith("/dashboard/api-keys")) {
+    return {
+      description: "Crie, revogue e acompanhe as chaves usadas por clientes externos.",
+      title: "API Keys",
+    };
+  }
+
+  if (pathname.startsWith("/dashboard/credentials")) {
+    return {
+      description: "Gerencie as credenciais usadas pelas integrações autenticadas.",
+      title: "Credenciais",
+    };
+  }
+
+  if (pathname.startsWith("/dashboard/logs")) {
+    return {
+      description: "Acompanhe requests recentes, status e detalhes de erro.",
+      title: "Logs de uso",
+    };
+  }
+
   if (pathname.startsWith("/dashboard")) {
     return {
       description: "Indicadores, chaves e atividade recente da conta.",
@@ -164,7 +185,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/dashboard"} tooltip="Dashboard">
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/dashboard")} tooltip="Dashboard">
                     <Link href="/dashboard">
                       <LayoutDashboardIcon />
                       <span>Dashboard</span>
@@ -172,7 +193,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/chat"} tooltip="Chat">
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/chat")} tooltip="Chat">
                     <Link href="/chat">
                       <MessageSquareTextIcon />
                       <span>Chat</span>
@@ -180,7 +201,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/setup"} tooltip="Integrações">
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/setup")} tooltip="Integrações">
                     <Link href="/setup">
                       <PlugIcon />
                       <span>Integrações</span>
