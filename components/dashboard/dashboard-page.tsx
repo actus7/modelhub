@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type {
   ApiKeySummary,
   RecentUsageLog,
@@ -23,11 +24,21 @@ import {
   ShieldCheckIcon,
   Trash2Icon,
 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, XAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 import { toast } from "sonner";
 
 import { ApiQuickStartCard } from "@/components/dashboard/api-quick-start-card";
 import { useAppState } from "@/components/app-state-provider";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { DEFAULT_MODEL_ID } from "@/lib/defaults";
 import { Button } from "@/components/ui/button";
@@ -47,9 +58,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
+import { providerHasRequiredCredentials } from "@/lib/provider-credentials";
+
+export type DashboardSection = "overview" | "keys" | "credentials" | "logs";
 
 function formatDate(value: string | Date | null | undefined) {
   if (!value) {
@@ -78,7 +91,31 @@ function formatLogErrorBody(raw: string | null): string {
   }
 }
 
-export function DashboardPage() {
+function getErrorRateTone(errorRate: number) {
+  if (errorRate >= 20) {
+    return {
+      description: "Acima do aceitavel. Vale investigar os logs com prioridade.",
+      label: "Alerta",
+      variant: "destructive" as const,
+    };
+  }
+
+  if (errorRate >= 5) {
+    return {
+      description: "Acima do ideal para um fluxo saudavel.",
+      label: "Atencao",
+      variant: "secondary" as const,
+    };
+  }
+
+  return {
+    description: "Dentro do comportamento esperado.",
+    label: "Saudavel",
+    variant: "outline" as const,
+  };
+}
+
+export function DashboardPage({ section = "overview" }: { section?: DashboardSection }) {
   const { credentials, providers, refreshCredentials, refreshUser, user } = useAppState();
   const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
@@ -94,12 +131,28 @@ export function DashboardPage() {
   const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
   const [savingCredentials, setSavingCredentials] = useState(false);
   const [usageLogDetail, setUsageLogDetail] = useState<RecentUsageLog | null>(null);
+  const [pendingApiKeyRevoke, setPendingApiKeyRevoke] = useState<ApiKeySummary | null>(null);
+  const [pendingCredentialDelete, setPendingCredentialDelete] = useState<{
+    id: string;
+    label: string;
+  } | null>(null);
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
     [providers, selectedProviderId],
   );
   const hasAnyApiKey = apiKeys.length > 0 || Boolean(newApiKey);
+  const readyProvidersCount = useMemo(
+    () =>
+      providers.filter((provider) => {
+        if ((provider.requiredKeys?.length ?? 0) === 0) {
+          return true;
+        }
+
+        return providerHasRequiredCredentials(provider, credentials);
+      }).length,
+    [credentials, providers],
+  );
 
   function handleCopyCommand(commandId: string, command: string, successMessage: string) {
     void navigator.clipboard.writeText(command).then(() => {
@@ -155,6 +208,7 @@ export function DashboardPage() {
   async function handleRevokeApiKey(keyId: string) {
     try {
       await apiJsonRequest(`/user/api-keys/${keyId}`, "DELETE");
+      setPendingApiKeyRevoke(null);
       await Promise.all([loadDashboard(), refreshUser()]);
       toast.success("API key revogada.");
     } catch (error) {
@@ -165,6 +219,7 @@ export function DashboardPage() {
   async function handleDeleteCredential(credentialId: string) {
     try {
       await apiJsonRequest(`/user/credentials/${credentialId}`, "DELETE");
+      setPendingCredentialDelete(null);
       await Promise.all([refreshCredentials(), refreshUser()]);
       toast.success("Credencial removida.");
     } catch (error) {
@@ -240,6 +295,16 @@ export function DashboardPage() {
 
   const providerChartData = usage?.byProvider.slice(0, 6) ?? [];
   const dailyChartData = usage?.daily ?? [];
+  const errorRateTone = getErrorRateTone(usage?.errorRate ?? 0);
+  const showQuickStart = !hasAnyApiKey;
+  const hasLogDetails = logs.some((log) => log.statusCode >= 400 || Boolean(log.errorDetail));
+  const totalProviderRequests = providerChartData.reduce((sum, item) => sum + item.count, 0);
+  const sectionLinks: Array<{ count?: number; href: string; id: DashboardSection; label: string }> = [
+    { href: "/dashboard", id: "overview", label: "Visão geral" },
+    { count: apiKeys.length, href: "/dashboard/api-keys", id: "keys", label: "API Keys" },
+    { count: credentials.length, href: "/dashboard/credentials", id: "credentials", label: "Credenciais" },
+    { count: logs.length, href: "/dashboard/logs", id: "logs", label: "Logs de uso" },
+  ];
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-3 md:gap-6 md:p-6">
@@ -311,155 +376,212 @@ export function DashboardPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
-        <Card className="border-border/60">
-          <CardHeader className="pb-3">
-            <CardDescription>Requests em 30 dias</CardDescription>
-            <CardTitle className="text-3xl">{usage?.totalRequests ?? 0}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">Volume total por usuário autenticado.</CardContent>
-        </Card>
-        <Card className="border-border/60">
-          <CardHeader className="pb-3">
-            <CardDescription>Taxa de erro</CardDescription>
-            <CardTitle className="text-3xl">{usage?.errorRate ?? 0}%</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">Calculada a partir dos status HTTP registrados.</CardContent>
-        </Card>
-        <Card className="border-border/60">
-          <CardHeader className="pb-3">
-            <CardDescription>API keys ativas</CardDescription>
-            <CardTitle className="text-3xl">{user?.counts?.activeApiKeys ?? 0}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">Keys disponíveis para clientes externos.</CardContent>
-        </Card>
-        <Card className="border-border/60">
-          <CardHeader className="pb-3">
-            <CardDescription>Credenciais salvas</CardDescription>
-            <CardTitle className="text-3xl">{user?.counts?.providerCredentials ?? 0}</CardTitle>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">Segredos por provider armazenados no backend.</CardContent>
-        </Card>
+      <div className="-mx-3 overflow-x-auto px-3 md:mx-0 md:px-0">
+        <div className="flex min-w-max items-center gap-2 rounded-xl border border-border/60 bg-muted/30 p-1">
+          {sectionLinks.map((item) => (
+            <Button
+              key={item.id}
+              asChild
+              size="sm"
+              variant={section === item.id ? "secondary" : "ghost"}
+              className="rounded-lg"
+            >
+              <Link href={item.href}>
+                <span>{item.label}</span>
+                {typeof item.count === "number" ? (
+                  <span className="text-xs text-muted-foreground">({item.count})</span>
+                ) : null}
+              </Link>
+            </Button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid gap-3 md:gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>Uso diário</CardTitle>
-            <CardDescription>Requests registrados nos últimos 30 dias.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer
-              config={{
-                count: {
-                  color: "var(--color-chart-1)",
-                  label: "Requests",
-                },
-              }}
-              className="h-[280px] w-full"
-            >
-              <LineChart data={dailyChartData}>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="date"
-                  tickFormatter={(value) =>
-                    new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(new Date(value))
-                  }
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Line
-                  dataKey="count"
-                  type="monotone"
-                  stroke="var(--color-count)"
-                  strokeWidth={2}
-                  dot={false}
-                />
-              </LineChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border/60">
-          <CardHeader>
-            <CardTitle>Top providers</CardTitle>
-            <CardDescription>Distribuição de requests por provider.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChartContainer
-              config={{
-                count: {
-                  color: "var(--color-chart-2)",
-                  label: "Requests",
-                },
-              }}
-              className="h-[280px] w-full"
-            >
-              <BarChart data={providerChartData}>
-                <CartesianGrid vertical={false} />
-                <XAxis
-                  dataKey="provider"
-                  tickFormatter={(value) => providerLabel(value, providers)}
-                  interval={0}
-                />
-                <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="count" fill="var(--color-count)" radius={8} />
-              </BarChart>
-            </ChartContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="border-primary/20 bg-primary/5">
-        <CardHeader className="gap-3">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <div className="flex size-9 items-center justify-center rounded-full bg-primary/10">
-                  <TerminalSquareIcon className="size-4 text-primary" />
+      {section === "overview" ? (
+        <>
+          <div className="grid grid-cols-2 gap-3 md:gap-4 xl:grid-cols-4">
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardDescription>Requests em 30 dias</CardDescription>
+                <CardTitle className="text-3xl">{usage?.totalRequests ?? 0}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">Volume total por usuário autenticado.</CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardDescription>Taxa de erro</CardDescription>
+                <div className="flex items-start justify-between gap-3">
+                  <CardTitle className="text-3xl">{usage?.errorRate ?? 0}%</CardTitle>
+                  <Badge variant={errorRateTone.variant} className="mt-1 gap-1.5">
+                    <AlertTriangleIcon />
+                    {errorRateTone.label}
+                  </Badge>
                 </div>
-                <CardTitle>Quick Start</CardTitle>
-              </div>
-              <CardDescription className="max-w-2xl leading-relaxed">
-                Gere uma API key e use o ModelHub de imediato pelo browser ou pela API.
-              </CardDescription>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="secondary" className="gap-1.5 px-3 py-1.5">
-                <CheckCircle2Icon className="size-3" />
-                API OpenAI-compatible
-              </Badge>
-            </div>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">{errorRateTone.description}</CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardDescription>API keys ativas</CardDescription>
+                <CardTitle className="text-3xl">{user?.counts?.activeApiKeys ?? 0}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">Keys disponíveis para clientes externos.</CardContent>
+            </Card>
+            <Card className="border-border/60">
+              <CardHeader className="pb-3">
+                <CardDescription>Providers prontos</CardDescription>
+                <CardTitle className="text-3xl">{readyProvidersCount}</CardTitle>
+              </CardHeader>
+              <CardContent className="text-sm text-muted-foreground">
+                Conectados ou gratuitos, disponiveis para uso imediato.
+              </CardContent>
+            </Card>
           </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <ApiQuickStartCard apiKey={newApiKey} hasApiKey={hasAnyApiKey} />
 
-          <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/70 p-4 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Precisa de uma API key?</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">
-                Gere uma chave para acessar a API.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={() => setNewKeyDialogOpen(true)}>
-                <KeyRoundIcon data-icon="inline-start" />
-                Nova key
-              </Button>
-            </div>
+          <div className="grid gap-3 md:gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <Card className="border-border/60">
+              <CardHeader>
+                <CardTitle>Uso diário</CardTitle>
+                <CardDescription>Últimos 30 dias.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dailyChartData.length === 0 ? (
+                  <Empty className="border-border/60">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <BarChart3Icon />
+                      </EmptyMedia>
+                      <EmptyTitle>Sem atividade neste período</EmptyTitle>
+                      <EmptyDescription>Os requests dos últimos 30 dias aparecerão aqui quando houver uso.</EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <ChartContainer
+                      config={{
+                        count: {
+                          color: "var(--color-chart-1)",
+                          label: "Requests",
+                        },
+                      }}
+                      className="h-[280px] w-full"
+                    >
+                      <LineChart data={dailyChartData}>
+                        <CartesianGrid vertical={false} />
+                        <XAxis
+                          dataKey="date"
+                          tickFormatter={(value) =>
+                            new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(new Date(value))
+                          }
+                        />
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                        <Line
+                          dataKey="count"
+                          type="monotone"
+                          stroke="var(--color-count)"
+                          strokeWidth={2}
+                          dot={false}
+                        />
+                      </LineChart>
+                    </ChartContainer>
+                    <p className="text-xs text-muted-foreground">
+                      Dias sem pontos indicam ausência de requests, não falha no gráfico.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border-border/60">
+              <CardHeader>
+                <CardTitle>Top providers</CardTitle>
+                <CardDescription>Distribuição por volume de requests.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {providerChartData.length === 0 ? (
+                  <Empty className="border-border/60">
+                    <EmptyHeader>
+                      <EmptyMedia variant="icon">
+                        <ActivityIcon />
+                      </EmptyMedia>
+                      <EmptyTitle>Nenhum provider com uso recente</EmptyTitle>
+                      <EmptyDescription>
+                        Quando houver requests, você verá a distribuição por provider aqui.
+                      </EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    {providerChartData.map((item) => {
+                      const percentage = totalProviderRequests > 0
+                        ? Math.round((item.count / totalProviderRequests) * 100)
+                        : 0;
+
+                      return (
+                        <div key={item.provider} className="flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="truncate text-sm font-medium">{providerLabel(item.provider, providers)}</span>
+                            <span className="text-xs text-muted-foreground">{item.count} req ({percentage}%)</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-muted">
+                            <div
+                              className="h-2 rounded-full bg-chart-2 transition-[width]"
+                              style={{ width: `${Math.max(percentage, 6)}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
 
-      <Tabs defaultValue="overview" className="flex flex-1 flex-col gap-4">
-        <TabsList className="grid w-full grid-cols-4 text-xs sm:text-sm">
-          <TabsTrigger value="overview">Resumo</TabsTrigger>
-          <TabsTrigger value="keys">Keys</TabsTrigger>
-          <TabsTrigger value="credentials">Creds</TabsTrigger>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
-        </TabsList>
+          {showQuickStart ? (
+            <Card className="border-primary/20 bg-primary/5">
+              <CardHeader className="gap-3">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="flex size-9 items-center justify-center rounded-full bg-primary/10">
+                        <TerminalSquareIcon className="size-4 text-primary" />
+                      </div>
+                      <CardTitle>Primeiros passos</CardTitle>
+                    </div>
+                    <CardDescription className="max-w-2xl leading-relaxed">
+                      Gere sua primeira API key e faça a primeira requisição pela API compatível com OpenAI.
+                    </CardDescription>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="secondary" className="gap-1.5 px-3 py-1.5">
+                      <CheckCircle2Icon className="size-3" />
+                      API OpenAI-compatible
+                    </Badge>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <ApiQuickStartCard apiKey={newApiKey} hasApiKey={hasAnyApiKey} />
 
-        <TabsContent value="overview">
+                <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/70 p-4 md:flex-row md:items-center md:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">Precisa de uma API key?</p>
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      Gere uma chave para acessar a API e integrar seus clientes externos.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={() => setNewKeyDialogOpen(true)}>
+                      <KeyRoundIcon data-icon="inline-start" />
+                      Nova key
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
+
           <Card className="border-border/60">
             <CardHeader>
               <CardTitle>Conta</CardTitle>
@@ -489,194 +611,302 @@ export function DashboardPage() {
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
+        </>
+      ) : null}
 
-        <TabsContent value="keys" className="flex flex-col gap-4">
-          <Card className="border-border/60">
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <CardTitle>API Keys</CardTitle>
-                <CardDescription>Gere e revogue chaves para seus clientes externos.</CardDescription>
-              </div>
-              <Button onClick={() => setNewKeyDialogOpen(true)}>
-                <PlusIcon data-icon="inline-start" />
-                Nova key
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {apiKeys.length === 0 ? (
-                <Empty className="border-border/60">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <KeyRoundIcon />
-                    </EmptyMedia>
-                    <EmptyTitle>Nenhuma API key ativa</EmptyTitle>
-                    <EmptyDescription>Crie uma nova key para começar a consumir o proxy externamente.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : (
-                <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Prefixo</TableHead>
-                      <TableHead>Label</TableHead>
-                      <TableHead className="hidden sm:table-cell">Criada</TableHead>
-                      <TableHead className="hidden sm:table-cell">Último uso</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {apiKeys.map((apiKey) => (
-                      <TableRow key={apiKey.id}>
-                        <TableCell><code>{apiKey.prefix}...</code></TableCell>
-                        <TableCell>{apiKey.label || "—"}</TableCell>
-                        <TableCell className="hidden sm:table-cell">{formatDate(apiKey.createdAt)}</TableCell>
-                        <TableCell className="hidden sm:table-cell">{formatDate(apiKey.lastUsedAt)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => void handleRevokeApiKey(apiKey.id)}>
+      {section === "keys" ? (
+        <Card className="border-border/60">
+          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1">
+              <CardTitle>API Keys</CardTitle>
+              <CardDescription>Gere e revogue chaves para seus clientes externos.</CardDescription>
+            </div>
+            <Button onClick={() => setNewKeyDialogOpen(true)}>
+              <PlusIcon data-icon="inline-start" />
+              Nova key
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {apiKeys.length === 0 ? (
+              <Empty className="border-border/60">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <KeyRoundIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>Nenhuma API key ativa</EmptyTitle>
+                  <EmptyDescription>Crie uma nova key para começar a consumir o proxy externamente.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <>
+                <div className="grid gap-3 md:hidden">
+                  {apiKeys.map((apiKey) => (
+                    <Card key={apiKey.id} className="border-border/60">
+                      <CardContent className="space-y-3 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium">{apiKey.label || "Sem label"}</p>
+                            <code className="text-xs text-muted-foreground">{apiKey.prefix}...</code>
+                          </div>
+                          <Button variant="ghost" size="sm" onClick={() => setPendingApiKeyRevoke(apiKey)}>
                             <Trash2Icon data-icon="inline-start" />
                             Revogar
                           </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </div>
+                        <div className="grid gap-2 text-xs text-muted-foreground">
+                          <p>Criada em {formatDate(apiKey.createdAt)}</p>
+                          <p>Último uso: {apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : "Nunca usada"}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Prefixo</TableHead>
+                        <TableHead>Label</TableHead>
+                        <TableHead>Criada</TableHead>
+                        <TableHead>Último uso</TableHead>
+                        <TableHead className="text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {apiKeys.map((apiKey) => (
+                        <TableRow key={apiKey.id}>
+                          <TableCell><code>{apiKey.prefix}...</code></TableCell>
+                          <TableCell>{apiKey.label || "—"}</TableCell>
+                          <TableCell>{formatDate(apiKey.createdAt)}</TableCell>
+                          <TableCell>{apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : "Nunca usada"}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="ghost" size="sm" onClick={() => setPendingApiKeyRevoke(apiKey)}>
+                              <Trash2Icon data-icon="inline-start" />
+                              Revogar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
-        <TabsContent value="credentials" className="flex flex-col gap-4">
-          <Card className="border-border/60">
-            <CardHeader className="flex flex-row items-center justify-between gap-4">
-              <div className="flex flex-col gap-1">
-                <CardTitle>Credenciais de providers</CardTitle>
-                <CardDescription>Armazenadas no backend para a UI web usar sem <code>localStorage</code>.</CardDescription>
-              </div>
-              <Button onClick={() => setCredentialDialogOpen(true)}>
-                <PlusIcon data-icon="inline-start" />
-                Adicionar
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {credentials.length === 0 ? (
-                <Empty className="border-border/60">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <ShieldCheckIcon />
-                    </EmptyMedia>
-                    <EmptyTitle>Nenhuma credencial salva</EmptyTitle>
-                    <EmptyDescription>Adicione as chaves dos providers pagos ou autenticados.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : (
-                <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Provider</TableHead>
-                      <TableHead>Chave</TableHead>
-                      <TableHead className="hidden sm:table-cell">Atualizada</TableHead>
-                      <TableHead className="text-right">Ações</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {credentials.map((credential) => (
-                      <TableRow key={credential.id}>
-                        <TableCell>{providerLabel(credential.providerId, providers)}</TableCell>
-                        <TableCell><code>{credential.credentialKey}</code></TableCell>
-                        <TableCell className="hidden sm:table-cell">{formatDate(credential.updatedAt)}</TableCell>
-                        <TableCell className="text-right">
-                          <Button variant="ghost" size="sm" onClick={() => void handleDeleteCredential(credential.id)}>
+      {section === "credentials" ? (
+        <Card className="border-border/60">
+          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-1">
+              <CardTitle>Credenciais de providers</CardTitle>
+              <CardDescription>Gerencie as chaves usadas para conectar providers pagos e autenticados.</CardDescription>
+            </div>
+            <Button onClick={() => setCredentialDialogOpen(true)}>
+              <PlusIcon data-icon="inline-start" />
+              Adicionar
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {credentials.length === 0 ? (
+              <Empty className="border-border/60">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ShieldCheckIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>Nenhuma credencial salva</EmptyTitle>
+                  <EmptyDescription>Adicione as chaves dos providers pagos ou autenticados.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <>
+                <div className="grid gap-3 md:hidden">
+                  {credentials.map((credential) => (
+                    <Card key={credential.id} className="border-border/60">
+                      <CardContent className="space-y-3 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium">{providerLabel(credential.providerId, providers)}</p>
+                            <code className="text-xs text-muted-foreground">{credential.credentialKey}</code>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setPendingCredentialDelete({
+                              id: credential.id,
+                              label: providerLabel(credential.providerId, providers),
+                            })}
+                          >
                             <Trash2Icon data-icon="inline-start" />
-                            <span className="hidden sm:inline">Remover</span>
+                            Remover
                           </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </div>
+                        <div className="grid gap-1 text-xs text-muted-foreground">
+                          <p>Identificador salvo para este provider</p>
+                          <p>Atualizada em {formatDate(credential.updatedAt)}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              )}
-            </CardContent>
-          </Card>
-        </TabsContent>
+                <div className="hidden overflow-x-auto md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Credencial</TableHead>
+                        <TableHead>Atualizada</TableHead>
+                        <TableHead className="text-right">Ações</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {credentials.map((credential) => (
+                        <TableRow key={credential.id}>
+                          <TableCell>{providerLabel(credential.providerId, providers)}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-0.5">
+                              <code>{credential.credentialKey}</code>
+                              <span className="text-[10px] text-muted-foreground">Identificador salvo para este provider</span>
+                            </div>
+                          </TableCell>
+                          <TableCell>{formatDate(credential.updatedAt)}</TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setPendingCredentialDelete({
+                                id: credential.id,
+                                label: providerLabel(credential.providerId, providers),
+                              })}
+                            >
+                              <Trash2Icon data-icon="inline-start" />
+                              Remover
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
+      ) : null}
 
-        <TabsContent value="logs">
-          <Card className="border-border/60">
-            <CardHeader>
-              <CardTitle>Logs recentes</CardTitle>
-              <CardDescription>Últimos requests autenticados associados ao seu usuário.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {logs.length === 0 ? (
-                <Empty className="border-border/60">
-                  <EmptyHeader>
-                    <EmptyMedia variant="icon">
-                      <ActivityIcon />
-                    </EmptyMedia>
-                    <EmptyTitle>Nenhum log recente</EmptyTitle>
-                    <EmptyDescription>Os logs aparecerão aqui conforme você usa os endpoints protegidos.</EmptyDescription>
-                  </EmptyHeader>
-                </Empty>
-              ) : (
-                <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Data</TableHead>
-                      <TableHead>Provider</TableHead>
-                      <TableHead className="hidden sm:table-cell">Modelo</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="hidden md:table-cell">Key</TableHead>
-                      <TableHead className="w-12 text-right">Detalhes</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {logs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell className="text-xs">{formatDate(log.createdAt)}</TableCell>
-                        <TableCell className="text-xs">{providerLabel(log.providerId ?? "—", providers)}</TableCell>
-                        <TableCell className="hidden text-xs sm:table-cell">{log.modelId ?? "—"}</TableCell>
-                        <TableCell>
+      {section === "logs" ? (
+        <Card className="border-border/60">
+          <CardHeader>
+            <CardTitle>Logs recentes</CardTitle>
+            <CardDescription>Últimos requests autenticados associados ao seu usuário.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {logs.length === 0 ? (
+              <Empty className="border-border/60">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ActivityIcon />
+                  </EmptyMedia>
+                  <EmptyTitle>Nenhum log recente</EmptyTitle>
+                  <EmptyDescription>Os logs aparecerão aqui conforme você usa os endpoints protegidos.</EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            ) : (
+              <>
+                <div className="grid gap-3 md:hidden">
+                  {logs.map((log) => (
+                    <Card key={log.id} className="border-border/60">
+                      <CardContent className="space-y-3 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-1">
+                            <p className="text-sm font-medium">{providerLabel(log.providerId ?? "—", providers)}</p>
+                            <p className="text-xs text-muted-foreground">{formatDate(log.createdAt)}</p>
+                          </div>
                           <Badge variant={log.statusCode >= 400 ? "destructive" : "secondary"}>
                             {log.statusCode}
                           </Badge>
-                        </TableCell>
-                        <TableCell className="hidden md:table-cell">{log.apiKey ? `${log.apiKey.prefix}...` : "—"}</TableCell>
-                        <TableCell className="text-right">
-                          {log.statusCode >= 400 || (log.errorDetail && log.errorDetail.length > 0) ? (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon-sm"
-                              className="text-muted-foreground hover:text-foreground"
-                              onClick={() => setUsageLogDetail(log)}
-                              aria-label={
-                                log.statusCode >= 400
-                                  ? "Ver detalhes do erro"
-                                  : "Ver detalhes (ex.: falha antes de fallback)"
-                              }
-                            >
-                              <FileTextIcon className="size-4" />
-                            </Button>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                        </div>
+                        <div className="grid gap-1 text-xs text-muted-foreground">
+                          <p>Modelo: {log.modelId ?? "—"}</p>
+                          <p>Key: {log.apiKey ? `${log.apiKey.prefix}...` : "—"}</p>
+                        </div>
+                        {log.statusCode >= 400 || (log.errorDetail && log.errorDetail.length > 0) ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setUsageLogDetail(log)}
+                          >
+                            <FileTextIcon data-icon="inline-start" />
+                            Ver detalhes
+                          </Button>
+                        ) : null}
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              )}
+                <div className="hidden overflow-x-auto md:block">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Data</TableHead>
+                        <TableHead>Provider</TableHead>
+                        <TableHead>Modelo</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Key</TableHead>
+                        {hasLogDetails ? <TableHead className="w-12 text-right">Detalhes</TableHead> : null}
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {logs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="text-xs">{formatDate(log.createdAt)}</TableCell>
+                          <TableCell className="text-xs">{providerLabel(log.providerId ?? "—", providers)}</TableCell>
+                          <TableCell className="text-xs">{log.modelId ?? "—"}</TableCell>
+                          <TableCell>
+                            <Badge variant={log.statusCode >= 400 ? "destructive" : "secondary"}>
+                              {log.statusCode}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{log.apiKey ? `${log.apiKey.prefix}...` : "—"}</TableCell>
+                          {hasLogDetails ? (
+                            <TableCell className="text-right">
+                              {log.statusCode >= 400 || (log.errorDetail && log.errorDetail.length > 0) ? (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  className="text-muted-foreground hover:text-foreground"
+                                  onClick={() => setUsageLogDetail(log)}
+                                  aria-label={
+                                    log.statusCode >= 400
+                                      ? "Ver detalhes do erro"
+                                      : "Ver detalhes (ex.: falha antes de fallback)"
+                                  }
+                                >
+                                  <FileTextIcon className="size-4" />
+                                </Button>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </TableCell>
+                          ) : null}
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </CardContent>
+          {!hasLogDetails && logs.length > 0 ? (
+            <CardContent className="pt-0">
+              <p className="text-xs text-muted-foreground">Nenhum dos logs recentes possui detalhes adicionais para exibir.</p>
             </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Dialog open={!!usageLogDetail} onOpenChange={(open) => { if (!open) setUsageLogDetail(null); }}>
         <DialogContent className="max-h-[min(90vh,40rem)] w-[calc(100vw-2rem)] max-w-2xl gap-4 overflow-hidden sm:max-w-2xl">
@@ -735,6 +965,50 @@ export function DashboardPage() {
           ) : null}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!pendingApiKeyRevoke} onOpenChange={(open) => { if (!open) setPendingApiKeyRevoke(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Revogar API key?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingApiKeyRevoke
+                ? `A key ${pendingApiKeyRevoke.prefix}... deixará de funcionar imediatamente para clientes externos.`
+                : "A key deixará de funcionar imediatamente para clientes externos."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => pendingApiKeyRevoke ? void handleRevokeApiKey(pendingApiKeyRevoke.id) : undefined}
+            >
+              Revogar key
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!pendingCredentialDelete} onOpenChange={(open) => { if (!open) setPendingCredentialDelete(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover credencial?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingCredentialDelete
+                ? `A integração com ${pendingCredentialDelete.label} pode parar de funcionar até que uma nova chave seja salva.`
+                : "A integração pode parar de funcionar até que uma nova chave seja salva."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => pendingCredentialDelete ? void handleDeleteCredential(pendingCredentialDelete.id) : undefined}
+            >
+              Remover credencial
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={newKeyDialogOpen} onOpenChange={setNewKeyDialogOpen}>
         <DialogContent>
@@ -814,7 +1088,7 @@ export function DashboardPage() {
                       }))
                     }
                   />
-                  <FieldDescription>{field.envName}</FieldDescription>
+                  <FieldDescription>Informe a chave recebida no painel deste provider.</FieldDescription>
                 </Field>
               ))}
             </FieldGroup>

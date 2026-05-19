@@ -1,5 +1,5 @@
 import { DashboardPage } from "@/components/dashboard/dashboard-page";
 
 export default function DashboardRoutePage() {
-  return <DashboardPage />;
+  return <DashboardPage section="overview" />;
 }

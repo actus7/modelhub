@@ -14,6 +14,16 @@ import {
   XIcon,
 } from "lucide-react";
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -62,6 +72,7 @@ export function ChatHistorySidebar({
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<ConversationSummary | null>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const fetchConversations = useCallback(async () => {
@@ -86,10 +97,10 @@ export function ChatHistorySidebar({
     if (renamingId) renameInputRef.current?.focus();
   }, [renamingId]);
 
-  async function handleDelete(e: React.MouseEvent, id: string) {
-    e.stopPropagation();
+  async function handleDelete(id: string) {
     try {
       await apiJsonRequest(`/conversations/${id}`, "DELETE");
+      setPendingDelete(null);
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeConversationId === id) onNewChat();
     } catch {
@@ -151,6 +162,14 @@ export function ChatHistorySidebar({
     const diffDays = Math.floor(diffHours / 24);
     if (diffDays < 7) return `${diffDays}d`;
     return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  }
+
+  function getConversationTitle(title: string | null) {
+    if (!title) {
+      return "Nova conversa";
+    }
+
+    return title.replace(/^t[ií]tulo:\s*/i, "").trim() || "Nova conversa";
   }
 
   // Filter + group conversations
@@ -293,7 +312,7 @@ export function ChatHistorySidebar({
                         </div>
                       ) : (
                         <>
-                          <p className="truncate text-xs">{conv.title || "Nova conversa"}</p>
+                          <p className="truncate text-xs">{getConversationTitle(conv.title)}</p>
                           <p className="text-[10px] text-muted-foreground">
                             {formatDate(conv.updatedAt)}
                           </p>
@@ -328,7 +347,10 @@ export function ChatHistorySidebar({
                           variant="ghost"
                           size="icon-xs"
                           className="size-6"
-                          onClick={(e) => void handleDelete(e, conv.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPendingDelete(conv);
+                          }}
                           title="Excluir"
                         >
                           <Trash2Icon className="size-3" />
@@ -347,21 +369,67 @@ export function ChatHistorySidebar({
 
   if (isMobile) {
     return (
-      <Sheet open={mobileSheetOpen} onOpenChange={onMobileSheetOpenChange}>
-        <SheetContent side="right" className="w-72 p-0">
-          <SheetHeader className="sr-only">
-            <SheetTitle>Histórico de conversas</SheetTitle>
-            <SheetDescription>Lista de conversas anteriores</SheetDescription>
-          </SheetHeader>
-          {listContent}
-        </SheetContent>
-      </Sheet>
+      <>
+        <Sheet open={mobileSheetOpen} onOpenChange={onMobileSheetOpenChange}>
+          <SheetContent side="right" className="w-72 p-0">
+            <SheetHeader className="sr-only">
+              <SheetTitle>Histórico de conversas</SheetTitle>
+              <SheetDescription>Lista de conversas anteriores</SheetDescription>
+            </SheetHeader>
+            {listContent}
+          </SheetContent>
+        </Sheet>
+        <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir conversa?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {pendingDelete
+                  ? `A conversa "${getConversationTitle(pendingDelete.title)}" será removida do histórico.`
+                  : "Esta conversa será removida do histórico."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => pendingDelete ? void handleDelete(pendingDelete.id) : undefined}
+              >
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
     );
   }
 
   return (
-    <div className="hidden h-full min-h-0 w-64 shrink-0 flex-col border-l border-border/60 bg-background/50 md:flex">
-      {listContent}
-    </div>
+    <>
+      <div className="hidden h-full min-h-0 w-64 shrink-0 flex-col border-l border-border/60 bg-background/50 md:flex">
+        {listContent}
+      </div>
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir conversa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {pendingDelete
+                ? `A conversa "${getConversationTitle(pendingDelete.title)}" será removida do histórico.`
+                : "Esta conversa será removida do histórico."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => pendingDelete ? void handleDelete(pendingDelete.id) : undefined}
+            >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

@@ -3,13 +3,22 @@
 import { startTransition, useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ActivityIcon, KeyRoundIcon, LayoutDashboardIcon, Loader2Icon, LogOutIcon, MessageSquareTextIcon, PlugIcon } from "lucide-react";
+import {
+  ActivityIcon,
+  CircleHelpIcon,
+  FileTextIcon,
+  LayoutDashboardIcon,
+  Loader2Icon,
+  LogOutIcon,
+  MessageSquareTextIcon,
+  PlugIcon,
+  UserRoundIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth/client";
 import { useAppState } from "@/components/app-state-provider";
 import { ModeToggle } from "@/components/mode-toggle";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Sidebar,
@@ -65,10 +74,72 @@ function LoadingShell() {
   );
 }
 
+function getPageCopy(pathname: string) {
+  if (pathname.startsWith("/dashboard/api-keys")) {
+    return {
+      description: "Crie, revogue e acompanhe as chaves usadas por clientes externos.",
+      title: "API Keys",
+    };
+  }
+
+  if (pathname.startsWith("/dashboard/credentials")) {
+    return {
+      description: "Gerencie as credenciais usadas pelas integrações autenticadas.",
+      title: "Credenciais",
+    };
+  }
+
+  if (pathname.startsWith("/dashboard/logs")) {
+    return {
+      description: "Acompanhe requests recentes, status e detalhes de erro.",
+      title: "Logs de uso",
+    };
+  }
+
+  if (pathname.startsWith("/dashboard")) {
+    return {
+      description: "Indicadores, chaves e atividade recente da conta.",
+      title: "Dashboard",
+    };
+  }
+
+  if (pathname.startsWith("/chat")) {
+    return {
+      description: "Converse com seus modelos e acompanhe o histórico.",
+      title: "Chat",
+    };
+  }
+
+  if (pathname.startsWith("/setup")) {
+    return {
+      description: "Conecte e teste suas integrações de IA.",
+      title: "Integrações",
+    };
+  }
+
+  if (pathname.startsWith("/account")) {
+    return {
+      description: "Gerencie preferências, acesso e segurança.",
+      title: "Conta",
+    };
+  }
+
+  return {
+    description: "",
+    title: "ModelHub",
+  };
+}
+
+function getUserInitials(email: string) {
+  const [local] = email.split("@");
+  return (local ?? "MH").slice(0, 2).toUpperCase();
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { authReady, user } = useAppState();
+  const pageCopy = getPageCopy(pathname);
 
   useEffect(() => {
     if (authReady && !user) {
@@ -97,18 +168,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <SidebarProvider className="min-h-0 h-svh">
       <Sidebar collapsible="icon" variant="inset">
         <SidebarHeader className="gap-3 p-4">
-          <div className="flex items-center gap-3">
+          <Link href="/dashboard" className="flex items-center gap-3 rounded-xl">
             <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
               <ActivityIcon />
             </div>
             <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
               <span className="truncate text-sm font-semibold">ModelHub</span>
-              <span className="truncate text-xs text-sidebar-foreground/70">{user.email}</span>
+              <span className="truncate text-xs text-sidebar-foreground/70">Gateway unificado para IA</span>
             </div>
-          </div>
-          <Badge variant="secondary" className="w-fit group-data-[collapsible=icon]:hidden">
-            Sessão web ativa
-          </Badge>
+          </Link>
         </SidebarHeader>
         <SidebarSeparator />
         <SidebarContent>
@@ -117,7 +185,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/chat"} tooltip="Chat">
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/dashboard")} tooltip="Dashboard">
+                    <Link href="/dashboard">
+                      <LayoutDashboardIcon />
+                      <span>Dashboard</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/chat")} tooltip="Chat">
                     <Link href="/chat">
                       <MessageSquareTextIcon />
                       <span>Chat</span>
@@ -125,19 +201,41 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/setup"} tooltip="Providers">
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/setup")} tooltip="Integrações">
                     <Link href="/setup">
                       <PlugIcon />
-                      <span>Providers</span>
+                      <span>Integrações</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+          <SidebarSeparator />
+          <SidebarGroup>
+            <SidebarGroupLabel>Ajuda</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname === "/dashboard"} tooltip="Dashboard">
-                    <Link href="/dashboard">
-                      <LayoutDashboardIcon />
-                      <span>Dashboard</span>
-                    </Link>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip="Documentação"
+                  >
+                    <a href="https://github.com/Geeks-Zone/modelhub#readme" target="_blank" rel="noreferrer">
+                      <FileTextIcon />
+                      <span>Docs</span>
+                    </a>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip="Suporte"
+                  >
+                    <a href="https://github.com/Geeks-Zone/modelhub/issues" target="_blank" rel="noreferrer">
+                      <CircleHelpIcon />
+                      <span>Suporte</span>
+                    </a>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
@@ -146,30 +244,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </SidebarContent>
         <SidebarSeparator />
         <SidebarFooter className="gap-3 p-4">
-          <div className="grid gap-1 rounded-xl bg-sidebar-accent/70 p-3 text-xs group-data-[collapsible=icon]:hidden">
-            <span className="font-medium text-sidebar-accent-foreground">API keys e credenciais</span>
-            <span className="text-sidebar-foreground/70">
-              Use o dashboard para gerenciar tokens, providers e métricas.
-            </span>
-          </div>
-          <div className="flex flex-col gap-2 group-data-[collapsible=icon]:hidden">
-            <Button asChild variant="outline" size="sm">
-              <Link href="/dashboard">
-                <KeyRoundIcon data-icon="inline-start" />
-                Gerenciar chaves
-              </Link>
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
-              <LogOutIcon data-icon="inline-start" />
-              Sair
+          <div className="flex items-center gap-3 rounded-xl border border-sidebar-border/70 bg-sidebar-accent/50 p-3 group-data-[collapsible=icon]:hidden">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-sidebar-primary/10 text-sidebar-primary">
+              <UserRoundIcon className="size-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{user.email}</p>
+              <p className="text-xs text-sidebar-foreground/70">Conta ativa</p>
+            </div>
+            <Button variant="ghost" size="icon-sm" onClick={handleLogout} aria-label="Sair">
+              <LogOutIcon />
             </Button>
           </div>
           <SidebarMenu className="hidden group-data-[collapsible=icon]:flex">
             <SidebarMenuItem>
-              <SidebarMenuButton asChild tooltip="Dashboard">
-                <Link href="/dashboard">
-                  <KeyRoundIcon />
-                </Link>
+              <SidebarMenuButton tooltip={user.email}>
+                <span>{getUserInitials(user.email)}</span>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
@@ -187,28 +277,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex min-w-0 items-center gap-3">
               <SidebarTrigger />
               <div className="min-w-0 flex flex-col">
-                <span className="truncate text-sm font-medium">
-                  {pathname.startsWith("/setup")
-                    ? "Providers"
-                    : pathname.startsWith("/dashboard")
-                      ? "Dashboard"
-                      : pathname.startsWith("/account")
-                        ? "Conta"
-                        : pathname.startsWith("/chat")
-                          ? "Chat"
-                          : "ModelHub"}
-                </span>
-                <span className="hidden truncate text-xs text-muted-foreground sm:block">
-                  {pathname.startsWith("/setup")
-                    ? "Configure as chaves dos providers de IA"
-                    : pathname.startsWith("/dashboard")
-                      ? "Conta, uso, API keys e credenciais"
-                      : pathname.startsWith("/account")
-                        ? "Definições e segurança da conta"
-                        : pathname.startsWith("/chat")
-                          ? "Converse com os providers configurados"
-                          : ""}
-                </span>
+                <span className="truncate text-sm font-medium">{pageCopy.title}</span>
+                <span className="hidden truncate text-xs text-muted-foreground sm:block">{pageCopy.description}</span>
               </div>
             </div>
             <div className="flex items-center gap-2">
