@@ -54,6 +54,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -75,6 +76,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { apiFetch, apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
 import { useProviderModels } from "@/lib/use-provider-models";
@@ -140,6 +142,12 @@ type PersistedConversationMessage = {
 
 const DUCKAI_TEMPORARY_INLINE_MESSAGE = "Duck.ai temporariamente indisponível. Tente novamente em instantes.";
 const STREAM_INTERRUPTED_NOTE = "\n\n_Resposta interrompida. Tente novamente._";
+const EMPTY_STATE_PROMPTS = [
+  "Resuma este projeto em tópicos.",
+  "Compare dois providers para o meu caso.",
+  "Escreva um prompt melhor para suporte.",
+  "Me ajude a diagnosticar um erro 500.",
+] as const;
 
 type ChatRequestError = Error & {
   status?: number;
@@ -1361,41 +1369,62 @@ export function ChatPage() {
             </Select>
           )}
 
-          <Badge
-            variant={selectedProviderReady ? "outline" : "destructive"}
-            className="shrink-0 whitespace-nowrap text-xs"
-          >
-            {selectedProviderReady ? (
-              "Pronto"
-            ) : (
-              <>
-                <span className="sm:hidden">Pendente</span>
-                <span className="hidden sm:inline">Credenciais pendentes</span>
-              </>
-            )}
-          </Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge
+                variant={selectedProviderReady ? "outline" : "destructive"}
+                className="shrink-0 whitespace-nowrap text-xs"
+              >
+                {selectedProviderReady ? (
+                  "Conectado"
+                ) : (
+                  <>
+                    <span className="sm:hidden">Pendente</span>
+                    <span className="hidden sm:inline">Credenciais pendentes</span>
+                  </>
+                )}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {selectedProviderReady
+                ? "Provider configurado e pronto para uso."
+                : "Este provider ainda precisa de credenciais antes de enviar mensagens."}
+            </TooltipContent>
+          </Tooltip>
 
-          <Button
-            variant={temporaryChat ? "default" : "ghost"}
-            size="sm"
-            className="h-8 shrink-0 text-xs"
-            onClick={() => setTemporaryChat((v) => !v)}
-            title={temporaryChat ? "Chat temporário ativo — mensagens não serão salvas" : "Ativar chat temporário"}
-          >
-            <ShieldOffIcon className="size-3.5" />
-            <span className="hidden sm:inline">{temporaryChat ? "Sem salvar" : "Temporário"}</span>
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={temporaryChat ? "default" : "ghost"}
+                size="sm"
+                className="h-8 shrink-0 text-xs"
+                onClick={() => setTemporaryChat((v) => !v)}
+              >
+                <ShieldOffIcon className="size-3.5" />
+                <span className="hidden sm:inline">{temporaryChat ? "Sem salvar" : "Temporário"}</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {temporaryChat
+                ? "Conversa temporária ativa. Nada será salvo no histórico."
+                : "Use este modo quando quiser conversar sem salvar no histórico."}
+            </TooltipContent>
+          </Tooltip>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-8 shrink-0 text-xs"
-            onClick={() => setSettingsOpen(true)}
-            title="Personalização (instruções e memória)"
-          >
-            <UserIcon className="size-3.5" />
-            <span className="hidden sm:inline">Personalizar</span>
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 text-xs"
+                onClick={() => setSettingsOpen(true)}
+              >
+                <UserIcon className="size-3.5" />
+                <span className="hidden sm:inline">Personalizar</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Defina instruções, memória e preferências desta conversa.</TooltipContent>
+          </Tooltip>
 
           {activeConversationId && (
             <Button
@@ -1460,15 +1489,31 @@ export function ChatPage() {
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 md:px-4 md:py-6">
           {messages.length === 0 ? (
             <div className="flex flex-1 items-center justify-center py-16">
-              <div className="flex flex-col items-center gap-3 text-center">
-                <div className="flex size-12 items-center justify-center rounded-full bg-muted">
-                  <SparklesIcon className="size-5 text-muted-foreground" />
-                </div>
-                <p className="text-sm font-medium">Envie sua primeira mensagem</p>
-                <p className="max-w-xs text-xs text-muted-foreground">
-                  Escolha um provider e modelo acima para começar a conversar.
-                </p>
-              </div>
+              <Empty className="max-w-xl border-border/60 bg-muted/20">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon" className="size-12 rounded-full">
+                    <SparklesIcon className="size-5 text-muted-foreground" />
+                  </EmptyMedia>
+                  <EmptyTitle>Comece uma nova conversa</EmptyTitle>
+                  <EmptyDescription className="max-w-md text-sm">
+                    Escolha um provider e um modelo, ou use uma sugestão abaixo para reduzir a barreira de entrada.
+                  </EmptyDescription>
+                </EmptyHeader>
+                <EmptyContent className="max-w-lg">
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {EMPTY_STATE_PROMPTS.map((prompt) => (
+                      <Button
+                        key={prompt}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setInput(prompt)}
+                      >
+                        {prompt}
+                      </Button>
+                    ))}
+                  </div>
+                </EmptyContent>
+              </Empty>
             </div>
           ) : (
             messages.map((message, messageIndex) => (
@@ -1824,24 +1869,32 @@ export function ChatPage() {
                   void sendMessage();
                 }
               }}
-              placeholder="Escreva sua mensagem..."
+              placeholder="Pergunte algo..."
               className="min-h-[2.25rem] text-sm"
             />
             <InputGroupAddon align="block-end" className="justify-between gap-2 border-t px-2 py-1.5">
               <div className="flex items-center gap-1.5">
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  className="size-6"
-                  onClick={() => fileInputRef.current?.click()}
-                  title="Anexar arquivo"
-                  disabled={
-                    pending ||
-                    (!allowImageAttachments && !allowDocumentAttachments)
-                  }
-                >
-                  <PaperclipIcon className="size-3" />
-                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button
+                        variant="ghost"
+                        size="icon-xs"
+                        className="size-6"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={
+                          pending ||
+                          (!allowImageAttachments && !allowDocumentAttachments)
+                        }
+                      >
+                        <PaperclipIcon className="size-3" />
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="max-w-xs text-xs">
+                    Limites: {formatBytes(MAX_ATTACHMENT_FILE_BYTES)} por imagem, {formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} em imagens, {formatBytes(MAX_DOCUMENT_ATTACHMENT_FILE_BYTES)} por documento, {formatBytes(MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES)} em documentos e {formatBytes(MAX_SERIALIZED_CHAT_REQUEST_BYTES)} por request.
+                  </TooltipContent>
+                </Tooltip>
                 <InputGroupText className="text-xs">
                   {selectedProvider?.label ?? "Provider"}
                   {selectedModelId ? ` · ${models.find((model) => model.id === selectedModelId)?.name ?? selectedModelId}` : ""}
@@ -1869,9 +1922,6 @@ export function ChatPage() {
               )}
             </InputGroupAddon>
           </InputGroup>
-          <p className="mt-1 px-1 text-[11px] text-muted-foreground">
-            Limites: {formatBytes(MAX_ATTACHMENT_FILE_BYTES)} por imagem, {formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} em imagens, {formatBytes(MAX_DOCUMENT_ATTACHMENT_FILE_BYTES)} por documento, {formatBytes(MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES)} em documentos e {formatBytes(MAX_SERIALIZED_CHAT_REQUEST_BYTES)} por request.
-          </p>
         </div>
       </div>
 
@@ -1919,7 +1969,7 @@ export function ChatPage() {
                         }))
                       }
                     />
-                    <FieldDescription>{field.envName}</FieldDescription>
+                    <FieldDescription>Informe a chave recebida no painel deste provider.</FieldDescription>
                   </Field>
                 ))}
               </FieldGroup>
