@@ -64,7 +64,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "highlight.js": "^11.11.1",
-    "hono": "^4.12.19",
+    "hono": "^4.12.21",
     "jsdom": "^29.1.1",
     "jszip": "^3.10.1",
     "katex": "^0.16.45",
