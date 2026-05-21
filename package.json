@@ -100,7 +100,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.6",
-    "postcss": "^8.5.14",
+    "postcss": "^8.5.15",
     "prisma": "^7.8.0",
     "tailwindcss": "^4.2.4",
     "typescript": "^5.9.3",
