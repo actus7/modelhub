@@ -6,7 +6,8 @@ export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'mimo-v2.5-pro', name: 'Mimo v2.5 Pro' },
 ]
 
-const OPENGATEWAY_CHAT_URL = process.env.OPENGATEWAY_CHAT_URL || 'https://opengateway.gitlawb.com/v1/chat/completions'
+const OPENGATEWAY_BASE_URL = process.env.OPENGATEWAY_BASE_URL || 'https://opengateway.gitlawb.com/v1'
+const OPENGATEWAY_CHAT_URL = `${OPENGATEWAY_BASE_URL}/chat/completions`
 const OPENGATEWAY_API_KEY = 'OPENGATEWAY_API_KEY'
 
 const app = createProviderApp({
