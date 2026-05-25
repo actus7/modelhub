@@ -1,5 +1,5 @@
 import { createProviderApp } from '../lib/provider-core'
-import { chatViaOpenAiCompatible } from '../lib/openai-compatible'
+import { chatViaOpenAiCompatible, testViaOpenAiModels } from '../lib/openai-compatible'
 import { resolveEnv } from '../lib/provider-core'
 
 export const models = [
