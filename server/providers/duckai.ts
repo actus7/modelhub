@@ -48,6 +48,7 @@ type DdgMessage = { role: 'user' | 'assistant'; content: string }
 type DuckAiReasoningEffort = 'minimal' | 'low'
 type DuckAiRetryClass = 'bn_limit' | 'challenge' | 'empty_stream' | 'network' | 'timeout'
 type DuckAiRetryPhase = 'chat_http' | 'chat_stream_prelude' | 'vqd'
+type DuckAiChallengeRuntime = 'browser' | 'jsdom-dangerous' | 'off'
 type JsdomCtor = (typeof import('jsdom'))['JSDOM']
 type JsdomWindowLike = typeof globalThis & {
   HTMLFrameElement?: { prototype: unknown }
@@ -167,13 +168,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function isDuckAiBrowserFallbackEnabled(): boolean {
-  const rawValue = process.env.DUCKAI_BROWSER_FALLBACK?.trim().toLowerCase()
-  if (rawValue === '1' || rawValue === 'true') return true
-  if (rawValue === '0' || rawValue === 'false') return false
+function getDuckAiChallengeRuntime(): DuckAiChallengeRuntime {
+  const rawRuntime = process.env.DUCKAI_CHALLENGE_RUNTIME?.trim().toLowerCase()
+  if (rawRuntime === 'browser' || rawRuntime === 'puppeteer') return 'browser'
+  if (rawRuntime === 'off' || rawRuntime === 'disabled') return 'off'
+  if (
+    rawRuntime === 'jsdom-dangerous' &&
+    process.env.DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE === 'true'
+  ) {
+    return 'jsdom-dangerous'
+  }
 
-  // Vercel serverless does not ship a Chrome binary by default.
-  return !process.env.VERCEL
+  const legacyBrowserFallback = process.env.DUCKAI_BROWSER_FALLBACK?.trim().toLowerCase()
+  if (legacyBrowserFallback === '0' || legacyBrowserFallback === 'false') return 'off'
+  if (legacyBrowserFallback === '1' || legacyBrowserFallback === 'true') return 'browser'
+
+  if (process.env.DUCKAI_BROWSER_WS_ENDPOINT?.trim()) {
+    return 'browser'
+  }
+
+  // Local/dev can use the bundled Puppeteer browser. Vercel should use
+  // DUCKAI_BROWSER_WS_ENDPOINT or an explicit runtime setting.
+  return process.env.VERCEL ? 'off' : 'browser'
 }
 
 function mergeCookies(...cookieHeaders: Array<string | undefined>): string {
@@ -694,22 +710,62 @@ async function fetchChallengeHash(seedCookies = ''): Promise<{
 }
 
 /**
- * Get the solved hash payload — 3-layer strategy:
+ * Get the solved hash payload.
  *
- * **Layer 1**: jsdom (4 attempts, fetching a new challenge each time).
- *   Attempts 3–4 also apply dynamic deobfuscation to the script source.
+ * Safe default: solve the challenge inside Chromium (local Puppeteer in dev or
+ * DUCKAI_BROWSER_WS_ENDPOINT in hosted/serverless environments).
  *
- * **Layer 2**: Puppeteer headless browser fallback (warm singleton).
- *   Used only when all jsdom attempts fail. Guaranteed to work because
- *   it runs a real Chromium engine.
+ * Legacy jsdom execution is still available only with both:
+ * DUCKAI_CHALLENGE_RUNTIME=jsdom-dangerous and
+ * DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE=true.
  */
 async function getVqdData(seedCookies = ''): Promise<DuckAiVqdData> {
   let cookies = seedCookies
   let lastError: Error | null = null
   let lastChallengeHash: string | null = null
-  const browserFallbackEnabled = isDuckAiBrowserFallbackEnabled()
+  const challengeRuntime = getDuckAiChallengeRuntime()
 
-  // --- Layer 1: jsdom with retry (up to 4 attempts) ---
+  if (challengeRuntime === 'off') {
+    throw new Error(
+      'Duck.ai VQD challenge runtime is disabled. Set DUCKAI_BROWSER_WS_ENDPOINT ' +
+        'or DUCKAI_CHALLENGE_RUNTIME=browser to keep Duck.ai enabled safely.',
+    )
+  }
+
+  if (challengeRuntime === 'browser') {
+    try {
+      const challenge = await fetchChallengeHash(cookies)
+      cookies = challenge.cookies
+      const challengeResult = await solveVqdChallengeWithBrowser(challenge.challengeHash)
+
+      logDuckAi('challenge', 'log', {
+        browserFallbackUsed: true,
+        finalOutcome: 'success',
+        jsdomAttempts: 0,
+        phase: 'vqd',
+      })
+      return {
+        browserFallbackUsed: true,
+        cookies,
+        hashPayload: buildHashPayload(challengeResult),
+        jsdomAttempts: 0,
+      }
+    } catch (browserError) {
+      const err = browserError instanceof Error ? browserError : new Error(String(browserError))
+      console.error('[Duck.ai] Browser challenge failed:', err.message)
+      logDuckAi('challenge', 'error', {
+        browserFallbackUsed: true,
+        finalOutcome: 'error',
+        jsdomAttempts: 0,
+        phase: 'vqd',
+        retryClass: 'challenge',
+      })
+      throw new Error(`Duck.ai browser challenge failed: ${err.message}`)
+    }
+  }
+
+  // Explicit legacy fallback: jsdom runs remote challenge code in Node and is
+  // intentionally not reachable unless the deployment opts into that risk.
   for (let attempt = 1; attempt <= JSDOM_MAX_RETRIES; attempt++) {
     try {
       const challenge = await fetchChallengeHash(cookies)
@@ -737,11 +793,7 @@ async function getVqdData(seedCookies = ''): Promise<DuckAiVqdData> {
       lastError = error instanceof Error ? error : new Error(String(error))
 
       if (isJsdomUnavailableError(lastError)) {
-        console.warn(
-          browserFallbackEnabled
-            ? '[Duck.ai] jsdom is unavailable in this runtime; using Puppeteer fallback immediately...'
-            : '[Duck.ai] jsdom is unavailable in this runtime and browser fallback is disabled here.',
-        )
+        console.warn('[Duck.ai] jsdom is unavailable in this runtime.')
         break
       }
 
@@ -767,58 +819,19 @@ async function getVqdData(seedCookies = ''): Promise<DuckAiVqdData> {
     }
   }
 
-  // --- Layer 2: Browser fallback (Puppeteer) ---
-  if (!browserFallbackEnabled) {
-    logDuckAi('challenge', 'error', {
-      browserFallbackUsed: false,
-      finalOutcome: 'error',
-      jsdomAttempts: JSDOM_MAX_RETRIES,
-      phase: 'vqd',
-      retryClass: 'challenge',
-    })
-    throw new Error(
-      `VQD challenge failed after ${JSDOM_MAX_RETRIES} jsdom attempts. ` +
-        `Browser fallback is disabled in this runtime. Last jsdom error: ${lastError?.message}`,
-    )
-  }
+  // Legacy jsdom mode failed and will not fall back to another runtime here.
+  logDuckAi('challenge', 'error', {
+    browserFallbackUsed: false,
+    finalOutcome: 'error',
+    jsdomAttempts: JSDOM_MAX_RETRIES,
+    phase: 'vqd',
+    retryClass: 'challenge',
+  })
+  throw new Error(
+    `VQD challenge failed after ${JSDOM_MAX_RETRIES} explicit jsdom-dangerous attempts. ` +
+      `Last jsdom error: ${lastError?.message}. Last challenge hash present: ${Boolean(lastChallengeHash)}`,
+  )
 
-  console.warn('[Duck.ai] All jsdom attempts failed — falling back to Puppeteer browser...')
-  try {
-    // Re-fetch a fresh challenge for the browser attempt
-    const challenge = lastChallengeHash
-      ? { challengeHash: lastChallengeHash, cookies }
-      : await fetchChallengeHash(cookies)
-    cookies = challenge.cookies
-    const challengeResult = await solveVqdChallengeWithBrowser(challenge.challengeHash)
-
-    logDuckAi('challenge', 'log', {
-      browserFallbackUsed: true,
-      finalOutcome: 'success',
-      jsdomAttempts: JSDOM_MAX_RETRIES,
-      phase: 'vqd',
-    })
-    return {
-      browserFallbackUsed: true,
-      cookies,
-      hashPayload: buildHashPayload(challengeResult),
-      jsdomAttempts: JSDOM_MAX_RETRIES,
-    }
-  } catch (browserError) {
-    const err = browserError instanceof Error ? browserError : new Error(String(browserError))
-    console.error('[Duck.ai] Browser fallback also failed:', err.message)
-    logDuckAi('challenge', 'error', {
-      browserFallbackUsed: true,
-      finalOutcome: 'error',
-      jsdomAttempts: JSDOM_MAX_RETRIES,
-      phase: 'vqd',
-      retryClass: 'challenge',
-    })
-    // Throw the original jsdom error + browser error for debugging
-    throw new Error(
-      `VQD challenge failed after ${JSDOM_MAX_RETRIES} jsdom attempts and browser fallback. ` +
-        `Last jsdom error: ${lastError?.message}. Browser error: ${err.message}`,
-    )
-  }
 }
 
 function toDdgMessages(messages: ChatMessage[]): DdgMessage[] {

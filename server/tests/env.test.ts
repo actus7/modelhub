@@ -54,6 +54,41 @@ describe("runtime env validation", () => {
     );
   });
 
+  it("requires explicit opt-in for Duck.ai jsdom challenge execution", () => {
+    expect(
+      validateRuntimeEnvConfig({
+        ...VALID_ENV,
+        DUCKAI_CHALLENGE_RUNTIME: "jsdom-dangerous",
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        'DUCKAI_CHALLENGE_RUNTIME=jsdom-dangerous requires DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE="true".',
+      ]),
+    );
+  });
+
+  it("accepts the browser Duck.ai challenge runtime", () => {
+    expect(
+      validateRuntimeEnvConfig({
+        ...VALID_ENV,
+        DUCKAI_CHALLENGE_RUNTIME: "browser",
+      }),
+    ).toEqual([]);
+  });
+
+  it("requires complete Upstash configuration when distributed rate limiting is enabled", () => {
+    expect(
+      validateRuntimeEnvConfig({
+        ...VALID_ENV,
+        UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together.",
+      ]),
+    );
+  });
+
   it("validates in development and on Vercel preview/production", () => {
     expect(shouldValidateRuntimeEnv({ NODE_ENV: "development" } as NodeJS.ProcessEnv)).toBe(true);
     expect(shouldValidateRuntimeEnv({ NODE_ENV: "production", VERCEL_ENV: "preview" } as NodeJS.ProcessEnv)).toBe(true);
