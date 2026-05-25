@@ -129,6 +129,16 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     signupLabel: 'Obter chave na Vercel',
   },
   {
+    id: 'opengateway',
+    label: 'OpenGateway',
+    base: '/opengateway',
+    hasModels: true,
+    requiredEnv: 'OPENGATEWAY_API_KEY',
+    requiredKeys: [{ envName: 'OPENGATEWAY_API_KEY', label: 'API Key', placeholder: 'ogw_live_...' }],
+    signupUrl: 'https://gitlawb.com/opengateway/keys',
+    signupLabel: 'Obter chave no OpenGateway',
+  },
+  {
     id: 'opencodezen',
     label: 'OpenCode Zen',
     base: '/opencodezen',
