@@ -1,6 +1,5 @@
-import { createProviderApp } from '../lib/provider-core'
+import { createProviderApp, resolveEnv } from '../lib/provider-core'
 import { chatViaOpenAiCompatible, testViaOpenAiModels } from '../lib/openai-compatible'
-import { resolveEnv } from '../lib/provider-core'
 
 export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'mimo-v2.5-pro', name: 'Mimo v2.5 Pro' },
