@@ -14,6 +14,7 @@ import huggingFaceFetch, { models as huggingfaceModels } from "./huggingface";
 import mistralFetch, { models as mistralModels } from "./mistral";
 import nvidiaNimFetch, { models as nvidianimModels } from "./nvidianim";
 import openCodeZenFetch, { models as opencodezenModels } from "./opencodezen";
+import opengatewayFetch, { models as opengatewayModels } from "./opengateway";
 import openrouterFetch, { models as openrouterModels } from "./openrouter";
 import perplexityFetch, { models as perplexityModels } from "./perplexity";
 import pollinationsFetch, { POLLINATIONS_MODELS, fetchPollinationsModels } from "./pollinations";
@@ -88,6 +89,11 @@ export const providerRegistry: Record<string, ProviderEntry> = {
     handler: openCodeZenFetch,
     models: opencodezenModels,
     fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.opencode.ai/v1/models', apiKeyEnv: 'OPENCODE_ZEN_API_KEY', providerName: 'OpenCode Zen' }),
+  },
+  opengateway: {
+    handler: opengatewayFetch,
+    models: opengatewayModels,
+    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://opengateway.gitlawb.com/v1/models', apiKeyEnv: 'OPENGATEWAY_API_KEY', providerName: 'OpenGateway' }),
   },
   openrouter: {
     handler: openrouterFetch,
