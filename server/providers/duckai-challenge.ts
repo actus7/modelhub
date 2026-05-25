@@ -27,6 +27,7 @@ export type VqdChallengeResult = {
 let warmBrowser: Browser | null = null
 let warmBrowserTimeout: ReturnType<typeof setTimeout> | null = null
 let puppeteerModulePromise: Promise<typeof import('puppeteer')> | null = null
+let warmBrowserIsRemote = false
 const BROWSER_IDLE_MS = 5 * 60 * 1000 // close after 5 min idle
 
 async function getPuppeteerModule(): Promise<typeof import('puppeteer')> {
@@ -37,30 +38,53 @@ async function getPuppeteerModule(): Promise<typeof import('puppeteer')> {
   return puppeteerModulePromise
 }
 
+function getBrowserLaunchArgs(): string[] {
+  const args = [
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-extensions',
+  ]
+
+  if (process.env.DUCKAI_PUPPETEER_NO_SANDBOX === 'true') {
+    args.unshift('--no-sandbox', '--disable-setuid-sandbox')
+  }
+
+  return args
+}
+
 async function getWarmBrowser(): Promise<Browser> {
   // Reset idle timer every time the browser is used
   if (warmBrowserTimeout) clearTimeout(warmBrowserTimeout)
   warmBrowserTimeout = setTimeout(() => {
-    warmBrowser?.close().catch(() => {})
+    const browser = warmBrowser
+    if (warmBrowserIsRemote) {
+      browser?.disconnect()
+    } else {
+      browser?.close().catch(() => {})
+    }
     warmBrowser = null
+    warmBrowserIsRemote = false
     warmBrowserTimeout = null
     console.log('[Duck.ai] Warm browser closed (idle timeout)')
   }, BROWSER_IDLE_MS)
 
   if (warmBrowser && warmBrowser.connected) return warmBrowser
 
-  console.log('[Duck.ai] Launching warm Puppeteer browser...')
   const puppeteer = await getPuppeteerModule()
+  const browserWsEndpoint = process.env.DUCKAI_BROWSER_WS_ENDPOINT?.trim()
+  if (browserWsEndpoint) {
+    console.log('[Duck.ai] Connecting to remote browser for VQD challenge...')
+    warmBrowser = await puppeteer.connect({ browserWSEndpoint: browserWsEndpoint })
+    warmBrowserIsRemote = true
+    return warmBrowser
+  }
+
+  console.log('[Duck.ai] Launching warm Puppeteer browser...')
   warmBrowser = await puppeteer.launch({
     headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--disable-extensions',
-    ],
+    args: getBrowserLaunchArgs(),
   })
+  warmBrowserIsRemote = false
   return warmBrowser
 }
 

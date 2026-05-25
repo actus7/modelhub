@@ -11,6 +11,11 @@ type RateLimitRecord = {
   resetAt: number;
 };
 
+type UpstashResponse = {
+  error?: string;
+  result?: unknown;
+};
+
 const rateLimitStore = new Map<string, RateLimitRecord>();
 const DEV_ALLOWED_ORIGINS = [
   "http://localhost:3000",
@@ -202,6 +207,14 @@ function getUserRateLimitMax(): number {
   return Number.isFinite(configuredValue) && configuredValue > 0 ? configuredValue : 120;
 }
 
+function getUpstashRateLimitConfig():
+  | { token: string; url: string }
+  | null {
+  const url = process.env.UPSTASH_REDIS_REST_URL?.trim().replace(/\/+$/, "");
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  return url && token ? { token, url } : null;
+}
+
 function getClientIdentifier(c: Context): string {
   const forwardedForHeader = c.req.header("x-forwarded-for");
   const forwardedFor = forwardedForHeader?.split(",")[0]?.trim();
@@ -226,13 +239,81 @@ function cleanupExpiredRateLimits(now: number): void {
   }
 }
 
-function enforceRateLimit(c: Context, overrideKey?: string, overrideMax?: number): Response | undefined {
-  const maxRequests = overrideMax ?? getRateLimitMax();
-  const windowMs = getRateLimitWindowMs();
+async function executeUpstashCommand(command: unknown[]): Promise<unknown | null> {
+  const config = getUpstashRateLimitConfig();
+  if (!config) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1500);
+  try {
+    const response = await fetch(config.url, {
+      body: JSON.stringify(command),
+      headers: {
+        Authorization: `Bearer ${config.token}`,
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      console.warn("[rate-limit] Upstash command failed", response.status);
+      return null;
+    }
+
+    const payload = (await response.json()) as UpstashResponse;
+    if (payload.error) {
+      console.warn("[rate-limit] Upstash returned an error", payload.error);
+      return null;
+    }
+
+    return payload.result ?? null;
+  } catch (error) {
+    console.warn("[rate-limit] Upstash unavailable; falling back to in-memory limiter", error);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function enforceDistributedRateLimit(
+  rateLimitKey: string,
+  maxRequests: number,
+  windowMs: number,
+): Promise<Response | undefined | null> {
+  const key = `modelhub:rate-limit:${rateLimitKey}`;
+  const countResult = await executeUpstashCommand(["INCR", key]);
+  if (countResult === null) return null;
+
+  const count = Number(countResult);
+  if (!Number.isFinite(count)) return null;
+
+  if (count === 1) {
+    await executeUpstashCommand(["PEXPIRE", key, windowMs]);
+  }
+
+  if (count <= maxRequests) {
+    return undefined;
+  }
+
+  const ttlResult = await executeUpstashCommand(["PTTL", key]);
+  const retryAfterSeconds = Math.max(
+    1,
+    Math.ceil((Number(ttlResult) || windowMs) / 1000),
+  );
+  return jsonError(429, "Too many requests", {
+    "Retry-After": String(retryAfterSeconds),
+  });
+}
+
+function enforceInMemoryRateLimit(
+  rateLimitKey: string,
+  maxRequests: number,
+  windowMs: number,
+): Response | undefined {
   const now = Date.now();
   cleanupExpiredRateLimits(now);
 
-  const rateLimitKey = overrideKey ?? getClientIdentifier(c);
   const currentRecord = rateLimitStore.get(rateLimitKey);
   if (!currentRecord || currentRecord.resetAt <= now) {
     rateLimitStore.set(rateLimitKey, { count: 1, resetAt: now + windowMs });
@@ -251,6 +332,19 @@ function enforceRateLimit(c: Context, overrideKey?: string, overrideMax?: number
   });
 }
 
+async function enforceRateLimit(c: Context, overrideKey?: string, overrideMax?: number): Promise<Response | undefined> {
+  const maxRequests = overrideMax ?? getRateLimitMax();
+  const windowMs = getRateLimitWindowMs();
+  const rateLimitKey = overrideKey ?? getClientIdentifier(c);
+
+  const distributedResult = await enforceDistributedRateLimit(rateLimitKey, maxRequests, windowMs);
+  if (distributedResult !== null) {
+    return distributedResult;
+  }
+
+  return enforceInMemoryRateLimit(rateLimitKey, maxRequests, windowMs);
+}
+
 export async function ensureProtectedAccess(
   c: Context,
   options?: {
@@ -261,7 +355,7 @@ export async function ensureProtectedAccess(
     return jsonError(404, "Provider not available");
   }
 
-  const rateLimitError = enforceRateLimit(c);
+  const rateLimitError = await enforceRateLimit(c);
   if (rateLimitError) return rateLimitError;
 
   if (isAccessProtectionEnabled()) {
@@ -270,13 +364,13 @@ export async function ensureProtectedAccess(
 
     const apiKeyId = c.get("apiKeyId") as string | undefined;
     if (apiKeyId) {
-      const keyRateLimitError = enforceRateLimit(c, `apikey:${apiKeyId}`, getUserRateLimitMax());
+      const keyRateLimitError = await enforceRateLimit(c, `apikey:${apiKeyId}`, getUserRateLimitMax());
       if (keyRateLimitError) return keyRateLimitError;
     }
 
     const sessionId = c.get("sessionId") as string | undefined;
     if (!apiKeyId && sessionId) {
-      const sessionRateLimitError = enforceRateLimit(
+      const sessionRateLimitError = await enforceRateLimit(
         c,
         `session:${sessionId}`,
         getUserRateLimitMax(),

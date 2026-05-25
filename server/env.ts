@@ -89,6 +89,27 @@ function validateBooleanFlag(name: string, env: NodeJS.ProcessEnv, issues: strin
   }
 }
 
+function validateDuckAiChallengeRuntime(env: NodeJS.ProcessEnv, issues: string[]): void {
+  const rawValue = env.DUCKAI_CHALLENGE_RUNTIME?.trim().toLowerCase();
+  if (
+    rawValue &&
+    !["browser", "puppeteer", "off", "disabled", "jsdom-dangerous"].includes(rawValue)
+  ) {
+    issues.push(
+      'DUCKAI_CHALLENGE_RUNTIME must be "browser", "puppeteer", "off", "disabled", or "jsdom-dangerous" when configured.',
+    );
+  }
+
+  if (
+    rawValue === "jsdom-dangerous" &&
+    env.DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE !== "true"
+  ) {
+    issues.push(
+      'DUCKAI_CHALLENGE_RUNTIME=jsdom-dangerous requires DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE="true".',
+    );
+  }
+}
+
 function validatePositiveNumber(name: string, env: NodeJS.ProcessEnv, issues: string[]): void {
   const rawValue = env[name];
   if (rawValue === undefined) {
@@ -119,6 +140,26 @@ function validateAllowedProxyDomains(env: NodeJS.ProcessEnv, issues: string[]): 
     if (domain.includes("://") || domain.includes("/") || domain.includes("?")) {
       issues.push(`ALLOWED_PROXY_DOMAINS entry "${domain}" must be a bare domain without protocol or path.`);
     }
+  }
+}
+
+function validateUpstashRateLimitEnv(env: NodeJS.ProcessEnv, issues: string[]): void {
+  const url = env.UPSTASH_REDIS_REST_URL?.trim();
+  const token = env.UPSTASH_REDIS_REST_TOKEN?.trim();
+  if (!url && !token) return;
+
+  if (!url || !token) {
+    issues.push("UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN must be configured together.");
+    return;
+  }
+
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") {
+      issues.push("UPSTASH_REDIS_REST_URL must use https.");
+    }
+  } catch {
+    issues.push("UPSTASH_REDIS_REST_URL must be a valid URL.");
   }
 }
 
@@ -184,11 +225,15 @@ export function validateRuntimeEnvConfig(env: NodeJS.ProcessEnv = process.env): 
   validateCookieSecret(env.NEON_AUTH_COOKIE_SECRET, issues);
   validateBooleanFlag("REQUIRE_AUTH", env, issues);
   validateBooleanFlag("ALLOW_DEBUG_ENDPOINTS", env, issues);
+  validateBooleanFlag("DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE", env, issues);
+  validateBooleanFlag("DUCKAI_PUPPETEER_NO_SANDBOX", env, issues);
+  validateDuckAiChallengeRuntime(env, issues);
   validatePositiveNumber("RATE_LIMIT_WINDOW_MS", env, issues);
   validatePositiveNumber("RATE_LIMIT_MAX", env, issues);
   validatePositiveNumber("USER_RATE_LIMIT_MAX", env, issues);
   validateAllowedOrigins(env, issues);
   validateAllowedProxyDomains(env, issues);
+  validateUpstashRateLimitEnv(env, issues);
   validateProviderSharedEnvMode(env, issues);
 
   return issues;
