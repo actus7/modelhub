@@ -1,5 +1,5 @@
-import { createProviderApp, resolveEnv } from '../lib/provider-core'
-import { chatViaOpenAiCompatible, testViaOpenAiModels } from '../lib/openai-compatible'
+import { createProviderApp, resolveEnv, postJsonWithTimeout } from '../lib/provider-core'
+import { chatViaOpenAiCompatible } from '../lib/openai-compatible'
 
 export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'mimo-v2.5-pro', name: 'Mimo v2.5 Pro' },
@@ -64,23 +64,27 @@ const app = createProviderApp({
   testCredentials: async (credentials) => {
     try {
       const apiKey = resolveEnv(OPENGATEWAY_API_KEY, credentials)
-      if (!apiKey) return { ok: false, error: 'Chave de API ausente' }
 
-      const response = await fetch(OPENGATEWAY_CHAT_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'accept-encoding': 'identity'
-        },
-        body: JSON.stringify({
-          model: 'mimo-v2.5-pro',
-          messages: [{ role: 'user', content: 'hello' }],
-          max_tokens: 1
-        })
-      })
+      const response = await postJsonWithTimeout(
+        OPENGATEWAY_CHAT_URL,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'accept-encoding': 'identity'
+          },
+          body: {
+            model: 'mimo-v2.5-pro',
+            messages: [{ role: 'user', content: 'hello' }],
+            max_tokens: 1
+          },
+          timeoutMs: 15000
+        }
+      )
+      
       if (!response.ok) {
-        return { ok: false, error: `Erro HTTP ${response.status}: ${await response.text()}` }
+        const text = await response.text()
+        return { ok: false, error: `Erro HTTP ${response.status}: ${text.slice(0, 100)}` }
       }
       return { ok: true }
     } catch (err: unknown) {

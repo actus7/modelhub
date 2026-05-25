@@ -93,7 +93,6 @@ export const providerRegistry: Record<string, ProviderEntry> = {
   opengateway: {
     handler: opengatewayFetch,
     models: opengatewayModels,
-    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://opengateway.gitlawb.com/v1/models', apiKeyEnv: 'OPENGATEWAY_API_KEY', providerName: 'OpenGateway' }),
   },
   openrouter: {
     handler: openrouterFetch,
