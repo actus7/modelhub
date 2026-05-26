@@ -14,6 +14,7 @@ const providerNames = [
   "Cloudflare Workers AI",
   "Duck AI",
   "Codestral",
+  "Puter Xiaomi MiMo",
 ];
 
 export function ProvidersSection() {
@@ -42,4 +43,3 @@ export function ProvidersSection() {
     </section>
   );
 }
-

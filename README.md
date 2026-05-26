@@ -17,7 +17,6 @@
 [![GitHub Stars](https://img.shields.io/github/stars/Geeks-Zone/modelhub)](https://github.com/Geeks-Zone/modelhub/stargazers)
 
 [Funcionalidades](#-funcionalidades) •
-[Demo](#-demo) •
 [Instalação](#-instalação) •
 [Documentação](#-documentação) •
 [Contribuir](#-contribuindo) •
@@ -55,18 +54,6 @@ ModelHub é uma plataforma open-source que unifica o acesso a múltiplos provedo
 - HuggingFace
 - OpenRouter
 - Vercel AI Gateway
-
-## 🎬 Demo
-
-> Demo ao vivo: em breve
-
-### Screenshots
-
-| Chat | Dashboard | Configuracoes |
-|------|-----------|---------------|
-| ![Chat](docs/images/chat-placeholder.png) | ![Dashboard](docs/images/dashboard-placeholder.png) | ![Settings](docs/images/settings-placeholder.png) |
-
-> Para gerar screenshots reais, execute `pnpm dev` e capture as telas da aplicacao.
 
 ## 🚀 Instalação
 

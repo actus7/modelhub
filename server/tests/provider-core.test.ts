@@ -114,6 +114,31 @@ describe("provider payload limits", () => {
     expect(response.status).toBe(200);
   });
 
+  it("rejects tool calls when the selected model does not support tools", async () => {
+    const chat = vi.fn().mockResolvedValue(new Response("ok"));
+    const app = createProviderApp({
+      basePath: "/test-provider",
+      chat,
+      defaultModel: "text-only-model",
+      models: [{ capabilities: { documents: true, images: false, tools: false }, id: "text-only-model", name: "Text Only" }],
+      providerId: "test-provider",
+    });
+
+    const response = await app.request("/test-provider/api/chat", {
+      body: JSON.stringify({
+        messages: [{ content: "hello", role: "user" }],
+        modelId: "text-only-model",
+        tools: [{ function: { name: "search", parameters: {} }, type: "function" }],
+      }),
+      headers: { "content-type": "application/json" },
+      method: "POST",
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: 'Modelo "text-only-model" nao suporta tools' });
+    expect(chat).not.toHaveBeenCalled();
+  });
+
   it("accepts a large system prompt with tool inventory", async () => {
     const chat = vi.fn().mockResolvedValue(new Response("ok"));
     const app = createProviderApp({

@@ -21,13 +21,36 @@ type ProviderKeyField = {
   placeholder: string;
 };
 
+type ProviderCategory =
+  | "api-provider"
+  | "browser-sdk"
+  | "gateway"
+  | "public-web"
+  | "utility";
+
+type ProviderAuthMode = "api-key" | "browser-session" | "none";
+
+export type ProviderRuntime = {
+  authMode: ProviderAuthMode;
+  externalApi: boolean;
+  kind: "client" | "server";
+  openAiCompatible: boolean;
+  transport:
+    | "browser-sdk"
+    | "modelhub-proxy"
+    | "openai-compatible"
+    | "passthrough-proxy";
+};
+
 export type UiProvider = {
   id: string;
   label: string;
   base: string;
+  category?: ProviderCategory;
   hasModels: boolean;
   requiredEnv?: string;
   requiredKeys?: ProviderKeyField[];
+  runtime?: ProviderRuntime;
   signupUrl?: string;
   signupLabel?: string;
 };

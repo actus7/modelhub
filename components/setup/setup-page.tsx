@@ -37,8 +37,11 @@ import { Input } from "@/components/ui/input";
 import { apiJsonRequest, testProviderCredentials } from "@/lib/api";
 import type { UiProvider } from "@/lib/contracts";
 import {
+  providerAuthMode,
   providerCredentialIds,
   providerHasRequiredCredentials,
+  providerUsesBrowserSession,
+  providerUsesStoredCredentials,
   sortProvidersByConfiguredCredentials,
 } from "@/lib/provider-credentials";
 
@@ -53,12 +56,16 @@ export function SetupPage() {
   const [pendingDisconnect, setPendingDisconnect] = useState<UiProvider | null>(null);
 
   const freeProviders = useMemo(
-    () => providers.filter((p) => !p.requiredKeys?.length),
+    () => providers.filter((provider) => providerAuthMode(provider) === "none"),
+    [providers],
+  );
+  const browserSessionProviders = useMemo(
+    () => providers.filter(providerUsesBrowserSession),
     [providers],
   );
   const paidProviders = useMemo(
     () => sortProvidersByConfiguredCredentials(
-      providers.filter((p) => (p.requiredKeys?.length ?? 0) > 0),
+      providers.filter(providerUsesStoredCredentials),
       credentials,
     ),
     [credentials, providers],
@@ -371,12 +378,19 @@ export function SetupPage() {
         </p>
       </div>
 
-      <div className="mb-8 grid gap-3 md:grid-cols-3">
+      <div className="mb-8 grid gap-3 md:grid-cols-4">
         <Card className="border-border/60">
           <CardContent className="flex flex-col gap-1 py-4">
             <span className="text-xs font-medium text-muted-foreground">Gratuitos</span>
             <span className="text-2xl font-semibold">{freeProviders.length}</span>
             <span className="text-xs text-muted-foreground">Disponíveis sem configurar</span>
+          </CardContent>
+        </Card>
+        <Card className="border-border/60">
+          <CardContent className="flex flex-col gap-1 py-4">
+            <span className="text-xs font-medium text-muted-foreground">Browser</span>
+            <span className="text-2xl font-semibold">{browserSessionProviders.length}</span>
+            <span className="text-xs text-muted-foreground">Usam sessao autenticada no navegador</span>
           </CardContent>
         </Card>
         <Card className="border-green-500/20 bg-green-500/5">
@@ -417,6 +431,31 @@ export function SetupPage() {
           ))}
         </div>
       </div>
+
+      {browserSessionProviders.length > 0 ? (
+        <div className="mb-8">
+          <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+            <KeyRoundIcon className="size-4 text-primary" />
+            Sessao do navegador
+          </h2>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {browserSessionProviders.map((provider) => (
+              <Card key={provider.id} className="border-border/60">
+                <CardContent className="flex items-center justify-between gap-3 py-4">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{provider.label}</p>
+                    <p className="text-xs text-muted-foreground">Login acontece no chat, sem salvar API key</p>
+                  </div>
+                  <Badge variant="outline" className="gap-1.5">
+                    <KeyRoundIcon className="size-3" />
+                    Browser
+                  </Badge>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div className="mb-4">
         <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">

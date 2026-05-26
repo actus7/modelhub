@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+packages/*/node_modules/
 .pnpm-store/
 .yarn/
 
@@ -8,8 +9,6 @@ node_modules/
 out/
 dist/
 build/
-coverage/
-*.lcov
 *.tgz
 
 # Logs
@@ -70,21 +69,15 @@ coverage/
 tmp/
 temp/
 *.tmp
+*.bak
+*.backup
+*.old
+*.orig
+.backup/
 
 # OS
 Thumbs.db
 .DS_Store
 
-# Monorepo (se aplicável)
-apps/
-packages/*
-!packages/openclaw-cli/
-!packages/openclaw-cli/**
-packages/openclaw-cli/node_modules/
-packages/openclaw-cli/node_modules/**
-
 # Custom
 .github/instructions/codacy.instructions.md
-
-.vercel
-.env*.local
