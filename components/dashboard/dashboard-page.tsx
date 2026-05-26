@@ -60,7 +60,7 @@ import {
 } from "@/components/ui/table";
 
 import { apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
-import { providerHasRequiredCredentials } from "@/lib/provider-credentials";
+import { providerHasRequiredCredentials, providerUsesStoredCredentials } from "@/lib/provider-credentials";
 
 export type DashboardSection = "overview" | "keys" | "credentials" | "logs";
 
@@ -144,13 +144,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
   const hasAnyApiKey = apiKeys.length > 0 || Boolean(newApiKey);
   const readyProvidersCount = useMemo(
     () =>
-      providers.filter((provider) => {
-        if ((provider.requiredKeys?.length ?? 0) === 0) {
-          return true;
-        }
-
-        return providerHasRequiredCredentials(provider, credentials);
-      }).length,
+      providers.filter((provider) => providerHasRequiredCredentials(provider, credentials)).length,
     [credentials, providers],
   );
 
@@ -1048,7 +1042,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {providers.filter((provider) => (provider.requiredKeys?.length ?? 0) > 0).map((provider) => (
+                      {providers.filter(providerUsesStoredCredentials).map((provider) => (
                         <SelectItem key={provider.id} value={provider.id}>
                           {provider.label}
                         </SelectItem>

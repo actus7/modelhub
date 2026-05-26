@@ -80,4 +80,28 @@ describe("OpenAI-compatible provider helpers", () => {
       "nvidia/nemotron-3-super-120b-a12b",
     ]);
   });
+
+  it("derives tool capability from OpenAI-compatible model metadata when available", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [
+        { id: "tool-model", supported_parameters: ["tools", "temperature"] },
+        { id: "text-model", supported_parameters: ["temperature"] },
+        { capabilities: { tools: false }, id: "capability-model" },
+      ],
+    }), { headers: { "content-type": "application/json" }, status: 200 }));
+
+    const fetchModels = createOpenAiFetchModels({
+      apiKeyEnv: "OPENROUTER_API_KEY",
+      modelsUrl: "https://openrouter.ai/api/v1/models",
+      providerName: "OpenRouter",
+    });
+
+    const models = await fetchModels({ OPENROUTER_API_KEY: "sk-test" });
+
+    expect(models.map((model) => [model.id, model.capabilities.tools])).toEqual([
+      ["tool-model", true],
+      ["text-model", false],
+      ["capability-model", false],
+    ]);
+  });
 });

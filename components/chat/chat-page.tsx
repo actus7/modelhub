@@ -79,6 +79,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { apiFetch, apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
+import {
+  getBrowserChatProviderAdapter,
+  type BrowserProviderAuthState,
+} from "@/lib/browser-chat-providers";
 import { useProviderModels } from "@/lib/use-provider-models";
 import {
   estimateSerializedPayloadBytes,
@@ -92,8 +96,11 @@ import {
 } from "@/lib/chat-attachments";
 import { parseChatStream, type ParsedToolCall } from "@/lib/chat-stream";
 import {
+  providerAuthMode,
   providerCredentialIds,
   providerHasRequiredCredentials,
+  providerUsesBrowserSession,
+  providerUsesStoredCredentials,
   sortProvidersByConfiguredCredentials,
 } from "@/lib/provider-credentials";
 import { cn } from "@/lib/utils";
@@ -306,6 +313,8 @@ export function ChatPage() {
 
   // Settings/personalization dialog
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [browserProviderAuthState, setBrowserProviderAuthState] =
+    useState<BrowserProviderAuthState>("unknown");
 
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
 
@@ -334,13 +343,21 @@ export function ChatPage() {
     () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
     [providers, selectedProviderId],
   );
+  const browserProviderAdapter = useMemo(
+    () => getBrowserChatProviderAdapter(selectedProviderId),
+    [selectedProviderId],
+  );
   const providersWithoutApiKey = useMemo(
-    () => providers.filter((p) => !(p.requiredKeys?.length)),
+    () => providers.filter((provider) => providerAuthMode(provider) === "none"),
+    [providers],
+  );
+  const providersWithBrowserSession = useMemo(
+    () => providers.filter(providerUsesBrowserSession),
     [providers],
   );
   const providersWithApiKey = useMemo(
     () => sortProvidersByConfiguredCredentials(
-      providers.filter((p) => (p.requiredKeys?.length ?? 0) > 0),
+      providers.filter(providerUsesStoredCredentials),
       credentials,
     ),
     [credentials, providers],
@@ -364,13 +381,43 @@ export function ChatPage() {
 
   const showConfiguredCheck = useCallback(
     (provider: UiProvider) => {
-      if ((provider.requiredKeys?.length ?? 0) > 0) {
+      if (providerUsesStoredCredentials(provider)) {
         return providerHasRequiredCredentials(provider, credentials);
       }
       return false;
     },
     [credentials],
   );
+
+  const refreshBrowserProviderAuthState = useCallback(async () => {
+    if (!browserProviderAdapter) {
+      setBrowserProviderAuthState("unknown");
+      return;
+    }
+
+    setBrowserProviderAuthState("loading");
+    try {
+      setBrowserProviderAuthState(await browserProviderAdapter.auth.getState());
+    } catch {
+      setBrowserProviderAuthState("signed-out");
+    }
+  }, [browserProviderAdapter]);
+
+  async function handleBrowserProviderSignIn() {
+    if (!browserProviderAdapter || !selectedProvider) {
+      return;
+    }
+
+    setBrowserProviderAuthState("loading");
+    try {
+      await browserProviderAdapter.auth.signIn();
+      setBrowserProviderAuthState("signed-in");
+      toast.success(`${selectedProvider.label} conectado.`);
+    } catch (error) {
+      setBrowserProviderAuthState("signed-out");
+      toast.error(error instanceof Error ? error.message : `Nao foi possivel entrar em ${selectedProvider.label}.`);
+    }
+  }
 
 
   const allowImageAttachments = selectedModel?.capabilities.images ?? false;
@@ -395,6 +442,15 @@ export function ChatPage() {
 
     globalThis.localStorage.setItem("selected-provider", selectedProviderId);
   }, [selectedProviderId]);
+
+  useEffect(() => {
+    if (!browserProviderAdapter) {
+      setBrowserProviderAuthState("unknown");
+      return;
+    }
+
+    void refreshBrowserProviderAuthState();
+  }, [browserProviderAdapter, refreshBrowserProviderAuthState]);
 
 
   useEffect(() => {
@@ -815,6 +871,23 @@ export function ChatPage() {
       return;
     }
 
+    if (currentAttachments.some((attachment) => attachment.kind === "document") && !allowDocumentAttachments) {
+      toast.error("O modelo selecionado nao suporta anexos de documento.");
+      return;
+    }
+
+    if (
+      browserProviderAdapter &&
+      currentAttachments.some((attachment) =>
+        attachment.kind === "image"
+          ? !browserProviderAdapter.attachments.images
+          : !browserProviderAdapter.attachments.documents,
+      )
+    ) {
+      toast.error(`${selectedProvider.label} aceita apenas mensagens de texto por enquanto.`);
+      return;
+    }
+
     const userMessageId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
     const assistantModelLabel = resolveAssistantModelLabel({
@@ -881,6 +954,30 @@ export function ChatPage() {
     abortControllerRef.current = controller;
 
     try {
+      let fullText = "";
+      if (browserProviderAdapter) {
+        if (browserProviderAuthState !== "signed-in") {
+          setBrowserProviderAuthState("loading");
+          await browserProviderAdapter.auth.signIn();
+          setBrowserProviderAuthState("signed-in");
+        }
+
+        fullText = await browserProviderAdapter.stream({
+          conversationMessages: nextConversation,
+          modelId: selectedModelId,
+          signal: controller.signal,
+          onTextDelta(delta) {
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId
+                  ? { ...message, content: `${message.content}${delta}` }
+                  : message,
+              ),
+            );
+          },
+        });
+        setBrowserProviderAuthState("signed-in");
+      } else {
       let parsedStream: Awaited<ReturnType<typeof parseChatStream>> | null = null;
       const response = await apiFetch(`${selectedProvider.base}/api/chat`, {
         body: JSON.stringify(requestPayload),
@@ -998,7 +1095,7 @@ export function ChatPage() {
       if (!parsedStream) {
         throw new Error("Nenhum stream recebido.");
       }
-      const fullText = parsedStream.text;
+      fullText = parsedStream.text;
 
       if (parsedStream.errorMessage) {
         let nextContent: string;
@@ -1019,6 +1116,7 @@ export function ChatPage() {
         );
 
         return;
+      }
       }
 
       if (fullText) {
@@ -1087,7 +1185,11 @@ export function ChatPage() {
           setSidebarRefreshKey((k) => k + 1);
 
           // Generate AI title for new conversations (fire-and-forget)
-          if (isNewConversation && selectedProvider) {
+          if (
+            isNewConversation &&
+            selectedProvider &&
+            browserProviderAdapter?.titleGeneration !== "unsupported"
+          ) {
             const titleConvId = convId;
             void (async () => {
               try {
@@ -1129,6 +1231,9 @@ export function ChatPage() {
       }
 
       const requestError = error as ChatRequestError;
+      if (browserProviderAdapter) {
+        setBrowserProviderAuthState("signed-out");
+      }
       let errorMsg: string;
       if (requestError.suppressToast) {
         errorMsg = DUCKAI_TEMPORARY_INLINE_MESSAGE;
@@ -1316,6 +1421,17 @@ export function ChatPage() {
                 </SelectGroup>
               )}
               {providersWithoutApiKey.length > 0 ? <SelectSeparator /> : null}
+              {providersWithBrowserSession.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Sessao do navegador</SelectLabel>
+                  {providersWithBrowserSession.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      {provider.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {providersWithBrowserSession.length > 0 ? <SelectSeparator /> : null}
               {unconfiguredProvidersWithApiKey.length > 0 ? <SelectSeparator /> : null}
               {unconfiguredProvidersWithApiKey.length > 0 && (
                 <SelectGroup>
@@ -1372,10 +1488,22 @@ export function ChatPage() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Badge
-                variant={selectedProviderReady ? "outline" : "destructive"}
+                variant={
+                  browserProviderAdapter && browserProviderAuthState !== "signed-in"
+                    ? "secondary"
+                    : selectedProviderReady
+                      ? "outline"
+                      : "destructive"
+                }
                 className="shrink-0 whitespace-nowrap text-xs"
               >
-                {selectedProviderReady ? (
+                {browserProviderAdapter ? (
+                  browserProviderAuthState === "loading"
+                    ? "Conectando..."
+                    : browserProviderAuthState === "signed-in"
+                      ? "Sessao conectada"
+                      : "Login necessario"
+                ) : selectedProviderReady ? (
                   "Conectado"
                 ) : (
                   <>
@@ -1386,11 +1514,32 @@ export function ChatPage() {
               </Badge>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {selectedProviderReady
-                ? "Provider configurado e pronto para uso."
-                : "Este provider ainda precisa de credenciais antes de enviar mensagens."}
+              {browserProviderAdapter
+                ? "Este provider usa uma sessao autenticada no navegador. O envio abre o login se necessario."
+                : selectedProviderReady
+                  ? "Provider configurado e pronto para uso."
+                  : "Este provider ainda precisa de credenciais antes de enviar mensagens."}
             </TooltipContent>
           </Tooltip>
+
+          {browserProviderAdapter ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 text-xs"
+              disabled={browserProviderAuthState === "loading"}
+              onClick={() => void handleBrowserProviderSignIn()}
+            >
+              {browserProviderAuthState === "loading" ? (
+                <Loader2Icon className="size-3.5 animate-spin" />
+              ) : (
+                <KeyRoundIcon className="size-3.5" />
+              )}
+              <span className="hidden sm:inline">
+                {browserProviderAuthState === "signed-in" ? "Sessao OK" : "Entrar"}
+              </span>
+            </Button>
+          ) : null}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -1438,7 +1587,7 @@ export function ChatPage() {
             </Button>
           )}
 
-          {(selectedProvider?.requiredKeys?.length ?? 0) > 0 && !selectedProviderReady ? (
+          {providerUsesStoredCredentials(selectedProvider) && !selectedProviderReady ? (
             <Button
               variant="outline"
               size="sm"
@@ -1472,7 +1621,7 @@ export function ChatPage() {
       )}
 
       {/* Alerta de credenciais pendentes */}
-      {!selectedProviderReady && selectedProvider && (selectedProvider.requiredKeys?.length ?? 0) > 0 ? (
+      {!selectedProviderReady && selectedProvider && providerUsesStoredCredentials(selectedProvider) ? (
         <div className="shrink-0 px-3 pt-3 md:px-4">
           <Alert>
             <KeyRoundIcon data-icon="inline-start" />

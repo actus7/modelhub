@@ -35,6 +35,27 @@ function hasImageCapability(model: Record<string, unknown>): boolean {
   )
 }
 
+function hasToolCapability(model: Record<string, unknown>): boolean {
+  const supportedParameters = model.supported_parameters
+  if (Array.isArray(supportedParameters)) {
+    return supportedParameters.some(
+      (value) =>
+        typeof value === 'string' &&
+        (value.toLowerCase() === 'tools' || value.toLowerCase() === 'tool_choice'),
+    )
+  }
+
+  const capabilities =
+    typeof model.capabilities === 'object' && model.capabilities !== null
+      ? (model.capabilities as Record<string, unknown>)
+      : undefined
+  if (typeof capabilities?.tools === 'boolean') {
+    return capabilities.tools
+  }
+
+  return true
+}
+
 type OpenAiCompatibleConfig = {
   providerName: string
   chatUrl: string
@@ -453,7 +474,7 @@ export function createOpenAiFetchModels(opts: {
       capabilities: {
         documents: true,
         images: hasImageCapability(m),
-        tools: true,
+        tools: hasToolCapability(m),
       },
       id: m.id,
       name: `${m.id} (${opts.providerName})`,

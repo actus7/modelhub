@@ -358,19 +358,36 @@ async function getModelCapabilities(
   return { documents: true, images: false }
 }
 
+function requestUsesTools(rawBody: Record<string, unknown>): boolean {
+  const tools = rawBody.tools
+  if (Array.isArray(tools) && tools.length > 0) {
+    return true
+  }
+
+  const toolChoice = rawBody.tool_choice
+  return Boolean(
+    toolChoice &&
+      toolChoice !== 'none' &&
+      (typeof toolChoice === 'object' || toolChoice === 'required'),
+  )
+}
+
 export async function resolveMessagesForProvider(input: {
   config: ProviderConfig
   credentials: Record<string, string>
   messages: ChatInputMessage[]
   modelId: string
+  modelCapabilities?: ProviderModelCapabilities
   userId?: string
 }): Promise<ChatMessage[]> {
-  const modelCapabilities = await getModelCapabilities(
-    input.config,
-    input.modelId,
-    input.credentials,
-    input.userId,
-  )
+  const modelCapabilities =
+    input.modelCapabilities ??
+    (await getModelCapabilities(
+      input.config,
+      input.modelId,
+      input.credentials,
+      input.userId,
+    ))
   const attachmentIds = new Set<string>()
 
   for (const message of input.messages) {
@@ -1261,11 +1278,23 @@ export function createProviderApp(config: ProviderConfig) {
       // Merge: header > db > env (env é resolvido em resolveEnv)
       const credentials = { ...dbCredentials, ...headerCredentials }
 
+      const modelCapabilities = await getModelCapabilities(
+        config,
+        modelId,
+        credentials,
+        userId,
+      )
+
+      if (requestUsesTools(rawBody) && modelCapabilities.tools === false) {
+        return jsonErrorResponse(400, `Modelo "${modelId}" nao suporta tools`)
+      }
+
       const resolvedMessages = await resolveMessagesForProvider({
         config,
         credentials,
         messages,
         modelId,
+        modelCapabilities,
         userId,
       })
 

@@ -4,7 +4,7 @@ import { isProviderEnabled } from '../lib/catalog'
 import { jsonErrorResponse, vercelStreamToOpenAiSse } from '../lib/provider-core'
 import { withProviderMetadata } from '../lib/observability'
 import { protectedCors, securityHeaders } from '../lib/security'
-import { providerRegistry, getProviderModels } from '../providers/registry'
+import { providerRegistry, getProviderModels, isProviderAvailableViaExternalApi } from '../providers/registry'
 
 function parseProviderAndModel(unifiedModelId: string): { providerId: string; modelId: string } | null {
   const slashIndex = unifiedModelId.indexOf('/')
@@ -29,7 +29,9 @@ app.get('/v1/models', async (c) => {
   const data: Array<{ id: string; object: string; created: number; owned_by: string }> = []
   const now = Math.floor(Date.now() / 1000)
 
-  const enabledProviders = Object.keys(providerRegistry).filter(isProviderEnabled)
+  const enabledProviders = Object.keys(providerRegistry).filter(
+    (providerId) => isProviderEnabled(providerId) && isProviderAvailableViaExternalApi(providerId),
+  )
 
   const results = await Promise.allSettled(
     enabledProviders.map(async (providerId) => {
@@ -81,6 +83,13 @@ app.post('/v1/chat/completions', async (c) => {
   const entry = providerRegistry[providerId]
   if (!entry) {
     return jsonErrorResponse(404, `Provider "${providerId}" not found`)
+  }
+
+  if (!isProviderAvailableViaExternalApi(providerId)) {
+    return jsonErrorResponse(
+      400,
+      `Provider "${providerId}" usa autenticacao no navegador e nao esta disponivel via /v1/chat/completions`,
+    )
   }
 
   // Transform OpenAI-format body to internal proxy format

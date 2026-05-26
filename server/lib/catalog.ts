@@ -1,24 +1,92 @@
-import type { UiProvider } from "@/lib/contracts";
+import type { ProviderRuntime, UiProvider } from "@/lib/contracts";
 
 type ProxyTarget = {
   pathSegment: string
   target: string
 }
 
+const serverPublicRuntime: ProviderRuntime = {
+  authMode: 'none',
+  externalApi: true,
+  kind: 'server',
+  openAiCompatible: false,
+  transport: 'modelhub-proxy',
+}
+
+const serverGatewayRuntime: ProviderRuntime = {
+  authMode: 'none',
+  externalApi: true,
+  kind: 'server',
+  openAiCompatible: true,
+  transport: 'openai-compatible',
+}
+
+const serverApiKeyRuntime: ProviderRuntime = {
+  authMode: 'api-key',
+  externalApi: true,
+  kind: 'server',
+  openAiCompatible: true,
+  transport: 'openai-compatible',
+}
+
+const browserSessionRuntime: ProviderRuntime = {
+  authMode: 'browser-session',
+  externalApi: false,
+  kind: 'client',
+  openAiCompatible: false,
+  transport: 'browser-sdk',
+}
+
+const utilityRuntime: ProviderRuntime = {
+  authMode: 'none',
+  externalApi: false,
+  kind: 'server',
+  openAiCompatible: false,
+  transport: 'passthrough-proxy',
+}
+
+function gatewayProvider(provider: Omit<UiProvider, 'category' | 'runtime'>): UiProvider {
+  return { ...provider, category: 'gateway', runtime: serverGatewayRuntime }
+}
+
+function publicWebProvider(provider: Omit<UiProvider, 'category' | 'runtime'>): UiProvider {
+  return { ...provider, category: 'public-web', runtime: serverPublicRuntime }
+}
+
+function apiProvider(provider: Omit<UiProvider, 'category' | 'runtime'>): UiProvider {
+  return { ...provider, category: 'api-provider', runtime: serverApiKeyRuntime }
+}
+
+function browserProvider(provider: Omit<UiProvider, 'category' | 'runtime'>): UiProvider {
+  return { ...provider, category: 'browser-sdk', runtime: browserSessionRuntime }
+}
+
+function utilityProvider(provider: Omit<UiProvider, 'category' | 'runtime'>): UiProvider {
+  return { ...provider, category: 'utility', runtime: utilityRuntime }
+}
+
 export const PROVIDER_CATALOG: readonly UiProvider[] = [
-  {
+  gatewayProvider({
     id: 'gateway',
     label: 'Gateway (Chat)',
     base: '/gateway',
     hasModels: true,
     signupUrl: 'https://vercel.com/docs/ai-gateway',
     signupLabel: 'Chave Vercel AI Gateway (recomendada: o demo público labs pode falhar)',
-  },
-  { id: 'embeddings', label: 'Embeddings (RAG)', base: '/embeddings', hasModels: false },
-  { id: 'duckai', label: 'Duck.ai', base: '/duckai', hasModels: true },
-  { id: 'quillbot', label: 'Quillbot AI', base: '/quillbot', hasModels: true },
-  { id: 'pollinations', label: 'Pollinations AI', base: '/pollinations', hasModels: true },
-  {
+  }),
+  utilityProvider({ id: 'embeddings', label: 'Embeddings (RAG)', base: '/embeddings', hasModels: false }),
+  publicWebProvider({ id: 'duckai', label: 'Duck.ai', base: '/duckai', hasModels: true }),
+  publicWebProvider({ id: 'quillbot', label: 'Quillbot AI', base: '/quillbot', hasModels: true }),
+  publicWebProvider({ id: 'pollinations', label: 'Pollinations AI', base: '/pollinations', hasModels: true }),
+  browserProvider({
+    id: 'puter',
+    label: 'Puter Xiaomi MiMo',
+    base: '/puter',
+    hasModels: true,
+    signupUrl: 'https://puter.com',
+    signupLabel: 'Entrar ou criar conta Puter',
+  }),
+  apiProvider({
     id: 'deepseek',
     label: 'DeepSeek',
     base: '/deepseek',
@@ -27,8 +95,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'DEEPSEEK_API_KEY', label: 'API Key', placeholder: 'sk-...' }],
     signupUrl: 'https://platform.deepseek.com/api_keys',
     signupLabel: 'Obter chave no DeepSeek',
-  },
-  {
+  }),
+  apiProvider({
     id: 'perplexity',
     label: 'Perplexity',
     base: '/perplexity',
@@ -37,8 +105,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'PERPLEXITY_API_KEY', label: 'API Key', placeholder: 'pplx-...' }],
     signupUrl: 'https://www.perplexity.ai/settings/api',
     signupLabel: 'Obter chave no Perplexity',
-  },
-  {
+  }),
+  apiProvider({
     id: 'togetherai',
     label: 'Together AI',
     base: '/togetherai',
@@ -47,8 +115,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'TOGETHER_API_KEY', label: 'API Key', placeholder: 'sk-...' }],
     signupUrl: 'https://api.together.xyz/settings/api-keys',
     signupLabel: 'Obter chave no Together AI',
-  },
-  {
+  }),
+  apiProvider({
     id: 'fireworks',
     label: 'Fireworks AI',
     base: '/fireworks',
@@ -57,8 +125,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'FIREWORKS_API_KEY', label: 'API Key', placeholder: 'sk-...' }],
     signupUrl: 'https://app.fireworks.ai/login',
     signupLabel: 'Obter chave no Fireworks AI',
-  },
-  {
+  }),
+  apiProvider({
     id: 'openrouter',
     label: 'OpenRouter',
     base: '/openrouter',
@@ -67,8 +135,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'OPENROUTER_API_KEY', label: 'API Key', placeholder: 'sk-or-...' }],
     signupUrl: 'https://openrouter.ai/keys',
     signupLabel: 'Obter chave no OpenRouter',
-  },
-  {
+  }),
+  apiProvider({
     id: 'googleaistudio',
     label: 'Google AI Studio',
     base: '/googleaistudio',
@@ -77,8 +145,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'GOOGLE_AI_STUDIO_API_KEY', label: 'API Key', placeholder: 'AIza...' }],
     signupUrl: 'https://aistudio.google.com/apikey',
     signupLabel: 'Obter chave no Google AI Studio',
-  },
-  {
+  }),
+  apiProvider({
     id: 'nvidianim',
     label: 'NVIDIA NIM',
     base: '/nvidianim',
@@ -87,8 +155,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'NVIDIA_NIM_API_KEY', label: 'NVIDIA API Key', placeholder: 'nvapi-xxxx...' }],
     signupUrl: 'https://build.nvidia.com/explore/discover',
     signupLabel: 'Obter chave grátis na NVIDIA (build.nvidia.com)',
-  },
-  {
+  }),
+  apiProvider({
     id: 'mistral',
     label: 'Mistral',
     base: '/mistral',
@@ -97,8 +165,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'MISTRAL_API_KEY', label: 'API Key', placeholder: 'sk-...' }],
     signupUrl: 'https://console.mistral.ai/api-keys',
     signupLabel: 'Obter chave na Mistral',
-  },
-  {
+  }),
+  apiProvider({
     id: 'codestral',
     label: 'Mistral Codestral',
     base: '/codestral',
@@ -107,8 +175,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'CODESTRAL_API_KEY', label: 'API Key', placeholder: 'sk-...' }],
     signupUrl: 'https://console.mistral.ai/api-keys',
     signupLabel: 'Obter chave Codestral (console Mistral)',
-  },
-  {
+  }),
+  apiProvider({
     id: 'huggingface',
     label: 'HuggingFace',
     base: '/huggingface',
@@ -117,8 +185,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'HUGGINGFACE_API_KEY', label: 'API Token', placeholder: 'hf_...' }],
     signupUrl: 'https://huggingface.co/settings/tokens',
     signupLabel: 'Obter token no HuggingFace',
-  },
-  {
+  }),
+  apiProvider({
     id: 'vercelgateway',
     label: 'Vercel AI Gateway',
     base: '/vercelgateway',
@@ -127,8 +195,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'VERCEL_AI_GATEWAY_API_KEY', label: 'API Key', placeholder: 'vg_...' }],
     signupUrl: 'https://vercel.com/docs/ai-gateway',
     signupLabel: 'Obter chave na Vercel',
-  },
-  {
+  }),
+  apiProvider({
     id: 'opengateway',
     label: 'OpenGateway',
     base: '/opengateway',
@@ -137,8 +205,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'OPENGATEWAY_API_KEY', label: 'API Key', placeholder: 'ogw_live_...' }],
     signupUrl: 'https://gitlawb.com/opengateway/keys',
     signupLabel: 'Obter chave no OpenGateway',
-  },
-  {
+  }),
+  apiProvider({
     id: 'opencodezen',
     label: 'OpenCode Zen',
     base: '/opencodezen',
@@ -147,8 +215,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'OPENCODE_ZEN_API_KEY', label: 'API Key', placeholder: 'ocz-...' }],
     signupUrl: 'https://opencode.ai',
     signupLabel: 'Obter chave no OpenCode Zen',
-  },
-  {
+  }),
+  apiProvider({
     id: 'cerebras',
     label: 'Cerebras',
     base: '/cerebras',
@@ -157,8 +225,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'CEREBRAS_API_KEY', label: 'API Key', placeholder: 'csk-...' }],
     signupUrl: 'https://cloud.cerebras.ai/',
     signupLabel: 'Obter chave na Cerebras',
-  },
-  {
+  }),
+  apiProvider({
     id: 'groq',
     label: 'Groq',
     base: '/groq',
@@ -167,8 +235,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'GROQ_API_KEY', label: 'API Key', placeholder: 'gsk_...' }],
     signupUrl: 'https://console.groq.com/keys',
     signupLabel: 'Obter chave no Groq',
-  },
-  {
+  }),
+  apiProvider({
     id: 'cohere',
     label: 'Cohere',
     base: '/cohere',
@@ -177,8 +245,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'COHERE_API_KEY', label: 'API Key', placeholder: 'co-...' }],
     signupUrl: 'https://dashboard.cohere.com/api-keys',
     signupLabel: 'Obter chave na Cohere',
-  },
-  {
+  }),
+  apiProvider({
     id: 'githubmodels',
     label: 'GitHub Models',
     base: '/githubmodels',
@@ -187,8 +255,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'GITHUB_TOKEN', label: 'Personal Access Token', placeholder: 'ghp_...' }],
     signupUrl: 'https://github.com/settings/tokens',
     signupLabel: 'Gerar token no GitHub',
-  },
-  {
+  }),
+  apiProvider({
     id: 'cloudflareworkersai',
     label: 'Cloudflare Workers AI',
     base: '/cloudflareworkersai',
@@ -200,8 +268,8 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     ],
     signupUrl: 'https://dash.cloudflare.com/profile/api-tokens',
     signupLabel: 'Obter token na Cloudflare',
-  },
-] as const
+  }),
+]
 
 const PROXY_TARGETS: readonly ProxyTarget[] = [
   {

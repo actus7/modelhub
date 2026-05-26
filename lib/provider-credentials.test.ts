@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { providerHasRequiredCredentials, sortProvidersByConfiguredCredentials } from "./provider-credentials";
+import {
+  providerAuthMode,
+  providerHasRequiredCredentials,
+  providerSupportsExternalApi,
+  providerUsesBrowserSession,
+  sortProvidersByConfiguredCredentials,
+} from "./provider-credentials";
 
 describe("providerHasRequiredCredentials", () => {
   it("returns true for providers without required keys", () => {
@@ -67,6 +73,27 @@ describe("providerHasRequiredCredentials", () => {
         ],
       ),
     ).toBe(true);
+  });
+
+  it("uses explicit provider runtime metadata before requiredKeys heuristics", () => {
+    const browserProvider = {
+      base: "/puter",
+      hasModels: true,
+      id: "puter",
+      label: "Puter",
+      runtime: {
+        authMode: "browser-session" as const,
+        externalApi: false,
+        kind: "client" as const,
+        openAiCompatible: false,
+        transport: "browser-sdk" as const,
+      },
+    };
+
+    expect(providerAuthMode(browserProvider)).toBe("browser-session");
+    expect(providerHasRequiredCredentials(browserProvider, [])).toBe(true);
+    expect(providerUsesBrowserSession(browserProvider)).toBe(true);
+    expect(providerSupportsExternalApi(browserProvider)).toBe(false);
   });
 
   it("sorts providers with configured credentials first", () => {

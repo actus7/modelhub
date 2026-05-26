@@ -18,6 +18,7 @@ import opengatewayFetch, { models as opengatewayModels } from "./opengateway";
 import openrouterFetch, { models as openrouterModels } from "./openrouter";
 import perplexityFetch, { models as perplexityModels } from "./perplexity";
 import pollinationsFetch, { POLLINATIONS_MODELS, fetchPollinationsModels } from "./pollinations";
+import puterFetch, { PUTER_MODELS } from "./puter";
 import quillbotFetch, { QUILLBOT_MODELS } from "./quillbot";
 import togetheraiFetch, { models as togetheraiModels } from "./togetherai";
 import vercelGatewayFetch, { models as vercelgatewayModels } from "./vercelgateway";
@@ -28,6 +29,7 @@ import type { ProviderModel } from "../lib/provider-core";
 type ProviderHandler = (req: Request) => Response | Promise<Response>;
 
 type ProviderEntry = {
+  clientOnly?: boolean;
   handler: ProviderHandler;
   models: readonly ProviderModel[];
   fetchModels?: (credentials?: Record<string, string>) => Promise<ProviderModel[]>;
@@ -105,6 +107,7 @@ export const providerRegistry: Record<string, ProviderEntry> = {
     fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.perplexity.ai/models', apiKeyEnv: 'PERPLEXITY_API_KEY', providerName: 'Perplexity' }),
   },
   pollinations: { handler: pollinationsFetch, models: POLLINATIONS_MODELS, fetchModels: fetchPollinationsModels },
+  puter: { clientOnly: true, handler: puterFetch, models: PUTER_MODELS },
   quillbot: { handler: quillbotFetch, models: QUILLBOT_MODELS },
   togetherai: {
     handler: togetheraiFetch,
@@ -117,6 +120,10 @@ export const providerRegistry: Record<string, ProviderEntry> = {
     fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://ai-gateway.vercel.sh/v1/models', apiKeyEnv: 'VERCEL_AI_GATEWAY_API_KEY', providerName: 'Vercel AI Gateway' }),
   },
 };
+
+export function isProviderAvailableViaExternalApi(providerId: string): boolean {
+  return providerRegistry[providerId]?.clientOnly !== true;
+}
 
 export type GetProviderModelsOptions = {
   credentials?: Record<string, string>;
