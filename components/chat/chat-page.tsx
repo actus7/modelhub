@@ -28,6 +28,8 @@ import {
   ExternalLinkIcon,
   KeyRoundIcon,
   Loader2Icon,
+  MessageSquarePlusIcon,
+  MoreVerticalIcon,
   PanelRightIcon,
   PaperclipIcon,
   PencilIcon,
@@ -54,6 +56,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -1385,8 +1395,8 @@ export function ChatPage() {
   return (
     <div className="flex min-h-0 flex-1 flex-col md:flex-row">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      {/* Toolbar: uma linha; em viewports estreitas faz scroll horizontal em vez de quebrar */}
-      <div className="flex min-h-12 shrink-0 items-center border-b border-border/60 px-3 md:px-4">
+      {/* Toolbar: provider/modelo rolam horizontalmente; as ações ficam fixas à direita */}
+      <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-border/60 px-2 md:px-4">
         <div className="flex min-w-0 flex-1 touch-pan-x flex-nowrap items-center gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain py-1.5 [scrollbar-width:thin]">
           <Select value={selectedProviderId} onValueChange={setSelectedProviderId}>
             <SelectTrigger className="h-8 w-auto max-w-[min(200px,55vw)] shrink-0 text-xs sm:min-w-[140px] sm:max-w-[200px]">
@@ -1522,93 +1532,101 @@ export function ChatPage() {
             </TooltipContent>
           </Tooltip>
 
-          {browserProviderAdapter ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 shrink-0 text-xs"
-              disabled={browserProviderAuthState === "loading"}
-              onClick={() => void handleBrowserProviderSignIn()}
-            >
-              {browserProviderAuthState === "loading" ? (
-                <Loader2Icon className="size-3.5 animate-spin" />
-              ) : (
-                <KeyRoundIcon className="size-3.5" />
-              )}
-              <span className="hidden sm:inline">
-                {browserProviderAuthState === "signed-in" ? "Sessao OK" : "Entrar"}
-              </span>
-            </Button>
-          ) : null}
+        </div>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant={temporaryChat ? "default" : "ghost"}
-                size="sm"
-                className="h-8 shrink-0 text-xs"
-                onClick={() => setTemporaryChat((v) => !v)}
-              >
-                <ShieldOffIcon className="size-3.5" />
-                <span className="hidden sm:inline">{temporaryChat ? "Sem salvar" : "Temporário"}</span>
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {temporaryChat
-                ? "Conversa temporária ativa. Nada será salvo no histórico."
-                : "Use este modo quando quiser conversar sem salvar no histórico."}
-            </TooltipContent>
-          </Tooltip>
-
+        {/* Ações sempre visíveis (fora do scroll) — resolvem a sobreposição no mobile */}
+        <div className="flex shrink-0 items-center gap-0.5">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                size="sm"
-                className="h-8 shrink-0 text-xs"
-                onClick={() => setSettingsOpen(true)}
+                size="icon-sm"
+                className="size-9 md:size-8"
+                onClick={handleNewChat}
+                aria-label="Nova conversa"
               >
-                <UserIcon className="size-3.5" />
-                <span className="hidden sm:inline">Personalizar</span>
+                <MessageSquarePlusIcon className="size-4" />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Defina instruções, memória e preferências desta conversa.</TooltipContent>
+            <TooltipContent side="bottom">Nova conversa</TooltipContent>
           </Tooltip>
-
-          {activeConversationId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-8 shrink-0 text-xs"
-              onClick={() => void handleShareConversation()}
-              title="Compartilhar conversa"
-            >
-              <ShareIcon className="size-3.5" />
-            </Button>
-          )}
-
-          {providerUsesStoredCredentials(selectedProvider) && !selectedProviderReady ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-8 shrink-0 text-xs"
-              onClick={() => setCredentialDialogOpen(true)}
-            >
-              <Settings2Icon className="size-3.5" />
-              <span className="hidden sm:inline">Configurar</span>
-            </Button>
-          ) : null}
 
           <Button
             variant="ghost"
             size="icon-sm"
-            className="shrink-0 md:hidden"
+            className="size-9 md:hidden"
             type="button"
             onClick={() => setMobileHistoryOpen(true)}
-            title="Histórico de conversas"
+            aria-label="Histórico de conversas"
           >
             <PanelRightIcon className="size-4" />
           </Button>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="size-9 md:size-8"
+                aria-label="Mais ações"
+              >
+                <MoreVerticalIcon className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              {browserProviderAdapter ? (
+                <DropdownMenuItem
+                  disabled={browserProviderAuthState === "loading"}
+                  onSelect={() => void handleBrowserProviderSignIn()}
+                >
+                  {browserProviderAuthState === "loading" ? (
+                    <Loader2Icon className="animate-spin" />
+                  ) : (
+                    <KeyRoundIcon />
+                  )}
+                  {browserProviderAuthState === "signed-in" ? "Sessão conectada" : "Entrar no provider"}
+                </DropdownMenuItem>
+              ) : null}
+
+              {providerUsesStoredCredentials(selectedProvider) && !selectedProviderReady ? (
+                <DropdownMenuItem onSelect={() => setCredentialDialogOpen(true)}>
+                  <Settings2Icon />
+                  Configurar credenciais
+                </DropdownMenuItem>
+              ) : null}
+
+              {browserProviderAdapter ||
+              (providerUsesStoredCredentials(selectedProvider) && !selectedProviderReady) ? (
+                <DropdownMenuSeparator />
+              ) : null}
+
+              <DropdownMenuCheckboxItem
+                checked={temporaryChat}
+                onCheckedChange={(checked) => setTemporaryChat(!!checked)}
+              >
+                Chat temporário
+              </DropdownMenuCheckboxItem>
+
+              <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>
+                <UserIcon />
+                Personalizar
+              </DropdownMenuItem>
+
+              {activeConversationId ? (
+                <DropdownMenuItem onSelect={() => void handleShareConversation()}>
+                  <ShareIcon />
+                  Compartilhar conversa
+                </DropdownMenuItem>
+              ) : null}
+
+              {messages.length > 0 ? (
+                <DropdownMenuItem onSelect={handleExportMarkdown}>
+                  <DownloadIcon />
+                  Exportar (Markdown)
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -1719,7 +1737,7 @@ export function ChatPage() {
                     {editingMessageId === message.id ? (
                       <div className="flex flex-col gap-2">
                         <textarea
-                          className="min-h-[60px] w-full resize-none rounded-lg border border-border bg-background p-2 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                          className="min-h-[60px] w-full resize-none rounded-lg border border-border bg-background p-2 text-base text-foreground focus:outline-none focus:ring-1 focus:ring-primary md:text-sm"
                           value={editingContent}
                           onChange={(e) => setEditingContent(e.target.value)}
                           onKeyDown={(e) => {
@@ -1857,14 +1875,15 @@ export function ChatPage() {
                   {/* Action buttons below the bubble */}
                   {editingMessageId !== message.id && (message.content || message.parts?.length) && !pending && (
                     <div className={cn(
-                      "flex gap-0.5 opacity-0 transition-opacity group-hover/msg:opacity-100",
+                      // No touch (sem hover) as ações ficam sempre visíveis; no desktop aparecem ao passar o mouse
+                      "flex gap-1 opacity-100 transition-opacity md:gap-0.5 md:opacity-0 md:group-hover/msg:opacity-100",
                       message.role === "user" ? "flex-row-reverse" : "flex-row",
                     )}>
                       {/* Copy */}
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="size-6"
+                        className="size-8 md:size-6"
                         onClick={() => handleCopyMessage(message.id, message.role === "user" ? getUserMessageText(message) : message.content)}
                         title="Copiar mensagem"
                       >
@@ -1876,7 +1895,7 @@ export function ChatPage() {
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          className="size-6"
+                          className="size-8 md:size-6"
                           onClick={() => handleStartEdit(message.id, getUserMessageText(message))}
                           title="Editar mensagem"
                         >
@@ -1890,7 +1909,7 @@ export function ChatPage() {
                           <Button
                             variant={reactions[message.id] === "thumbs_up" ? "default" : "ghost"}
                             size="icon-xs"
-                            className="size-6"
+                            className="size-8 md:size-6"
                             onClick={() => void handleReaction(message.id, "thumbs_up")}
                             title="Boa resposta"
                           >
@@ -1899,7 +1918,7 @@ export function ChatPage() {
                           <Button
                             variant={reactions[message.id] === "thumbs_down" ? "default" : "ghost"}
                             size="icon-xs"
-                            className="size-6"
+                            className="size-8 md:size-6"
                             onClick={() => void handleReaction(message.id, "thumbs_down")}
                             title="Resposta ruim"
                           >
@@ -1913,7 +1932,7 @@ export function ChatPage() {
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          className="size-6"
+                          className="size-8 md:size-6"
                           onClick={() => void handleRegenerate()}
                           title="Regenerar resposta"
                         >
@@ -1926,7 +1945,7 @@ export function ChatPage() {
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          className="size-6"
+                          className="size-8 md:size-6"
                           onClick={() => void handleContinueGeneration()}
                           title="Continuar gerando"
                         >
@@ -1939,7 +1958,7 @@ export function ChatPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="h-6 text-[10px]"
+                          className="h-8 text-xs md:h-6 md:text-[10px]"
                           onClick={() => void handleRegenerate()}
                         >
                           <RefreshCwIcon className="size-3" /> Tentar novamente
@@ -1954,8 +1973,8 @@ export function ChatPage() {
         </div>
       </ScrollArea>
 
-      {/* Input fixo no bottom */}
-      <div className="shrink-0 border-t border-border/60 bg-background px-3 py-2.5 md:px-4 md:py-3">
+      {/* Input fixo no bottom — pb respeita a barra de gestos (safe-area) em celulares */}
+      <div className="shrink-0 border-t border-border/60 bg-background px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] md:px-4 md:pt-3 md:pb-3">
         <div className="mx-auto max-w-3xl">
           {/* Attachment previews */}
           {attachments.length > 0 && (
@@ -1979,10 +1998,11 @@ export function ChatPage() {
                   <button
                     type="button"
                     onClick={() => removeAttachment(att.id)}
-                    className="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full bg-destructive text-destructive-foreground opacity-0 transition-opacity group-hover:opacity-100"
+                    // Sempre visível no touch; só esconde/revela no hover em telas com mouse
+                    className="absolute -right-2 -top-2 flex size-6 items-center justify-center rounded-full bg-destructive text-destructive-foreground shadow-sm transition-opacity md:size-5 md:opacity-0 md:group-hover:opacity-100"
                     title="Remover"
                   >
-                    <XIcon className="size-3" />
+                    <XIcon className="size-3.5 md:size-3" />
                   </button>
                   <p className="mt-0.5 max-w-24 truncate text-center text-[9px] text-muted-foreground">
                     {att.fileName}
@@ -2019,7 +2039,8 @@ export function ChatPage() {
                 }
               }}
               placeholder="Pergunte algo..."
-              className="min-h-[2.25rem] text-sm"
+              // text-base (16px) no mobile evita o zoom automático do Safari iOS ao focar
+              className="min-h-[2.25rem] text-base md:text-sm"
             />
             <InputGroupAddon align="block-end" className="justify-between gap-2 border-t px-2 py-1.5">
               <div className="flex items-center gap-1.5">
@@ -2029,7 +2050,7 @@ export function ChatPage() {
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        className="size-6"
+                        className="size-8 md:size-6"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={
                           pending ||
@@ -2044,15 +2065,10 @@ export function ChatPage() {
                     Limites: {formatBytes(MAX_ATTACHMENT_FILE_BYTES)} por imagem, {formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} em imagens, {formatBytes(MAX_DOCUMENT_ATTACHMENT_FILE_BYTES)} por documento, {formatBytes(MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES)} em documentos e {formatBytes(MAX_SERIALIZED_CHAT_REQUEST_BYTES)} por request.
                   </TooltipContent>
                 </Tooltip>
-                <InputGroupText className="text-xs">
+                <InputGroupText className="max-w-[55vw] truncate text-xs sm:max-w-none">
                   {selectedProvider?.label ?? "Provider"}
                   {selectedModelId ? ` · ${models.find((model) => model.id === selectedModelId)?.name ?? selectedModelId}` : ""}
                 </InputGroupText>
-                {messages.length > 0 && (
-                  <Button variant="ghost" size="icon-xs" className="size-6" onClick={handleExportMarkdown} title="Exportar conversa">
-                    <DownloadIcon className="size-3" />
-                  </Button>
-                )}
               </div>
               {pending ? (
                 <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={handleStopGeneration}>

@@ -209,12 +209,13 @@ export function ChatHistorySidebar({
           <Button
             variant={showArchived ? "default" : "ghost"}
             size="icon-xs"
+            className="size-8 md:size-7"
             onClick={() => setShowArchived((v) => !v)}
             title={showArchived ? "Ver conversas ativas" : "Ver arquivadas"}
           >
             <ArchiveIcon className="size-3.5" />
           </Button>
-          <Button variant="ghost" size="icon-xs" onClick={onNewChat} title="Nova conversa">
+          <Button variant="ghost" size="icon-xs" className="size-8 md:size-7" onClick={onNewChat} title="Nova conversa">
             <MessageSquarePlusIcon className="size-3.5" />
           </Button>
         </div>
@@ -228,7 +229,7 @@ export function ChatHistorySidebar({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar conversas..."
-            className="h-7 pl-7 text-xs"
+            className="h-9 pl-7 text-base md:h-7 md:text-xs"
           />
         </div>
       </div>
@@ -285,12 +286,12 @@ export function ChatHistorySidebar({
                               e.stopPropagation();
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            className="h-5 w-full rounded border border-border bg-background px-1 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                            className="h-7 w-full rounded border border-border bg-background px-1 text-base focus:outline-none focus:ring-1 focus:ring-primary md:h-5 md:text-xs"
                           />
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            className="size-5 shrink-0"
+                            className="size-7 shrink-0 md:size-5"
                             onClick={(e) => {
                               e.stopPropagation();
                               void handleRename(conv.id);
@@ -301,7 +302,7 @@ export function ChatHistorySidebar({
                           <Button
                             variant="ghost"
                             size="icon-xs"
-                            className="size-5 shrink-0"
+                            className="size-7 shrink-0 md:size-5"
                             onClick={(e) => {
                               e.stopPropagation();
                               setRenamingId(null);
@@ -324,7 +325,7 @@ export function ChatHistorySidebar({
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          className="size-6"
+                          className="size-8 md:size-6"
                           onClick={(e) => {
                             e.stopPropagation();
                             setRenamingId(conv.id);
@@ -337,7 +338,7 @@ export function ChatHistorySidebar({
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          className="size-6"
+                          className="size-8 md:size-6"
                           onClick={(e) => void handleArchiveToggle(e, conv.id, !!conv.archived)}
                           title={conv.archived ? "Desarquivar" : "Arquivar"}
                         >
@@ -346,7 +347,7 @@ export function ChatHistorySidebar({
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          className="size-6"
+                          className="size-8 md:size-6"
                           onClick={(e) => {
                             e.stopPropagation();
                             setPendingDelete(conv);
