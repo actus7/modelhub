@@ -18,6 +18,8 @@ model User {
 
   apiKeys             ApiKey[]
   providerCredentials ProviderCredential[]
+  cloudConnections    CloudConnection[]
+  cloudDeployments    CloudDeployment[]
   usageLogs           UsageLog[]
   conversations       Conversation[]
   settings            UserSettings?
@@ -55,6 +57,56 @@ model ProviderCredential {
 
   @@unique([userId, providerId, credentialKey])
   @@index([userId, providerId])
+}
+
+model CloudConnection {
+  id                       String   @id @default(cuid())
+  userId                   String
+  provider                 String
+  label                    String   @default("Render")
+  token                    String
+  externalUserId           String?
+  externalUserEmail        String?
+  externalOrganizationId   String?
+  externalOrganizationName String?
+  modelhubApiKey           String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deployments CloudDeployment[]
+
+  @@unique([userId, provider])
+  @@index([userId, provider])
+}
+
+model CloudDeployment {
+  id                   String   @id @default(cuid())
+  userId               String
+  connectionId         String
+  provider             String
+  name                 String
+  status               String
+  externalAppId        String
+  externalAppName      String
+  externalServiceId    String
+  externalDeploymentId String?
+  publicUrl            String?
+  image                String
+  region               String
+  instanceType         String
+  port                 Int
+  error                String?
+  config               Json?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  connection CloudConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId])
+  @@index([userId, provider])
+  @@index([userId, status])
 }
 
 model UsageLog {

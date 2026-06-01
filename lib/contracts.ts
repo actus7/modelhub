@@ -130,6 +130,56 @@ export type ProviderCredentialSummary = {
   updatedAt: string;
 };
 
+export const cloudDeploymentStatusSchema = z.enum([
+  "provisioning",
+  "healthy",
+  "failed",
+  "deleting",
+]);
+
+type CloudProvider = "render";
+export type CloudDeploymentStatus = z.infer<typeof cloudDeploymentStatusSchema>;
+
+export type CloudConnectionSummary = {
+  id: string;
+  provider: CloudProvider;
+  label: string;
+  externalUserEmail: string | null;
+  externalOrganizationName: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type OpenClawDeploymentSummary = {
+  allowedOrigins: string[];
+  controlUiUrl: string;
+  healthUrl: string;
+  model: string;
+  modelhubApiUrl: string;
+  provider: string;
+  readyUrl: string;
+  webSocketUrl: string;
+};
+
+export type CloudDeploymentSummary = {
+  id: string;
+  connectionId: string;
+  provider: CloudProvider;
+  name: string;
+  status: CloudDeploymentStatus;
+  externalAppName: string;
+  externalServiceId: string;
+  publicUrl: string | null;
+  image: string;
+  region: string;
+  instanceType: string;
+  port: number;
+  error: string | null;
+  openclaw: OpenClawDeploymentSummary | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type ToolStartEvent = {
   type: "tool-start";
   toolCallId: string;
@@ -154,6 +204,17 @@ export const providerCredentialSchema = z.object({
   providerId: z.string().min(1).max(64),
   credentialKey: z.string().min(1).max(128),
   credentialValue: z.string().min(1).max(4096),
+});
+
+export const cloudRenderConnectionSchema = z.object({
+  label: z.string().trim().min(1).max(100).optional(),
+  token: z.string().trim().min(1).max(4096),
+});
+
+export const openClawDeploymentConfigSchema = z.object({
+  allowedOrigins: z.array(z.string().trim().url()).max(12).optional(),
+  model: z.string().trim().min(1).max(200),
+  provider: z.string().trim().min(1).max(64),
 });
 
 export const apiKeyLabelSchema = z.object({
