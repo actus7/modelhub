@@ -490,8 +490,14 @@ export function CloudDashboardSection() {
     [connections],
   );
 
-  const pollingIds = useMemo(
-    () => deployments.filter((d) => d.status === "provisioning" || d.status === "deleting").map((d) => d.id),
+  // Stable string key so the polling effect only re-subscribes when the set of
+  // polled ids actually changes (not on every deployments array reference change).
+  const pollingIdsStr = useMemo(
+    () =>
+      deployments
+        .filter((d) => d.status === "provisioning" || d.status === "deleting")
+        .map((d) => d.id)
+        .join(","),
     [deployments],
   );
 
@@ -532,12 +538,13 @@ export function CloudDashboardSection() {
   useEffect(() => { void loadCloud(); }, [loadCloud]);
 
   useEffect(() => {
-    if (pollingIds.length === 0) return;
+    const ids = pollingIdsStr.split(",").filter(Boolean);
+    if (ids.length === 0) return;
     const interval = globalThis.setInterval(() => {
-      for (const id of pollingIds) void refreshDeployment(id, true);
+      for (const id of ids) void refreshDeployment(id, true);
     }, 10_000);
     return () => globalThis.clearInterval(interval);
-  }, [pollingIds, refreshDeployment]);
+  }, [pollingIdsStr, refreshDeployment]);
 
   useEffect(() => {
     if (!selectedProvider) { setAvailableModels([]); setSelectedModel(""); return; }

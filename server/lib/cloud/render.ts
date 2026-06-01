@@ -227,21 +227,15 @@ async function findExistingService(token: string, name: string): Promise<RenderS
   try {
     const raw = await renderRequest<unknown>(token, "/services?limit=100");
     const items = Array.isArray(raw) ? raw : [];
-    console.log(`[cloud/render] list services returned ${items.length} items, looking for "${name}"`);
-    if (items.length > 0) {
-      console.log("[cloud/render] first item shape:", JSON.stringify(items[0]).slice(0, 300));
-    }
 
     for (const item of items) {
       const record = item as Record<string, unknown>;
       const wrapped = record.service as RenderService | undefined;
       const service: RenderService = wrapped ?? record;
       if (service?.name === name && service?.id) {
-        console.log(`[cloud/render] found existing service ${service.id} (${name})`);
         return service;
       }
     }
-    console.log(`[cloud/render] no existing service found for "${name}"`);
     return null;
   } catch (error) {
     console.error("[cloud/render] failed to list services for adoption check", error);
@@ -557,12 +551,12 @@ export async function createRenderOpenClawDeployment(
   // If service already exists: update its env vars and trigger a new deploy
   const existing = await findExistingService(token, serviceName);
   if (existing?.id) {
-    console.log(`[cloud/render/openclaw] updating env vars for existing service ${existing.id}`);
-    await renderRequest(token, `/services/${existing.id}/env-vars`, {
+    const existingId = encodeURIComponent(existing.id);
+    await renderRequest(token, `/services/${existingId}/env-vars`, {
       body: JSON.stringify(envVars),
       method: "PUT",
     });
-    await renderRequest(token, `/services/${existing.id}`, {
+    await renderRequest(token, `/services/${existingId}`, {
       body: JSON.stringify({
         serviceDetails: {
           envSpecificDetails: {
@@ -579,7 +573,7 @@ export async function createRenderOpenClawDeployment(
     type DeployResponse = { deploy?: { id?: string } } | { id?: string };
     const deployReply = await renderRequest<DeployResponse>(
       token,
-      `/services/${existing.id}/deploys`,
+      `/services/${existingId}/deploys`,
       { body: JSON.stringify({ clearCache: "do_not_clear" }), method: "POST" },
     );
     const deployId = ("deploy" in deployReply ? deployReply.deploy?.id : (deployReply as { id?: string }).id) ?? null;

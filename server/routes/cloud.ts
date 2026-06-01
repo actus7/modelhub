@@ -176,7 +176,7 @@ function decryptConnectionToken(connection: { token: string }): string | Respons
     return decryptCredential(connection.token);
   } catch (error) {
     console.error("[cloud/render] failed to decrypt token", error);
-    return jsonErrorResponse(500, "Nao foi possivel ler o token salvo. Reconecte o Render.");
+    return jsonErrorResponse(500, "Não foi possível ler o token salvo. Reconecte o Render.");
   }
 }
 
@@ -327,12 +327,15 @@ app.post("/deployments/render", async (c) => {
   const activeDeploymentCount = await prisma.cloudDeployment.count({
     where: {
       provider: RENDER_PROVIDER,
-      status: { in: ["provisioning", "healthy", "deleting"] },
+      // "failed" included so a previous failed deploy must be removed first —
+      // the Render service name is deterministic per user, otherwise we'd create
+      // a duplicate DB row pointing at the same physical service.
+      status: { in: ["provisioning", "healthy", "deleting", "failed"] },
       userId,
     },
   });
   if (activeDeploymentCount > 0) {
-    return jsonErrorResponse(409, "Ja existe um ambiente Render ativo. Remova-o antes de criar outro.");
+    return jsonErrorResponse(409, "Já existe um ambiente Render ativo. Remova-o antes de criar outro.");
   }
 
   const token = decryptConnectionToken(connection);
@@ -344,7 +347,7 @@ app.post("/deployments/render", async (c) => {
   } catch (error) {
     console.error("[cloud/render] failed to create deployment", error);
     if (isRenderFreeTierError(error)) {
-      return jsonErrorResponse(409, "Nao foi possivel criar usando somente o plano gratuito do Render.");
+      return jsonErrorResponse(409, "Não foi possível criar usando somente o plano gratuito do Render.");
     }
     const detail = error instanceof Error ? error.message : "Erro desconhecido";
     return jsonErrorResponse(502, `Falha ao criar ambiente no Render: ${detail}`);
@@ -398,12 +401,15 @@ app.post("/deployments/render/openclaw", async (c) => {
   const activeDeploymentCount = await prisma.cloudDeployment.count({
     where: {
       provider: RENDER_PROVIDER,
-      status: { in: ["provisioning", "healthy", "deleting"] },
+      // "failed" included so a previous failed deploy must be removed first —
+      // the Render service name is deterministic per user, otherwise we'd create
+      // a duplicate DB row pointing at the same physical service.
+      status: { in: ["provisioning", "healthy", "deleting", "failed"] },
       userId,
     },
   });
   if (activeDeploymentCount > 0) {
-    return jsonErrorResponse(409, "Ja existe um ambiente Render ativo. Remova-o antes de criar outro.");
+    return jsonErrorResponse(409, "Já existe um ambiente Render ativo. Remova-o antes de criar outro.");
   }
 
   const renderToken = decryptConnectionToken(connection);
@@ -430,7 +436,7 @@ app.post("/deployments/render/openclaw", async (c) => {
   } catch (error) {
     console.error("[cloud/render] failed to create OpenClaw deployment", error);
     if (isRenderFreeTierError(error)) {
-      return jsonErrorResponse(409, "Nao foi possivel criar no plano gratuito. O OpenClaw pode exigir o plano Starter ($7/mes).");
+      return jsonErrorResponse(409, "Não foi possível criar no plano gratuito. O OpenClaw pode exigir o plano Starter ($7/mês).");
     }
     const detail = error instanceof Error ? error.message : "Erro desconhecido";
     return jsonErrorResponse(502, `Falha ao criar OpenClaw no Render: ${detail}`);
@@ -493,7 +499,7 @@ app.get("/deployments/:id/gateway-token", async (c) => {
     const gatewayToken = decryptCredential(config.gatewayToken);
     return c.json({ gatewayToken });
   } catch {
-    return jsonErrorResponse(500, "Nao foi possivel descriptografar o token. Recrie o ambiente.");
+    return jsonErrorResponse(500, "Não foi possível descriptografar o token. Recrie o ambiente.");
   }
 });
 
@@ -553,7 +559,7 @@ app.post("/deployments/:id/api/chat", async (c) => {
   });
   if (!deployment) return jsonErrorResponse(404, "Cloud deployment not found");
   if (!deployment.publicUrl) {
-    return jsonErrorResponse(409, "O ambiente ainda nao tem URL publica. Aguarde ficar pronto.");
+    return jsonErrorResponse(409, "O ambiente ainda não tem URL pública. Aguarde ficar pronto.");
   }
 
   const config = deployment.config as Record<string, string> | null;
@@ -565,7 +571,7 @@ app.post("/deployments/:id/api/chat", async (c) => {
   try {
     gatewayToken = decryptCredential(config.gatewayToken);
   } catch {
-    return jsonErrorResponse(500, "Nao foi possivel ler o token do ambiente. Recrie o ambiente.");
+    return jsonErrorResponse(500, "Não foi possível ler o token do ambiente. Recrie o ambiente.");
   }
 
   const body = await c.req.json().catch(() => null) as { messages?: unknown; modelId?: unknown } | null;
@@ -631,13 +637,13 @@ app.patch("/deployments/:id/openclaw", async (c) => {
   try {
     gatewayToken = decryptCredential(String(currentConfig.gatewayToken));
   } catch {
-    return jsonErrorResponse(500, "Nao foi possivel descriptografar o token do gateway. Recrie o ambiente.");
+    return jsonErrorResponse(500, "Não foi possível descriptografar o token do gateway. Recrie o ambiente.");
   }
 
   const modelhubApiUrl = stringFromConfig(currentConfig, "modelhubApiUrl") ?? resolveModelhubApiUrl(c);
   const serviceUrl = deployment.publicUrl ?? stringFromConfig(currentConfig, "controlUiUrl");
   if (!serviceUrl) {
-    return jsonErrorResponse(409, "A URL publica do Render ainda nao esta disponivel. Atualize o status e tente novamente.");
+    return jsonErrorResponse(409, "A URL pública do Render ainda não está disponível. Atualize o status e tente novamente.");
   }
 
   const modelhubApiKey = await getOrCreateModelhubApiKey(deployment.connection, userId);
