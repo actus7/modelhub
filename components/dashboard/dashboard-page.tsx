@@ -28,7 +28,6 @@ import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 import { toast } from "sonner";
 
 import { ApiQuickStartCard } from "@/components/dashboard/api-quick-start-card";
-import { CloudDashboardSection } from "@/components/dashboard/cloud-section";
 import { useAppState } from "@/components/app-state-provider";
 import {
   AlertDialog,
@@ -63,7 +62,7 @@ import {
 import { apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
 import { providerHasRequiredCredentials, providerUsesStoredCredentials } from "@/lib/provider-credentials";
 
-export type DashboardSection = "overview" | "keys" | "credentials" | "logs" | "cloud";
+export type DashboardSection = "overview" | "keys" | "credentials" | "logs";
 
 function sectionNeedsDashboardData(section: DashboardSection) {
   return section === "overview" || section === "keys" || section === "logs";
@@ -315,7 +314,6 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
     { count: shouldLoadDashboardData ? apiKeys.length : undefined, href: "/dashboard/api-keys", id: "keys", label: "API Keys" },
     { count: credentials.length, href: "/dashboard/credentials", id: "credentials", label: "Credenciais" },
     { count: shouldLoadDashboardData ? logs.length : undefined, href: "/dashboard/logs", id: "logs", label: "Logs de uso" },
-    { href: "/dashboard/cloud", id: "cloud", label: "Nuvem" },
   ];
 
   return (
@@ -707,8 +705,6 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
           </CardContent>
         </Card>
       ) : null}
-
-      {section === "cloud" ? <CloudDashboardSection /> : null}
 
       {section === "credentials" ? (
         <Card className="border-border/60">

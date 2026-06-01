@@ -1,5 +1,5 @@
-import { DashboardPage } from "@/components/dashboard/dashboard-page";
+import { redirect } from "next/navigation";
 
 export default function CloudDashboardRoute() {
-  return <DashboardPage section="cloud" />;
+  redirect("/cloud");
 }
