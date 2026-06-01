@@ -17,7 +17,7 @@ type PrismaClientInstance = InstanceType<typeof PrismaClient>;
  * (e.g. new fields). Without this, `next dev` can keep a stale singleton in `globalThis`
  * after `pnpm prisma:generate` until a full server restart.
  */
-const PRISMA_CLIENT_CACHE_REVISION = 2;
+const PRISMA_CLIENT_CACHE_REVISION = 3;
 
 const globalForPrisma = globalThis as {
   __prisma?: PrismaClientInstance;

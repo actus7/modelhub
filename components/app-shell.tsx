@@ -96,6 +96,13 @@ function getPageCopy(pathname: string) {
     };
   }
 
+  if (pathname.startsWith("/dashboard/cloud")) {
+    return {
+      description: "Provisione ambientes BYOC simples na conta de nuvem do usuario.",
+      title: "Nuvem",
+    };
+  }
+
   if (pathname.startsWith("/dashboard")) {
     return {
       description: "Indicadores, chaves e atividade recente da conta.",

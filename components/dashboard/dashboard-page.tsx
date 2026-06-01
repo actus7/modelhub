@@ -28,6 +28,7 @@ import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 import { toast } from "sonner";
 
 import { ApiQuickStartCard } from "@/components/dashboard/api-quick-start-card";
+import { CloudDashboardSection } from "@/components/dashboard/cloud-section";
 import { useAppState } from "@/components/app-state-provider";
 import {
   AlertDialog,
@@ -62,7 +63,11 @@ import {
 import { apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
 import { providerHasRequiredCredentials, providerUsesStoredCredentials } from "@/lib/provider-credentials";
 
-export type DashboardSection = "overview" | "keys" | "credentials" | "logs";
+export type DashboardSection = "overview" | "keys" | "credentials" | "logs" | "cloud";
+
+function sectionNeedsDashboardData(section: DashboardSection) {
+  return section === "overview" || section === "keys" || section === "logs";
+}
 
 function formatDate(value: string | Date | null | undefined) {
   if (!value) {
@@ -117,6 +122,7 @@ function getErrorRateTone(errorRate: number) {
 
 export function DashboardPage({ section = "overview" }: { section?: DashboardSection }) {
   const { credentials, providers, refreshCredentials, refreshUser, user } = useAppState();
+  const shouldLoadDashboardData = sectionNeedsDashboardData(section);
   const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [logs, setLogs] = useState<RecentUsageLog[]>([]);
@@ -180,8 +186,19 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
   }
 
   useEffect(() => {
+    if (!shouldLoadDashboardData) {
+      setLoading(false);
+      return;
+    }
+
     void loadDashboard();
-  }, []);
+  }, [shouldLoadDashboardData]);
+
+  async function refreshDashboardDataIfNeeded() {
+    if (shouldLoadDashboardData) {
+      await loadDashboard();
+    }
+  }
 
   async function handleCreateApiKey() {
     try {
@@ -192,7 +209,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
       setCopiedKey(false);
       setNewKeyDialogOpen(false);
       setNewKeyLabel("");
-      await Promise.all([loadDashboard(), refreshUser()]);
+      await Promise.all([refreshDashboardDataIfNeeded(), refreshUser()]);
       toast.success("Nova API key criada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao criar API key.");
@@ -203,7 +220,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
     try {
       await apiJsonRequest(`/user/api-keys/${keyId}`, "DELETE");
       setPendingApiKeyRevoke(null);
-      await Promise.all([loadDashboard(), refreshUser()]);
+      await Promise.all([refreshDashboardDataIfNeeded(), refreshUser()]);
       toast.success("API key revogada.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao revogar API key.");
@@ -273,7 +290,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
     }
   }
 
-  if (loading && !usage) {
+  if (shouldLoadDashboardData && loading && !usage) {
     return (
       <div
         className="flex flex-1 flex-col items-center justify-center gap-2 p-6"
@@ -295,9 +312,10 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
   const totalProviderRequests = providerChartData.reduce((sum, item) => sum + item.count, 0);
   const sectionLinks: Array<{ count?: number; href: string; id: DashboardSection; label: string }> = [
     { href: "/dashboard", id: "overview", label: "Visão geral" },
-    { count: apiKeys.length, href: "/dashboard/api-keys", id: "keys", label: "API Keys" },
+    { count: shouldLoadDashboardData ? apiKeys.length : undefined, href: "/dashboard/api-keys", id: "keys", label: "API Keys" },
     { count: credentials.length, href: "/dashboard/credentials", id: "credentials", label: "Credenciais" },
-    { count: logs.length, href: "/dashboard/logs", id: "logs", label: "Logs de uso" },
+    { count: shouldLoadDashboardData ? logs.length : undefined, href: "/dashboard/logs", id: "logs", label: "Logs de uso" },
+    { href: "/dashboard/cloud", id: "cloud", label: "Nuvem" },
   ];
 
   return (
@@ -689,6 +707,8 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
           </CardContent>
         </Card>
       ) : null}
+
+      {section === "cloud" ? <CloudDashboardSection /> : null}
 
       {section === "credentials" ? (
         <Card className="border-border/60">
