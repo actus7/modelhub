@@ -32,7 +32,7 @@ import {
   updateRenderOpenClawDeployment,
   validateRenderToken,
 } from "../lib/cloud/render";
-import { jsonErrorResponse } from "../lib/provider-core";
+import { jsonErrorResponse, toVercelStreamFromOpenAiSse } from "../lib/provider-core";
 import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
 
 const app = new Hono().basePath("/user/cloud");
@@ -53,6 +53,18 @@ app.use("*", async (c, next) => {
 
 function getUserId(c: Context): string | undefined {
   return c.get("userId") as string | undefined;
+}
+
+/**
+ * Resolves the ModelHub API base URL that the OpenClaw container (running on
+ * Render) will call back into. Prefers MODELHUB_PUBLIC_URL so a publicly
+ * reachable address can be used even when the server detects a localhost origin
+ * in dev; falls back to the request origin in production where it is already public.
+ */
+function resolveModelhubApiUrl(c: Context): string {
+  const configured = process.env.MODELHUB_PUBLIC_URL?.trim();
+  const base = configured && configured.length > 0 ? configured : new URL(c.req.url).origin;
+  return `${base.replace(/\/+$/, "")}/v1`;
 }
 
 function requireAuth(c: Context): string | Response {
@@ -397,9 +409,8 @@ app.post("/deployments/render/openclaw", async (c) => {
   const renderToken = decryptConnectionToken(connection);
   if (typeof renderToken !== "string") return renderToken;
 
-  const origin = new URL(c.req.url).origin;
-  const modelhubApiUrl = `${origin}/v1`;
-  const allowedOrigins = parsed.data.allowedOrigins ?? [origin];
+  const modelhubApiUrl = resolveModelhubApiUrl(c);
+  const allowedOrigins = parsed.data.allowedOrigins ?? [new URL(modelhubApiUrl).origin];
 
   const modelhubApiKey = await getOrCreateModelhubApiKey(connection, userId);
 
@@ -486,6 +497,109 @@ app.get("/deployments/:id/gateway-token", async (c) => {
   }
 });
 
+/**
+ * Converts the ModelHub chat body (messages with `parts`/`content`) into the
+ * OpenAI-compatible message array OpenClaw expects. Only text is forwarded —
+ * OpenClaw is a text agent in this PoC.
+ */
+function normalizeChatRole(role: unknown): string {
+  if (role === "assistant") return "assistant";
+  if (role === "system") return "system";
+  return "user";
+}
+
+function extractTextParts(message: { content?: unknown; parts?: unknown }): string {
+  if (typeof message.content === "string") return message.content;
+  let parts: unknown[] = [];
+  if (Array.isArray(message.parts)) parts = message.parts;
+  else if (Array.isArray(message.content)) parts = message.content;
+  return parts
+    .filter(
+      (part): part is { text: string; type: string } =>
+        !!part &&
+        typeof part === "object" &&
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string",
+    )
+    .map((part) => part.text)
+    .join("\n");
+}
+
+function toOpenClawMessages(messages: unknown): Array<{ content: string; role: string }> {
+  if (!Array.isArray(messages)) return [];
+  const out: Array<{ content: string; role: string }> = [];
+  for (const raw of messages) {
+    if (!raw || typeof raw !== "object") continue;
+    const message = raw as { content?: unknown; parts?: unknown; role?: unknown };
+    const text = extractTextParts(message);
+    if (text.trim()) out.push({ content: text, role: normalizeChatRole(message.role) });
+  }
+  return out;
+}
+
+// Chat proxy: the ModelHub chat treats each healthy OpenClaw deployment as a
+// virtual provider whose base is /user/cloud/deployments/:id, so it POSTs here.
+// We forward to the deployment's OpenAI-compatible /v1/chat/completions using the
+// stored gateway token (device pairing only gates the Control UI, not this API),
+// and translate the OpenAI SSE stream into the Vercel stream the chat UI parses.
+app.post("/deployments/:id/api/chat", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const deploymentId = c.req.param("id");
+  const deployment = await prisma.cloudDeployment.findFirst({
+    select: { config: true, id: true, provider: true, publicUrl: true, status: true },
+    where: { id: deploymentId, userId },
+  });
+  if (!deployment) return jsonErrorResponse(404, "Cloud deployment not found");
+  if (!deployment.publicUrl) {
+    return jsonErrorResponse(409, "O ambiente ainda nao tem URL publica. Aguarde ficar pronto.");
+  }
+
+  const config = deployment.config as Record<string, string> | null;
+  if (!config?.gatewayToken) {
+    return jsonErrorResponse(409, "Este ambiente nao possui gateway token. Recrie o ambiente.");
+  }
+
+  let gatewayToken: string;
+  try {
+    gatewayToken = decryptCredential(config.gatewayToken);
+  } catch {
+    return jsonErrorResponse(500, "Nao foi possivel ler o token do ambiente. Recrie o ambiente.");
+  }
+
+  const body = await c.req.json().catch(() => null) as { messages?: unknown; modelId?: unknown } | null;
+  const messages = toOpenClawMessages(body?.messages);
+  if (messages.length === 0) {
+    return jsonErrorResponse(400, "messages must be a non-empty array");
+  }
+  const model = typeof body?.modelId === "string" && body.modelId ? body.modelId : "openclaw";
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(`${deployment.publicUrl}/v1/chat/completions`, {
+      body: JSON.stringify({ messages, model, stream: true }),
+      headers: {
+        authorization: `Bearer ${gatewayToken}`,
+        "content-type": "application/json",
+      },
+      method: "POST",
+    });
+  } catch (error) {
+    console.error("[cloud/render/openclaw] chat proxy request failed", error);
+    return jsonErrorResponse(502, "Falha ao conectar ao ambiente OpenClaw. Ele pode estar acordando (aguarde ~1 min).");
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const detail = await upstream.text().catch(() => "");
+    const status = upstream.status >= 400 ? upstream.status : 502;
+    const message = detail.slice(0, 200) || upstream.statusText;
+    return jsonErrorResponse(status, `OpenClaw respondeu com erro: ${message}`);
+  }
+
+  return toVercelStreamFromOpenAiSse(upstream);
+});
+
 app.patch("/deployments/:id/openclaw", async (c) => {
   const userId = requireAuth(c);
   if (typeof userId !== "string") return userId;
@@ -520,7 +634,7 @@ app.patch("/deployments/:id/openclaw", async (c) => {
     return jsonErrorResponse(500, "Nao foi possivel descriptografar o token do gateway. Recrie o ambiente.");
   }
 
-  const modelhubApiUrl = stringFromConfig(currentConfig, "modelhubApiUrl") ?? `${new URL(c.req.url).origin}/v1`;
+  const modelhubApiUrl = stringFromConfig(currentConfig, "modelhubApiUrl") ?? resolveModelhubApiUrl(c);
   const serviceUrl = deployment.publicUrl ?? stringFromConfig(currentConfig, "controlUiUrl");
   if (!serviceUrl) {
     return jsonErrorResponse(409, "A URL publica do Render ainda nao esta disponivel. Atualize o status e tente novamente.");

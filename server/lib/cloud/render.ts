@@ -484,6 +484,13 @@ function buildOpenClawRuntimeConfig(openclaw: RenderOpenClawInfo) {
       controlUi: {
         allowedOrigins: openclaw.allowedOrigins,
       },
+      http: {
+        endpoints: {
+          // Disabled by default in OpenClaw — required so the ModelHub chat proxy
+          // can POST to /v1/chat/completions (otherwise the gateway returns 404).
+          chatCompletions: { enabled: true },
+        },
+      },
       mode: "local",
       port: RENDER_OPENCLAW_PORT,
     },

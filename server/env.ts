@@ -135,6 +135,20 @@ function validateAllowedOrigins(env: NodeJS.ProcessEnv, issues: string[]): void 
   }
 }
 
+function validateModelhubPublicUrl(env: NodeJS.ProcessEnv, issues: string[]): void {
+  const value = env.MODELHUB_PUBLIC_URL?.trim();
+  if (!value) return;
+
+  try {
+    const parsed = new URL(value);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      issues.push("MODELHUB_PUBLIC_URL must use http or https.");
+    }
+  } catch {
+    issues.push("MODELHUB_PUBLIC_URL must be a valid URL when configured.");
+  }
+}
+
 function validateAllowedProxyDomains(env: NodeJS.ProcessEnv, issues: string[]): void {
   for (const domain of parseCsv(env.ALLOWED_PROXY_DOMAINS)) {
     if (domain.includes("://") || domain.includes("/") || domain.includes("?")) {
@@ -232,6 +246,7 @@ export function validateRuntimeEnvConfig(env: NodeJS.ProcessEnv = process.env): 
   validatePositiveNumber("RATE_LIMIT_MAX", env, issues);
   validatePositiveNumber("USER_RATE_LIMIT_MAX", env, issues);
   validateAllowedOrigins(env, issues);
+  validateModelhubPublicUrl(env, issues);
   validateAllowedProxyDomains(env, issues);
   validateUpstashRateLimitEnv(env, issues);
   validateProviderSharedEnvMode(env, issues);

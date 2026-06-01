@@ -460,3 +460,96 @@ describe("PATCH /user/cloud/deployments/:id/openclaw", () => {
     expect(JSON.stringify(body)).not.toContain("old-gateway-token");
   });
 });
+
+describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", fetchMock);
+    fetchMock.mockReset();
+  });
+
+  function openclawDeploymentRow(overrides = {}) {
+    return deploymentRow({
+      config: { gatewayToken: "enc:gw-secret-token", model: "groq/llama", provider: "groq" },
+      externalServiceId: "srv-oc-1",
+      image: "ghcr.io/openclaw/openclaw:latest",
+      port: 10000,
+      publicUrl: "https://modelhub-openclaw-abc.onrender.com",
+      status: "healthy",
+      ...overrides,
+    });
+  }
+
+  it("forwards chat to the OpenClaw /v1/chat/completions with the gateway token", async () => {
+    mockPrisma.cloudDeployment.findFirst.mockResolvedValue(openclawDeploymentRow());
+    fetchMock.mockResolvedValue(
+      new Response('data: {"choices":[{"delta":{"content":"oi"}}]}\n\ndata: [DONE]\n\n', {
+        headers: { "content-type": "text/event-stream" },
+        status: 200,
+      }),
+    );
+
+    const res = await mkApp().request("/user/cloud/deployments/row_1/api/chat", {
+      body: JSON.stringify({
+        messages: [{ parts: [{ text: "Olá OpenClaw", type: "text" }], role: "user" }],
+      }),
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://modelhub-openclaw-abc.onrender.com/v1/chat/completions",
+      expect.objectContaining({ method: "POST" }),
+    );
+    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect((requestInit.headers as Record<string, string>).authorization).toBe("Bearer gw-secret-token");
+    const sentBody = JSON.parse(String(requestInit.body));
+    expect(sentBody).toMatchObject({
+      messages: [{ content: "Olá OpenClaw", role: "user" }],
+      model: "openclaw",
+      stream: true,
+    });
+  });
+
+  it("returns 409 when the deployment has no public URL yet", async () => {
+    mockPrisma.cloudDeployment.findFirst.mockResolvedValue(openclawDeploymentRow({ publicUrl: null }));
+
+    const res = await mkApp().request("/user/cloud/deployments/row_1/api/chat", {
+      body: JSON.stringify({ messages: [{ parts: [{ text: "oi", type: "text" }], role: "user" }] }),
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    expect(res.status).toBe(409);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 when there are no usable messages", async () => {
+    mockPrisma.cloudDeployment.findFirst.mockResolvedValue(openclawDeploymentRow());
+
+    const res = await mkApp().request("/user/cloud/deployments/row_1/api/chat", {
+      body: JSON.stringify({ messages: [] }),
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    expect(res.status).toBe(400);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("never leaks the gateway token in an upstream error response", async () => {
+    mockPrisma.cloudDeployment.findFirst.mockResolvedValue(openclawDeploymentRow());
+    fetchMock.mockResolvedValue(new Response("unauthorized", { status: 401 }));
+
+    const res = await mkApp().request("/user/cloud/deployments/row_1/api/chat", {
+      body: JSON.stringify({ messages: [{ parts: [{ text: "oi", type: "text" }], role: "user" }] }),
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    expect(res.status).toBe(401);
+    expect(JSON.stringify(await res.json())).not.toContain("gw-secret-token");
+  });
+});

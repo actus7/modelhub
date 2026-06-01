@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import {
+  type CloudDeploymentSummary,
   MODELHUB_EFFECTIVE_MODEL_HEADER,
   MODELHUB_MODEL_FALLBACK_USED_HEADER,
   MODELHUB_MODELS_ATTEMPTED_HEADER,
@@ -349,9 +350,49 @@ export function ChatPage() {
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Dynamic OpenClaw destinations: every healthy OpenClaw deployment becomes a
+  // virtual provider (hasModels: false, authMode: none) whose base points at the
+  // chat-proxy endpoint, so the existing sendMessage flow works unchanged.
+  const [openclawDeployments, setOpenclawDeployments] = useState<CloudDeploymentSummary[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiJson<{ deployments: CloudDeploymentSummary[] }>("/user/cloud/deployments")
+      .then((payload) => {
+        if (cancelled) return;
+        setOpenclawDeployments(payload.deployments.filter((d) => d.status === "healthy"));
+      })
+      .catch(() => {
+        if (!cancelled) setOpenclawDeployments([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openclawProviders = useMemo<UiProvider[]>(
+    () =>
+      openclawDeployments.map((deployment) => ({
+        base: `/user/cloud/deployments/${deployment.id}`,
+        hasModels: false,
+        id: `openclaw:${deployment.id}`,
+        label: `OpenClaw · ${deployment.name}`,
+        runtime: {
+          authMode: "none",
+          externalApi: false,
+          kind: "server",
+          openAiCompatible: true,
+          transport: "modelhub-proxy",
+        },
+      })),
+    [openclawDeployments],
+  );
+
   const selectedProvider = useMemo(
-    () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
-    [providers, selectedProviderId],
+    () =>
+      [...providers, ...openclawProviders].find((provider) => provider.id === selectedProviderId) ??
+      null,
+    [providers, openclawProviders, selectedProviderId],
   );
   const browserProviderAdapter = useMemo(
     () => getBrowserChatProviderAdapter(selectedProviderId),
@@ -1403,6 +1444,17 @@ export function ChatPage() {
               <SelectValue placeholder="Provider" />
             </SelectTrigger>
             <SelectContent>
+              {openclawProviders.length > 0 && (
+                <SelectGroup>
+                  <SelectLabel>Ambientes OpenClaw</SelectLabel>
+                  {openclawProviders.map((provider) => (
+                    <SelectItem key={provider.id} value={provider.id}>
+                      <span className="truncate">{provider.label}</span>
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              )}
+              {openclawProviders.length > 0 ? <SelectSeparator /> : null}
               {configuredProvidersWithApiKey.length > 0 && (
                 <SelectGroup>
                   <SelectLabel>Configurados</SelectLabel>
