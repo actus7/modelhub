@@ -513,6 +513,16 @@ function buildOpenClawRuntimeConfig(openclaw: RenderOpenClawInfo) {
         },
       },
     },
+    // Free-tier footprint reduction: keep the browser plugin but disable the
+    // heaviest non-essential ones (canvas/phone/voice) so the 512MB instance
+    // doesn't OOM and the event loop stays responsive for health checks.
+    plugins: {
+      entries: {
+        canvas: { enabled: false },
+        "phone-control": { enabled: false },
+        "talk-voice": { enabled: false },
+      },
+    },
   };
 }
 
@@ -558,7 +568,9 @@ export async function createRenderOpenClawDeployment(
           envSpecificDetails: {
             dockerCommand: RENDER_OPENCLAW_DOCKER_COMMAND,
           },
-          healthCheckPath: "/healthz",
+          // Empty path = Render falls back to TCP port detection, which is more
+          // tolerant of brief event-loop stalls than the 5s HTTP health check.
+          healthCheckPath: "",
           runtime: "image",
         },
       }),
@@ -596,7 +608,9 @@ export async function createRenderOpenClawDeployment(
         envSpecificDetails: {
           dockerCommand: RENDER_OPENCLAW_DOCKER_COMMAND,
         },
-        healthCheckPath: "/healthz",
+        // Empty path = Render falls back to TCP port detection, which is more
+        // tolerant of brief event-loop stalls than the 5s HTTP health check.
+        healthCheckPath: "",
         plan: RENDER_OPENCLAW_PLAN,
         region: RENDER_OPENCLAW_REGION,
         runtime: "image",
@@ -649,7 +663,9 @@ export async function updateRenderOpenClawDeployment(
         envSpecificDetails: {
           dockerCommand: RENDER_OPENCLAW_DOCKER_COMMAND,
         },
-        healthCheckPath: "/healthz",
+        // Empty path = Render falls back to TCP port detection, which is more
+        // tolerant of brief event-loop stalls than the 5s HTTP health check.
+        healthCheckPath: "",
         runtime: "image",
       },
     }),

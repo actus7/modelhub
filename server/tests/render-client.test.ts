@@ -246,7 +246,15 @@ describe("Render client", () => {
     ]));
     expect(runtimeConfig.agents.defaults.model.primary).toBe("modelhub/groq/llama-3.3-70b-versatile");
     expect(runtimeConfig.models.providers.modelhub.baseUrl).toBe("https://modelhub.example.com/v1");
-    expect(body.serviceDetails.healthCheckPath).toBe("/healthz");
+    // Heavy plugins disabled to fit the free tier; browser kept on purpose.
+    expect(runtimeConfig.plugins.entries).toMatchObject({
+      "canvas": { enabled: false },
+      "phone-control": { enabled: false },
+      "talk-voice": { enabled: false },
+    });
+    expect(runtimeConfig.plugins.entries).not.toHaveProperty("browser");
+    // Empty health check path → Render uses TCP port detection (more tolerant).
+    expect(body.serviceDetails.healthCheckPath).toBe("");
     expect(body.serviceDetails.envSpecificDetails.dockerCommand).toBe(RENDER_OPENCLAW_DOCKER_COMMAND);
     expect(body.serviceDetails.envSpecificDetails.dockerCommand).toContain("OPENCLAW_CONFIG_PATH");
     expect(body.envVars).toEqual(
@@ -322,7 +330,7 @@ describe("Render client", () => {
         envSpecificDetails: {
           dockerCommand: RENDER_OPENCLAW_DOCKER_COMMAND,
         },
-        healthCheckPath: "/healthz",
+        healthCheckPath: "",
         runtime: "image",
       },
     });
