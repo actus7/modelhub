@@ -80,6 +80,16 @@ export function useProviderModels(input: UseProviderModelsInput): UseProviderMod
       return;
     }
 
+    if (selectedProvider.localModels?.length) {
+      const uniqueModels = dedupeModels(selectedProvider.localModels);
+      setLoading(false);
+      setModels(uniqueModels);
+      setSelectedModelId((current) =>
+        resolveSelectedModel(current, uniqueModels, selectedProvider.id),
+      );
+      return;
+    }
+
     let cancelled = false;
     setLoading(true);
 

@@ -48,6 +48,7 @@ export type UiProvider = {
   base: string;
   category?: ProviderCategory;
   hasModels: boolean;
+  localModels?: ProviderModel[];
   requiredEnv?: string;
   requiredKeys?: ProviderKeyField[];
   runtime?: ProviderRuntime;

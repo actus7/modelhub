@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ActivityIcon,
   CircleHelpIcon,
+  CloudIcon,
   FileTextIcon,
   LayoutDashboardIcon,
   Loader2Icon,
@@ -96,7 +97,7 @@ function getPageCopy(pathname: string) {
     };
   }
 
-  if (pathname.startsWith("/dashboard/cloud")) {
+  if (pathname.startsWith("/cloud") || pathname.startsWith("/dashboard/cloud")) {
     return {
       description: "Provisione ambientes BYOC simples na conta de nuvem do usuario.",
       title: "Nuvem",
@@ -212,6 +213,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Link href="/setup">
                       <PlugIcon />
                       <span>Integrações</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/cloud")} tooltip="Nuvem">
+                    <Link href="/cloud">
+                      <CloudIcon />
+                      <span>Nuvem</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

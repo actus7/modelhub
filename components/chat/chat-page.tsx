@@ -350,9 +350,8 @@ export function ChatPage() {
   const attachmentsRef = useRef<ComposerAttachment[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Dynamic OpenClaw destinations: every healthy OpenClaw deployment becomes a
-  // virtual provider (hasModels: false, authMode: none) whose base points at the
-  // chat-proxy endpoint, so the existing sendMessage flow works unchanged.
+  // Dynamic OpenClaw destinations: every healthy OpenClaw deployment with a
+  // managed config becomes a virtual provider whose base points at the chat-proxy endpoint.
   const [openclawDeployments, setOpenclawDeployments] = useState<CloudDeploymentSummary[]>([]);
 
   useEffect(() => {
@@ -360,7 +359,7 @@ export function ChatPage() {
     apiJson<{ deployments: CloudDeploymentSummary[] }>("/user/cloud/deployments")
       .then((payload) => {
         if (cancelled) return;
-        setOpenclawDeployments(payload.deployments.filter((d) => d.status === "healthy"));
+        setOpenclawDeployments(payload.deployments.filter((d) => d.status === "healthy" && d.openclaw));
       })
       .catch(() => {
         if (!cancelled) setOpenclawDeployments([]);
@@ -371,21 +370,36 @@ export function ChatPage() {
   }, []);
 
   const openclawProviders = useMemo<UiProvider[]>(
-    () =>
-      openclawDeployments.map((deployment) => ({
-        base: `/user/cloud/deployments/${deployment.id}`,
-        hasModels: false,
-        id: `openclaw:${deployment.id}`,
-        label: `OpenClaw · ${deployment.name}`,
-        runtime: {
-          authMode: "none",
-          externalApi: false,
-          kind: "server",
-          openAiCompatible: true,
-          transport: "modelhub-proxy",
-        },
-      })),
-    [openclawDeployments],
+    () => {
+      const providerLabels = new Map(providers.map((provider) => [provider.id, provider.label]));
+
+      return openclawDeployments.flatMap((deployment) => {
+        const openclaw = deployment.openclaw;
+        if (!openclaw) return [];
+
+        const providerLabel = providerLabels.get(openclaw.provider) ?? openclaw.provider;
+
+        return [{
+          base: `/user/cloud/deployments/${deployment.id}`,
+          hasModels: true,
+          id: `openclaw:${deployment.id}`,
+          label: `OpenClaw · ${deployment.name}`,
+          localModels: [{
+            capabilities: { documents: true, images: false },
+            id: openclaw.model,
+            name: `${providerLabel} · ${openclaw.model}`,
+          }],
+          runtime: {
+            authMode: "none",
+            externalApi: false,
+            kind: "server",
+            openAiCompatible: true,
+            transport: "modelhub-proxy",
+          },
+        }];
+      });
+    },
+    [openclawDeployments, providers],
   );
 
   const selectedProvider = useMemo(
