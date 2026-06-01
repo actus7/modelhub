@@ -1,5 +1,5 @@
 -- AlterTable
-ALTER TABLE "CloudDeployment" ADD COLUMN "config" JSONB;
+ALTER TABLE "CloudDeployment" ADD COLUMN IF NOT EXISTS "config" JSONB;
 
 -- AlterTable
-ALTER TABLE "CloudConnection" ADD COLUMN "modelhubApiKey" TEXT;
+ALTER TABLE "CloudConnection" ADD COLUMN IF NOT EXISTS "modelhubApiKey" TEXT;
