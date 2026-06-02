@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import {
   type CloudDeploymentSummary,
   MODELHUB_EFFECTIVE_MODEL_HEADER,
@@ -137,6 +138,7 @@ const ACCEPTED_DOCUMENT_TYPES = [
 
 type ChatMessage = {
   content: string;
+  createdAt?: string;
   id: string;
   isError?: boolean;
   modelLabel?: string;
@@ -153,6 +155,7 @@ type ChatMessage = {
 
 type PersistedConversationMessage = {
   content: string;
+  createdAt?: string;
   id: string;
   parts: HydratedConversationMessagePart[];
   role: "assistant" | "user";
@@ -224,6 +227,16 @@ function getUserMessageText(message: { parts?: HydratedConversationMessagePart[]
   return extractPlainTextFromParts(message.parts);
 }
 
+function formatMessageTimestamp(createdAt: string): string {
+  const date = new Date(createdAt);
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const time = date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  if (isToday) return time;
+  const day = date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  return `${day} ${time}`;
+}
+
 function hydrateChatMessage(input: {
   message: PersistedConversationMessage;
   assistantModelLabel?: string;
@@ -233,6 +246,7 @@ function hydrateChatMessage(input: {
       input.message.role === "assistant"
         ? input.message.content
         : getUserMessageText({ content: input.message.content, parts: input.message.parts }),
+    createdAt: input.message.createdAt,
     id: input.message.id,
     modelLabel: input.message.role === "assistant" ? input.assistantModelLabel : undefined,
     parts: input.message.role === "user" ? input.message.parts : undefined,
@@ -368,6 +382,20 @@ export function ChatPage() {
       cancelled = true;
     };
   }, []);
+
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const openclawId = searchParams.get("openclaw");
+    if (!openclawId) return;
+    const targetProviderId = `openclaw:${openclawId}`;
+    const exists = openclawDeployments.some((d) => d.id === openclawId);
+    if (exists) {
+      setSelectedProviderId(targetProviderId);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("openclaw");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [searchParams, openclawDeployments]);
 
   const openclawProviders = useMemo<UiProvider[]>(
     () => {
@@ -998,9 +1026,10 @@ export function ChatPage() {
     setConversation(nextConversation);
     setMessages((current) => [
       ...(options?.baseConversation ? current.slice(0, options.baseConversation.length) : current),
-      { content: text, id: userMessageId, parts: messageParts, role: "user", toolCalls: [] },
+      { content: text, createdAt: new Date().toISOString(), id: userMessageId, parts: messageParts, role: "user", toolCalls: [] },
       {
         content: "",
+        createdAt: new Date().toISOString(),
         id: assistantMessageId,
         modelLabel: assistantModelLabel,
         role: "assistant",
@@ -1937,6 +1966,12 @@ export function ChatPage() {
                       {message.modelLabel}
                     </p>
                   ) : null}
+
+                  {message.createdAt && (
+                    <p className="px-1 text-[10px] text-muted-foreground/60">
+                      {formatMessageTimestamp(message.createdAt)}
+                    </p>
+                  )}
 
                   {/* Action buttons below the bubble */}
                   {editingMessageId !== message.id && (message.content || message.parts?.length) && !pending && (

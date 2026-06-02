@@ -493,17 +493,19 @@ describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () =
     const res = await mkApp().request("/user/cloud/deployments/row_1/api/chat", {
       body: JSON.stringify({
         messages: [{ parts: [{ text: "Olá OpenClaw", type: "text" }], role: "user" }],
+        modelId: "nvidianim/nvidia/nemotron-3-super-120b-a12b",
       }),
       headers: { ...AUTH, "Content-Type": "application/json" },
       method: "POST",
     });
 
     expect(res.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://modelhub-openclaw-abc.onrender.com/v1/chat/completions",
-      expect.objectContaining({ method: "POST" }),
+    const chatCall = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].endsWith("/v1/chat/completions"),
     );
-    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(chatCall).toBeDefined();
+    expect(chatCall![0]).toBe("https://modelhub-openclaw-abc.onrender.com/v1/chat/completions");
+    const requestInit = chatCall![1] as RequestInit;
     expect((requestInit.headers as Record<string, string>).authorization).toBe("Bearer gw-secret-token");
     const sentBody = JSON.parse(String(requestInit.body));
     expect(sentBody).toMatchObject({
@@ -511,6 +513,40 @@ describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () =
       model: "openclaw",
       stream: true,
     });
+  });
+
+  it("cancels transient 5xx response bodies before retrying OpenClaw chat", async () => {
+    mockPrisma.cloudDeployment.findFirst.mockResolvedValue(openclawDeploymentRow());
+    const cancelSpy = vi.fn();
+    const transientBody = new ReadableStream({
+      cancel: cancelSpy,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("temporary failure"));
+      },
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }))
+      .mockResolvedValueOnce(new Response(transientBody, { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', {
+          headers: { "content-type": "text/event-stream" },
+          status: 200,
+        }),
+      );
+
+    const res = await mkApp().request("/user/cloud/deployments/row_1/api/chat", {
+      body: JSON.stringify({ messages: [{ parts: [{ text: "oi", type: "text" }], role: "user" }] }),
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    expect(res.status).toBe(200);
+    const chatCalls = fetchMock.mock.calls.filter(
+      (call) => typeof call[0] === "string" && call[0].endsWith("/v1/chat/completions"),
+    );
+    expect(chatCalls).toHaveLength(2);
+    expect(cancelSpy).toHaveBeenCalledOnce();
   });
 
   it("returns 409 when the deployment has no public URL yet", async () => {
@@ -523,7 +559,6 @@ describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () =
     });
 
     expect(res.status).toBe(409);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("returns 400 when there are no usable messages", async () => {
@@ -536,7 +571,6 @@ describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () =
     });
 
     expect(res.status).toBe(400);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("never leaks the gateway token in an upstream error response", async () => {

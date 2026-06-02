@@ -92,6 +92,7 @@ async function persistMessages(conversationId: string, messages: CreateMessageIn
   const createdMessages = await prisma.$transaction(async (tx) => {
     const output: Array<{
       content: string;
+      createdAt: Date;
       id: string;
       parts: Prisma.JsonValue | null;
       role: string;
@@ -112,6 +113,7 @@ async function persistMessages(conversationId: string, messages: CreateMessageIn
         },
         select: {
           content: true,
+          createdAt: true,
           id: true,
           parts: true,
           role: true,
@@ -176,6 +178,7 @@ async function persistMessages(conversationId: string, messages: CreateMessageIn
 
     return {
       content: message.content,
+      createdAt: message.createdAt,
       id: message.id,
       parts,
       role: message.role,
@@ -330,6 +333,7 @@ app.get("/:id/messages", async (c) => {
 
       return {
         content: message.content,
+        createdAt: message.createdAt,
         id: message.id,
         parts,
         role: message.role,
