@@ -8,7 +8,6 @@ import {
   getRenderSpikeServiceName,
   isRenderFreeTierError,
   OPENCLAW_AGENT_TIMEOUT_SECONDS,
-  OPENCLAW_MODEL_REQUEST_TIMEOUT_MS,
   OPENCLAW_PROVIDER_TIMEOUT_SECONDS,
   RENDER_OPENCLAW_DOCKER_COMMAND,
   RENDER_OPENCLAW_IMAGE,
@@ -252,7 +251,7 @@ describe("Render client", () => {
     expect(runtimeConfig.agents.defaults.timeoutSeconds).toBe(OPENCLAW_AGENT_TIMEOUT_SECONDS);
     expect(runtimeConfig.models.providers.modelhub.baseUrl).toBe("https://modelhub.example.com/v1");
     expect(runtimeConfig.models.providers.modelhub.timeoutSeconds).toBe(OPENCLAW_PROVIDER_TIMEOUT_SECONDS);
-    expect(runtimeConfig.models.providers.modelhub.models[0].requestTimeoutMs).toBe(OPENCLAW_MODEL_REQUEST_TIMEOUT_MS);
+    expect(runtimeConfig.models.providers.modelhub.models[0]).not.toHaveProperty("requestTimeoutMs");
     expect(runtimeConfig.update.checkOnStart).toBe(false);
     // Heavy plugins disabled to fit the free tier; browser kept on purpose.
     expect(runtimeConfig.plugins.entries).toMatchObject({
@@ -387,7 +386,7 @@ describe("Render client", () => {
     expect(runtimeConfig.gateway.controlUi.allowedOrigins).toContain("https://modelhub-openclaw-existing.onrender.com");
     expect(runtimeConfig.agents.defaults.timeoutSeconds).toBe(OPENCLAW_AGENT_TIMEOUT_SECONDS);
     expect(runtimeConfig.models.providers.modelhub.timeoutSeconds).toBe(OPENCLAW_PROVIDER_TIMEOUT_SECONDS);
-    expect(runtimeConfig.models.providers.modelhub.models[0].requestTimeoutMs).toBe(OPENCLAW_MODEL_REQUEST_TIMEOUT_MS);
+    expect(runtimeConfig.models.providers.modelhub.models[0]).not.toHaveProperty("requestTimeoutMs");
     expect(runtimeConfig.update.checkOnStart).toBe(false);
 
     const patchBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
