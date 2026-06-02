@@ -554,14 +554,17 @@ const OPENCLAW_OVERALL_TIMEOUT_MS = 120_000;
 const OPENCLAW_PER_REQUEST_TIMEOUT_MS = 95_000;
 
 function createTimeoutSignal(timeoutMs: number): AbortSignal {
-  const controller = new AbortController();
-  setTimeout(() => controller.abort(), timeoutMs);
-  return controller.signal;
+  return AbortSignal.timeout(timeoutMs);
+}
+
+async function discardResponseBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
 }
 
 async function wakeUpOpenClaw(baseUrl: string): Promise<void> {
   try {
-    await fetch(`${baseUrl}/healthz`, { method: "GET", signal: createTimeoutSignal(OPENCLAW_WAKEUP_TIMEOUT_MS) });
+    const response = await fetch(`${baseUrl}/healthz`, { method: "GET", signal: createTimeoutSignal(OPENCLAW_WAKEUP_TIMEOUT_MS) });
+    await discardResponseBody(response);
   } catch {
     // Best-effort: the health ping wakes up the container; failures are harmless.
   }
@@ -599,6 +602,7 @@ async function openClawChatWithRetry(
       }
 
       if (response.status >= 500) {
+        await discardResponseBody(response);
         const delay = OPENCLAW_RETRY_BASE_DELAY_MS * (attempt + 1);
         await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
@@ -656,7 +660,7 @@ app.post("/deployments/:id/api/chat", async (c) => {
     upstream = await openClawChatWithRetry(deployment.publicUrl, gatewayToken, { messages, model, stream: true });
   } catch (error) {
     console.error("[cloud/render/openclaw] chat proxy request failed", error);
-    return jsonErrorResponse(502, "Nao foi possivel conectar ao OpenClaw. O ambiente pode estar acordando (plano gratuito do Render). Tente novamente em alguns segundos.");
+    return jsonErrorResponse(502, "Não foi possível conectar ao OpenClaw. O ambiente pode estar acordando (plano gratuito do Render). Tente novamente em alguns segundos.");
   }
 
   if (!upstream.ok || !upstream.body) {

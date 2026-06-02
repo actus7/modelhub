@@ -35,9 +35,9 @@ function createPrismaClient(): PrismaClientInstance {
   // Append uselibpqcompat=true to suppress the pg-connection-string SSL mode warning.
   // Neon recommends sslmode=require; without uselibpqcompat, node-postgres treats
   // "require" as "verify-full" which is fine but produces a loud deprecation warning.
-  const patchedUrl = databaseUrl.includes("uselibpqcompat")
-    ? databaseUrl
-    : `${databaseUrl}${databaseUrl.includes("?") ? "&" : "?"}uselibpqcompat=true`;
+  const patchedDatabaseUrl = new URL(databaseUrl);
+  patchedDatabaseUrl.searchParams.set("uselibpqcompat", "true");
+  const patchedUrl = patchedDatabaseUrl.toString();
 
   const pool = new Pool({ connectionString: patchedUrl, ssl: true });
   const adapter = new PrismaPg(pool);

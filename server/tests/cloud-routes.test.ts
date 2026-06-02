@@ -515,6 +515,40 @@ describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () =
     });
   });
 
+  it("cancels transient 5xx response bodies before retrying OpenClaw chat", async () => {
+    mockPrisma.cloudDeployment.findFirst.mockResolvedValue(openclawDeploymentRow());
+    const cancelSpy = vi.fn();
+    const transientBody = new ReadableStream({
+      cancel: cancelSpy,
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("temporary failure"));
+      },
+    });
+
+    fetchMock
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }))
+      .mockResolvedValueOnce(new Response(transientBody, { status: 503 }))
+      .mockResolvedValueOnce(
+        new Response('data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n', {
+          headers: { "content-type": "text/event-stream" },
+          status: 200,
+        }),
+      );
+
+    const res = await mkApp().request("/user/cloud/deployments/row_1/api/chat", {
+      body: JSON.stringify({ messages: [{ parts: [{ text: "oi", type: "text" }], role: "user" }] }),
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST",
+    });
+
+    expect(res.status).toBe(200);
+    const chatCalls = fetchMock.mock.calls.filter(
+      (call) => typeof call[0] === "string" && call[0].endsWith("/v1/chat/completions"),
+    );
+    expect(chatCalls).toHaveLength(2);
+    expect(cancelSpy).toHaveBeenCalledOnce();
+  });
+
   it("returns 409 when the deployment has no public URL yet", async () => {
     mockPrisma.cloudDeployment.findFirst.mockResolvedValue(openclawDeploymentRow({ publicUrl: null }));
 
