@@ -8,6 +8,7 @@ import {
   getRenderSpikeServiceName,
   isRenderFreeTierError,
   OPENCLAW_AGENT_TIMEOUT_SECONDS,
+  OPENCLAW_PROVIDER_TIMEOUT_SECONDS,
   RENDER_OPENCLAW_DOCKER_COMMAND,
   RENDER_OPENCLAW_IMAGE,
   RENDER_SPIKE_PLAN,
@@ -233,6 +234,7 @@ describe("Render client", () => {
       expect.arrayContaining([
         expect.objectContaining({ key: "OPENCLAW_GATEWAY_PORT", value: "10000" }),
         expect.objectContaining({ key: "OPENCLAW_GATEWAY_TOKEN", value: deployment.gatewayToken }),
+        expect.objectContaining({ key: "OPENCLAW_NO_AUTO_UPDATE", value: "1" }),
         expect.objectContaining({ key: "OPENAI_API_KEY", value: "sk-test-key" }),
         expect.objectContaining({ key: "OPENAI_BASE_URL", value: "https://modelhub.example.com/v1" }),
         expect.objectContaining({ key: "MODELHUB_OPENCLAW_MODEL", value: "groq/llama-3.3-70b-versatile" }),
@@ -248,6 +250,8 @@ describe("Render client", () => {
     expect(runtimeConfig.agents.defaults.model.primary).toBe("modelhub/groq/llama-3.3-70b-versatile");
     expect(runtimeConfig.agents.defaults.timeoutSeconds).toBe(OPENCLAW_AGENT_TIMEOUT_SECONDS);
     expect(runtimeConfig.models.providers.modelhub.baseUrl).toBe("https://modelhub.example.com/v1");
+    expect(runtimeConfig.models.providers.modelhub.timeoutSeconds).toBe(OPENCLAW_PROVIDER_TIMEOUT_SECONDS);
+    expect(runtimeConfig.update.checkOnStart).toBe(false);
     // Heavy plugins disabled to fit the free tier; browser kept on purpose.
     expect(runtimeConfig.plugins.entries).toMatchObject({
       "canvas": { enabled: false },
@@ -372,6 +376,7 @@ describe("Render client", () => {
     expect(envBody).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: "OPENCLAW_GATEWAY_TOKEN", value: "gateway-token" }),
+        expect.objectContaining({ key: "OPENCLAW_NO_AUTO_UPDATE", value: "1" }),
         expect.objectContaining({ key: "MODELHUB_OPENCLAW_MODEL", value: "groq/llama-3.3-70b-versatile" }),
       ]),
     );
@@ -379,6 +384,8 @@ describe("Render client", () => {
     const runtimeConfig = JSON.parse(configJson);
     expect(runtimeConfig.gateway.controlUi.allowedOrigins).toContain("https://modelhub-openclaw-existing.onrender.com");
     expect(runtimeConfig.agents.defaults.timeoutSeconds).toBe(OPENCLAW_AGENT_TIMEOUT_SECONDS);
+    expect(runtimeConfig.models.providers.modelhub.timeoutSeconds).toBe(OPENCLAW_PROVIDER_TIMEOUT_SECONDS);
+    expect(runtimeConfig.update.checkOnStart).toBe(false);
 
     const patchBody = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
     expect(fetchMock.mock.calls[1]?.[0]).toBe("https://api.render.com/v1/services/srv-oc-existing");

@@ -550,8 +550,8 @@ function toOpenClawMessages(messages: unknown): Array<{ content: string; role: s
 const OPENCLAW_WAKEUP_TIMEOUT_MS = 5_000;
 const OPENCLAW_CHAT_MAX_RETRIES = 2;
 const OPENCLAW_RETRY_BASE_DELAY_MS = 3_000;
-const OPENCLAW_OVERALL_TIMEOUT_MS = 120_000;
-const OPENCLAW_PER_REQUEST_TIMEOUT_MS = 95_000;
+const OPENCLAW_OVERALL_TIMEOUT_MS = 330_000;
+const OPENCLAW_PER_REQUEST_TIMEOUT_MS = 305_000;
 
 function createTimeoutSignal(timeoutMs: number): AbortSignal {
   return AbortSignal.timeout(timeoutMs);
