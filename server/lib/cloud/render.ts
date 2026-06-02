@@ -15,7 +15,8 @@ export const RENDER_OPENCLAW_IMAGE = "ghcr.io/openclaw/openclaw:latest";
 export const RENDER_OPENCLAW_REGION = "oregon";
 export const RENDER_OPENCLAW_PLAN = "free";
 export const RENDER_OPENCLAW_PORT = 10000;
-export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 90;
+export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 310;
+export const OPENCLAW_PROVIDER_TIMEOUT_SECONDS = 300;
 // Explicit config path. OPENCLAW_CONFIG_PATH has absolute priority for where the
 // gateway reads openclaw.json — relying on the ~/.openclaw default proved unreliable
 // (the gateway reported "Missing config" even though we wrote there). We set this env
@@ -404,6 +405,7 @@ function buildOpenClawEnvVars(
     // Gateway reads its config from this exact path (absolute priority); the bootstrap
     // script writes openclaw.json here too, so write/read paths always match.
     { key: "OPENCLAW_CONFIG_PATH", value: RENDER_OPENCLAW_CONFIG_PATH },
+    { key: "OPENCLAW_NO_AUTO_UPDATE", value: "1" },
     { key: "OPENCLAW_STATE_DIR", value: "/tmp/openclaw-state" },
     { key: "OPENCLAW_WORKSPACE_DIR", value: "/tmp/openclaw-workspace" },
     { key: "MODELHUB_OPENCLAW_ALLOWED_ORIGINS", value: openclaw.allowedOrigins.join(",") },
@@ -497,6 +499,7 @@ function buildOpenClawRuntimeConfig(openclaw: RenderOpenClawInfo) {
           api: "openai-completions",
           apiKey: "${OPENAI_API_KEY}",
           baseUrl: openclaw.modelhubApiUrl,
+          timeoutSeconds: OPENCLAW_PROVIDER_TIMEOUT_SECONDS,
           models: [
             {
               contextWindow: 128000,
@@ -508,6 +511,9 @@ function buildOpenClawRuntimeConfig(openclaw: RenderOpenClawInfo) {
           ],
         },
       },
+    },
+    update: {
+      checkOnStart: false,
     },
     // Free-tier footprint reduction: keep the browser plugin but disable the
     // heaviest non-essential ones (canvas/phone/voice) so the 512MB instance
