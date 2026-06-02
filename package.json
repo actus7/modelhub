@@ -76,7 +76,7 @@
     "puppeteer": "^25.1.0",
     "radix-ui": "^1.4.3",
     "react": "19.2.7",
-    "react-dom": "19.2.5",
+    "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
     "recharts": "^3.8.1",
     "rehype-highlight": "^7.0.2",
