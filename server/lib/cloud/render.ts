@@ -15,6 +15,7 @@ export const RENDER_OPENCLAW_IMAGE = "ghcr.io/openclaw/openclaw:latest";
 export const RENDER_OPENCLAW_REGION = "oregon";
 export const RENDER_OPENCLAW_PLAN = "free";
 export const RENDER_OPENCLAW_PORT = 10000;
+export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 90;
 // Explicit config path. OPENCLAW_CONFIG_PATH has absolute priority for where the
 // gateway reads openclaw.json — relying on the ~/.openclaw default proved unreliable
 // (the gateway reported "Missing config" even though we wrote there). We set this env
@@ -467,6 +468,7 @@ function buildOpenClawRuntimeConfig(openclaw: RenderOpenClawInfo) {
         models: {
           [modelReference]: { alias: openclaw.model },
         },
+        timeoutSeconds: OPENCLAW_AGENT_TIMEOUT_SECONDS,
       },
     },
     gateway: {

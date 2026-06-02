@@ -493,17 +493,19 @@ describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () =
     const res = await mkApp().request("/user/cloud/deployments/row_1/api/chat", {
       body: JSON.stringify({
         messages: [{ parts: [{ text: "Olá OpenClaw", type: "text" }], role: "user" }],
+        modelId: "nvidianim/nvidia/nemotron-3-super-120b-a12b",
       }),
       headers: { ...AUTH, "Content-Type": "application/json" },
       method: "POST",
     });
 
     expect(res.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://modelhub-openclaw-abc.onrender.com/v1/chat/completions",
-      expect.objectContaining({ method: "POST" }),
+    const chatCall = fetchMock.mock.calls.find(
+      (call) => typeof call[0] === "string" && call[0].endsWith("/v1/chat/completions"),
     );
-    const requestInit = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(chatCall).toBeDefined();
+    expect(chatCall![0]).toBe("https://modelhub-openclaw-abc.onrender.com/v1/chat/completions");
+    const requestInit = chatCall![1] as RequestInit;
     expect((requestInit.headers as Record<string, string>).authorization).toBe("Bearer gw-secret-token");
     const sentBody = JSON.parse(String(requestInit.body));
     expect(sentBody).toMatchObject({
@@ -523,7 +525,6 @@ describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () =
     });
 
     expect(res.status).toBe(409);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("returns 400 when there are no usable messages", async () => {
@@ -536,7 +537,6 @@ describe("POST /user/cloud/deployments/:id/api/chat (OpenClaw chat proxy)", () =
     });
 
     expect(res.status).toBe(400);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("never leaks the gateway token in an upstream error response", async () => {

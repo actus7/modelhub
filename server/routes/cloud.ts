@@ -39,7 +39,7 @@ const app = new Hono().basePath("/user/cloud");
 
 app.onError((error) => {
   console.error("[cloud] unhandled error", error);
-  return jsonErrorResponse(500, "Falha ao carregar recursos de nuvem. Verifique se as migrations foram aplicadas.");
+  return jsonErrorResponse(500, "Falha ao carregar recursos do OpenClaw. Verifique se as migrations foram aplicadas.");
 });
 
 app.use("*", securityHeaders);
@@ -547,6 +547,72 @@ function toOpenClawMessages(messages: unknown): Array<{ content: string; role: s
 // virtual provider whose base is /user/cloud/deployments/:id, so it POSTs here.
 // We forward to the deployment's OpenAI-compatible /v1/chat/completions using the
 // stored gateway token (device pairing only gates the Control UI, not this API),
+const OPENCLAW_WAKEUP_TIMEOUT_MS = 5_000;
+const OPENCLAW_CHAT_MAX_RETRIES = 2;
+const OPENCLAW_RETRY_BASE_DELAY_MS = 3_000;
+const OPENCLAW_OVERALL_TIMEOUT_MS = 120_000;
+const OPENCLAW_PER_REQUEST_TIMEOUT_MS = 95_000;
+
+function createTimeoutSignal(timeoutMs: number): AbortSignal {
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
+}
+
+async function wakeUpOpenClaw(baseUrl: string): Promise<void> {
+  try {
+    await fetch(`${baseUrl}/healthz`, { method: "GET", signal: createTimeoutSignal(OPENCLAW_WAKEUP_TIMEOUT_MS) });
+  } catch {
+    // Best-effort: the health ping wakes up the container; failures are harmless.
+  }
+}
+
+async function openClawChatWithRetry(
+  baseUrl: string,
+  gatewayToken: string,
+  payload: { messages: unknown[]; model: string; stream: boolean },
+): Promise<Response> {
+  const chatUrl = `${baseUrl}/v1/chat/completions`;
+  const headers: Record<string, string> = {
+    authorization: `Bearer ${gatewayToken}`,
+    "content-type": "application/json",
+  };
+  const body = JSON.stringify(payload);
+  const deadline = Date.now() + OPENCLAW_OVERALL_TIMEOUT_MS;
+
+  for (let attempt = 0; ; attempt++) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error("OpenClaw request timed out after all retries");
+    }
+
+    try {
+      const response = await fetch(chatUrl, {
+        body,
+        headers,
+        method: "POST",
+        signal: createTimeoutSignal(Math.min(remaining, OPENCLAW_PER_REQUEST_TIMEOUT_MS)),
+      });
+
+      if (response.ok || response.status === 401 || attempt >= OPENCLAW_CHAT_MAX_RETRIES) {
+        return response;
+      }
+
+      if (response.status >= 500) {
+        const delay = OPENCLAW_RETRY_BASE_DELAY_MS * (attempt + 1);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      if (attempt >= OPENCLAW_CHAT_MAX_RETRIES) throw error;
+      const delay = OPENCLAW_RETRY_BASE_DELAY_MS * (attempt + 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+}
+
 // and translate the OpenAI SSE stream into the Vercel stream the chat UI parses.
 app.post("/deployments/:id/api/chat", async (c) => {
   const userId = requireAuth(c);
@@ -579,21 +645,18 @@ app.post("/deployments/:id/api/chat", async (c) => {
   if (messages.length === 0) {
     return jsonErrorResponse(400, "messages must be a non-empty array");
   }
-  const model = typeof body?.modelId === "string" && body.modelId ? body.modelId : "openclaw";
+  // OpenClaw only accepts its agent model id here; the configured upstream
+  // model is already wired into openclaw.json.
+  const model = "openclaw";
+
+  await wakeUpOpenClaw(deployment.publicUrl);
 
   let upstream: Response;
   try {
-    upstream = await fetch(`${deployment.publicUrl}/v1/chat/completions`, {
-      body: JSON.stringify({ messages, model, stream: true }),
-      headers: {
-        authorization: `Bearer ${gatewayToken}`,
-        "content-type": "application/json",
-      },
-      method: "POST",
-    });
+    upstream = await openClawChatWithRetry(deployment.publicUrl, gatewayToken, { messages, model, stream: true });
   } catch (error) {
     console.error("[cloud/render/openclaw] chat proxy request failed", error);
-    return jsonErrorResponse(502, "Falha ao conectar ao ambiente OpenClaw. Ele pode estar acordando (aguarde ~1 min).");
+    return jsonErrorResponse(502, "Nao foi possivel conectar ao OpenClaw. O ambiente pode estar acordando (plano gratuito do Render). Tente novamente em alguns segundos.");
   }
 
   if (!upstream.ok || !upstream.body) {

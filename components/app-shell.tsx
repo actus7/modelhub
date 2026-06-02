@@ -99,8 +99,8 @@ function getPageCopy(pathname: string) {
 
   if (pathname.startsWith("/cloud") || pathname.startsWith("/dashboard/cloud")) {
     return {
-      description: "Provisione ambientes BYOC simples na conta de nuvem do usuario.",
-      title: "Nuvem",
+      description: "Provisione e gerencie seu agente OpenClaw na nuvem.",
+      title: "OpenClaw",
     };
   }
 
@@ -217,10 +217,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname.startsWith("/cloud")} tooltip="Nuvem">
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/cloud")} tooltip="OpenClaw">
                     <Link href="/cloud">
                       <CloudIcon />
-                      <span>Nuvem</span>
+                      <span>OpenClaw</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

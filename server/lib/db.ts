@@ -32,9 +32,14 @@ function createPrismaClient(): PrismaClientInstance {
     throw new Error("DATABASE_URL não definido");
   }
 
-  // Use the DATABASE_URL as-is (preserving sslmode=require & channel_binding=require from Neon).
-  // Pass ssl: true so node-postgres enables TLS without requiring CA certificates locally.
-  const pool = new Pool({ connectionString: databaseUrl, ssl: true });
+  // Append uselibpqcompat=true to suppress the pg-connection-string SSL mode warning.
+  // Neon recommends sslmode=require; without uselibpqcompat, node-postgres treats
+  // "require" as "verify-full" which is fine but produces a loud deprecation warning.
+  const patchedUrl = databaseUrl.includes("uselibpqcompat")
+    ? databaseUrl
+    : `${databaseUrl}${databaseUrl.includes("?") ? "&" : "?"}uselibpqcompat=true`;
+
+  const pool = new Pool({ connectionString: patchedUrl, ssl: true });
   const adapter = new PrismaPg(pool);
   return new PrismaClient({ adapter });
 }

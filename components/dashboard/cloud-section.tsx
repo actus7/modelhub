@@ -13,6 +13,7 @@ import {
   GlobeIcon,
   KeyRoundIcon,
   Loader2Icon,
+  MessageSquareTextIcon,
   PlugZapIcon,
   RefreshCwIcon,
   SaveIcon,
@@ -329,7 +330,7 @@ function OpenClawConfigPanel({
 }
 
 function DeploymentCard({
-  deployment, busyAction, usableProviders, onConfigureCredentials, onRevealToken, onRefresh, onDelete, onUpdateOpenClaw,
+  deployment, busyAction, usableProviders, onConfigureCredentials, onRevealToken, onRefresh, onDelete, onUpdateOpenClaw, onChat,
 }: Readonly<{
   deployment: CloudDeploymentSummary;
   busyAction: string | null;
@@ -339,8 +340,10 @@ function DeploymentCard({
   onRefresh: () => void;
   onDelete: () => void;
   onUpdateOpenClaw: (deploymentId: string, payload: OpenClawConfigPayload) => void;
+  onChat: (deploymentId: string) => void;
 }>) {
   const isDeleting = deployment.status === "deleting";
+  const isReady = deployment.status === "healthy";
   return (
     <Card className="border-border/60">
       <CardContent className="flex flex-col gap-4 p-4">
@@ -363,6 +366,11 @@ function DeploymentCard({
                 <a href={deployment.publicUrl} target="_blank" rel="noopener noreferrer">
                   <ExternalLinkIcon data-icon="inline-start" />Abrir
                 </a>
+              </Button>
+            ) : null}
+            {isReady ? (
+              <Button size="sm" variant="default" onClick={() => onChat(deployment.id)}>
+                <MessageSquareTextIcon data-icon="inline-start" />Conversar
               </Button>
             ) : null}
             <Button asChild size="sm" variant="outline">
@@ -389,7 +397,7 @@ function DeploymentCard({
         </div>
         {deployment.error ? (
           <Alert variant="destructive">
-            <AlertTitle>Erro do Render</AlertTitle>
+            <AlertTitle>Erro do ambiente</AlertTitle>
             <AlertDescription>{deployment.error}</AlertDescription>
           </Alert>
         ) : null}
@@ -508,7 +516,7 @@ export function CloudDashboardSection() {
       setConnections(data.connections);
       setDeployments(data.deployments);
     } catch (error) {
-      if (!silent) toast.error(error instanceof Error ? error.message : "Falha ao carregar nuvem.");
+      if (!silent) toast.error(error instanceof Error ? error.message : "Falha ao carregar OpenClaw.");
     } finally {
       if (!silent) setLoading(false);
     }
@@ -682,7 +690,7 @@ export function CloudDashboardSection() {
     return (
       <Card className="border-border/60">
         <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-          <Loader2Icon className="size-4 animate-spin" aria-hidden />Carregando conexoes de nuvem...
+          <Loader2Icon className="size-4 animate-spin" aria-hidden />Carregando OpenClaw...
         </CardContent>
       </Card>
     );
@@ -697,7 +705,7 @@ export function CloudDashboardSection() {
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <div className="flex flex-col gap-1">
-                <CardTitle className="flex items-center gap-2"><CloudIcon />Render BYOC</CardTitle>
+                <CardTitle className="flex items-center gap-2"><CloudIcon />OpenClaw</CardTitle>
                 <CardDescription>Conecte sua conta Render e provisione o OpenClaw com um click.</CardDescription>
               </div>
               {renderConnection
@@ -740,9 +748,9 @@ export function CloudDashboardSection() {
                   />
                 ) : null}
                 <div className="flex flex-wrap gap-2">
-                  <Button disabled={busyAction === "deploy" || !canDeploy} onClick={() => void handleDeploy()} variant="outline">
+                  <Button disabled={busyAction === "deploy" || !canDeploy} onClick={() => void handleDeploy()} size="sm" variant="outline">
                     {busyAction === "deploy" ? <Loader2Icon className="animate-spin" data-icon="inline-start" /> : <ServerIcon data-icon="inline-start" />}
-                    Ambiente teste
+                    Ambiente de teste
                   </Button>
                   <Button asChild variant="outline">
                     <a href="https://dashboard.render.com" target="_blank" rel="noopener noreferrer">
@@ -792,8 +800,8 @@ export function CloudDashboardSection() {
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <div className="flex flex-col gap-1">
-                <CardTitle>Ambientes</CardTitle>
-                <CardDescription>Container provisionado na conta conectada. Ambientes gratuitos podem levar ate 1 minuto para acordar.</CardDescription>
+                <CardTitle>Seus ambientes</CardTitle>
+                <CardDescription>Agentes OpenClaw provisionados na sua conta Render. Ambientes gratuitos podem levar ate 1 minuto para acordar.</CardDescription>
               </div>
               <Badge variant="secondary">{deployments.length}</Badge>
             </div>
@@ -804,7 +812,7 @@ export function CloudDashboardSection() {
                 <EmptyHeader>
                   <EmptyMedia variant="icon"><ServerIcon /></EmptyMedia>
                   <EmptyTitle>Nenhum ambiente criado</EmptyTitle>
-                  <EmptyDescription>Selecione um provider, escolha o modelo e clique em Deploy OpenClaw.</EmptyDescription>
+                  <EmptyDescription>Selecione um provider, escolha o modelo e clique em Deploy OpenClaw para criar seu agente.</EmptyDescription>
                 </EmptyHeader>
               </Empty>
             ) : (
@@ -820,6 +828,7 @@ export function CloudDashboardSection() {
                     onRefresh={() => void refreshDeployment(deployment.id)}
                     onDelete={() => setPendingDelete(deployment)}
                     onUpdateOpenClaw={(deploymentId, payload) => void handleUpdateOpenClaw(deploymentId, payload)}
+                    onChat={(deploymentId) => router.push(`/chat?openclaw=${deploymentId}`)}
                   />
                 ))}
               </div>
@@ -831,8 +840,8 @@ export function CloudDashboardSection() {
       <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Remover ambiente Render?</AlertDialogTitle>
-            <AlertDialogDescription>O servico sera removido da sua conta Render. Esta acao interrompe a URL publica do ambiente.</AlertDialogDescription>
+            <AlertDialogTitle>Remover ambiente OpenClaw?</AlertDialogTitle>
+            <AlertDialogDescription>O servico sera removido da sua conta Render. Esta acao e irreversivel e interrompe a URL publica do ambiente.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
