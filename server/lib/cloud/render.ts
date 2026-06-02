@@ -17,6 +17,7 @@ export const RENDER_OPENCLAW_PLAN = "free";
 export const RENDER_OPENCLAW_PORT = 10000;
 export const OPENCLAW_AGENT_TIMEOUT_SECONDS = 310;
 export const OPENCLAW_PROVIDER_TIMEOUT_SECONDS = 300;
+export const OPENCLAW_MODEL_REQUEST_TIMEOUT_MS = OPENCLAW_PROVIDER_TIMEOUT_SECONDS * 1000;
 // Explicit config path. OPENCLAW_CONFIG_PATH has absolute priority for where the
 // gateway reads openclaw.json — relying on the ~/.openclaw default proved unreliable
 // (the gateway reported "Missing config" even though we wrote there). We set this env
@@ -507,6 +508,7 @@ function buildOpenClawRuntimeConfig(openclaw: RenderOpenClawInfo) {
               input: ["text"],
               maxTokens: 32000,
               name: openclaw.model,
+              requestTimeoutMs: OPENCLAW_MODEL_REQUEST_TIMEOUT_MS,
             },
           ],
         },
