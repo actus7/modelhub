@@ -98,7 +98,7 @@
     "@vitest/coverage-v8": "^4.1.4",
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9.39.4",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.2.7",
     "postcss": "^8.5.15",
     "prisma": "^7.8.0",
     "shadcn": "^4.8.0",
