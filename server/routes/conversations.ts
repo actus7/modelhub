@@ -17,6 +17,7 @@ import {
 import { prisma } from "../lib/db";
 import { jsonErrorResponse } from "../lib/provider-core";
 import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
+import { requireAuth } from "./route-helpers";
 
 const app = new Hono().basePath("/conversations");
 app.use("*", securityHeaders);
@@ -33,11 +34,6 @@ type CreateMessageInput = {
   role: string;
 };
 
-function requireAuth(c: Context): string | Response {
-  const userId = c.get("userId") as string | undefined;
-  if (!userId) return jsonErrorResponse(401, "Authentication required");
-  return userId;
-}
 
 function normalizeIncomingMessageParts(value: unknown): ConversationMessagePart[] {
   if (!Array.isArray(value)) {
@@ -74,6 +70,50 @@ function normalizeIncomingMessageParts(value: unknown): ConversationMessagePart[
   }
 
   return parts;
+}
+
+type StoredAttachment = {
+  byteSize: number;
+  extractionStatus: string;
+  fileName: string;
+  id: string;
+  kind: string;
+  mimeType: string;
+};
+
+type StoredMessage = {
+  content: string;
+  createdAt: Date;
+  id: string;
+  parts: Prisma.JsonValue | null;
+  role: string;
+};
+
+function hydrateMessages(
+  messages: StoredMessage[],
+  attachments: StoredAttachment[],
+  conversationId: string,
+) {
+  const attachmentsById = new Map(
+    attachments.map((a) => [a.id, a]),
+  );
+
+  return messages.map((message) => {
+    const parts = hydrateMessageParts({
+      attachmentsById,
+      conversationId,
+      fallbackContent: message.content,
+      parts: message.parts,
+    });
+
+    return {
+      content: message.content,
+      createdAt: message.createdAt,
+      id: message.id,
+      parts,
+      role: message.role,
+    };
+  });
 }
 
 async function requireConversation(c: Context, userId: string, conversationId: string) {
@@ -154,36 +194,7 @@ async function persistMessages(conversationId: string, messages: CreateMessageIn
     },
   });
 
-  const attachmentsById = new Map(
-    attachments.map((attachment) => [
-      attachment.id,
-      {
-        byteSize: attachment.byteSize,
-        extractionStatus: attachment.extractionStatus,
-        fileName: attachment.fileName,
-        id: attachment.id,
-        kind: attachment.kind,
-        mimeType: attachment.mimeType,
-      },
-    ]),
-  );
-
-  return createdMessages.map((message) => {
-    const parts = hydrateMessageParts({
-      attachmentsById,
-      conversationId,
-      fallbackContent: message.content,
-      parts: message.parts,
-    });
-
-    return {
-      content: message.content,
-      createdAt: message.createdAt,
-      id: message.id,
-      parts,
-      role: message.role,
-    };
-  });
+  return hydrateMessages(createdMessages, attachments, conversationId);
 }
 
 // GET /conversations — lista conversas do usuário
@@ -307,38 +318,9 @@ app.get("/:id/messages", async (c) => {
     }),
   ]);
 
-  const attachmentsById = new Map(
-    attachments.map((attachment) => [
-      attachment.id,
-      {
-        byteSize: attachment.byteSize,
-        extractionStatus: attachment.extractionStatus,
-        fileName: attachment.fileName,
-        id: attachment.id,
-        kind: attachment.kind,
-        mimeType: attachment.mimeType,
-      },
-    ]),
-  );
-
   return c.json({
     conversation: existing,
-    messages: messages.map((message) => {
-      const parts = hydrateMessageParts({
-        attachmentsById,
-        conversationId: id,
-        fallbackContent: message.content,
-        parts: message.parts,
-      });
-
-      return {
-        content: message.content,
-        createdAt: message.createdAt,
-        id: message.id,
-        parts,
-        role: message.role,
-      };
-    }),
+    messages: hydrateMessages(messages, attachments, id),
   });
 });
 

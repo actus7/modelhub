@@ -5,7 +5,7 @@ import type { CloudDeploymentStatus } from "@/lib/contracts";
 const RENDER_API_BASE = "https://api.render.com/v1";
 export const RENDER_PROVIDER = "render" as const;
 export const RENDER_SPIKE_REPO = "https://github.com/traefik/whoami";
-export const RENDER_SPIKE_BRANCH = "master";
+const RENDER_SPIKE_BRANCH = "master";
 export const RENDER_SPIKE_REGION = "oregon";
 export const RENDER_SPIKE_PLAN = "free";
 export const RENDER_SPIKE_PORT = 80;
@@ -21,7 +21,7 @@ export const OPENCLAW_PROVIDER_TIMEOUT_SECONDS = 300;
 // gateway reads openclaw.json — relying on the ~/.openclaw default proved unreliable
 // (the gateway reported "Missing config" even though we wrote there). We set this env
 // var AND write the file to the exact same path, removing all ambiguity.
-export const RENDER_OPENCLAW_CONFIG_PATH = "/tmp/openclaw-state/openclaw.json";
+const RENDER_OPENCLAW_CONFIG_PATH = "/tmp/openclaw-state/openclaw.json";
 // Render runs the Docker Command by splitting on whitespace and exec'ing directly
 // (no shell, no quote handling). So the command must be a single `node -e <script>`
 // where the script has NO spaces and uses only single quotes — otherwise Render

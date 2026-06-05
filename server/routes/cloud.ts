@@ -34,6 +34,7 @@ import {
 } from "../lib/cloud/render";
 import { jsonErrorResponse, toVercelStreamFromOpenAiSse } from "../lib/provider-core";
 import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
+import { requireAuth } from "./route-helpers";
 
 const app = new Hono().basePath("/user/cloud");
 
@@ -51,26 +52,10 @@ app.use("*", async (c, next) => {
   return next();
 });
 
-function getUserId(c: Context): string | undefined {
-  return c.get("userId") as string | undefined;
-}
-
-/**
- * Resolves the ModelHub API base URL that the OpenClaw container (running on
- * Render) will call back into. Prefers MODELHUB_PUBLIC_URL so a publicly
- * reachable address can be used even when the server detects a localhost origin
- * in dev; falls back to the request origin in production where it is already public.
- */
 function resolveModelhubApiUrl(c: Context): string {
   const configured = process.env.MODELHUB_PUBLIC_URL?.trim();
   const base = configured && configured.length > 0 ? configured : new URL(c.req.url).origin;
   return `${base.replace(/\/+$/, "")}/v1`;
-}
-
-function requireAuth(c: Context): string | Response {
-  const userId = getUserId(c);
-  if (!userId) return jsonErrorResponse(401, "Authentication required");
-  return userId;
 }
 
 function serializeDate(value: Date | string): string {

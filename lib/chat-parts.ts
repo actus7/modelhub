@@ -41,10 +41,6 @@ export type HydratedAttachmentPart = AttachmentReferencePart & ConversationAttac
 
 export type HydratedConversationMessagePart = HydratedAttachmentPart | TextPart;
 
-export function isTextPart(part: ConversationMessagePart | HydratedConversationMessagePart): part is TextPart {
-  return part.type === "text";
-}
-
 export function createMessageContentFallback(
   parts: readonly ConversationMessagePart[],
 ): string {

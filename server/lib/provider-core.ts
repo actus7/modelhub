@@ -5,6 +5,7 @@ import { z } from 'zod'
 
 import { MODELHUB_FALLBACK_DIAGNOSTIC_HEADER } from '@/lib/contracts'
 import type { ProviderModelCapabilities } from '@/lib/chat-parts'
+import type { ProviderModel } from '@/lib/contracts'
 import { prisma } from './db'
 import { decryptCredential } from './crypto'
 import { DEFAULT_MODELS_CACHE_TTL_MS, getCachedModels } from './model-cache'
@@ -50,11 +51,7 @@ type ChatInputMessage = {
   name?: string
 }
 
-export type ProviderModel = {
-  capabilities: ProviderModelCapabilities
-  id: string
-  name: string
-}
+export type { ProviderModel }
 
 type RawMessagePart = {
   attachmentId?: string
@@ -234,6 +231,23 @@ function buildProviderModelsCacheKeySuffix(
   return `${uid}:${hash}`
 }
 
+function fetchCachedProviderModels(
+  config: ProviderConfig,
+  credentials: Record<string, string>,
+  userId: string | undefined,
+): Promise<ProviderModel[]> {
+  return getCachedModels(
+    config.providerId,
+    () => config.fetchModels?.(credentials) ?? Promise.resolve([]),
+    config.models,
+    config.modelsCacheTtlMs ?? DEFAULT_MODELS_CACHE_TTL_MS,
+    {
+      cacheKeySuffix: buildProviderModelsCacheKeySuffix(userId, credentials),
+      staleWhileRevalidate: false,
+    },
+  )
+}
+
 function normalizeContentParts(parts: RawMessagePart[]): ChatInputContentPart[] {
   const out: ChatInputContentPart[] = []
   for (const part of parts) {
@@ -260,63 +274,66 @@ function normalizeContentParts(parts: RawMessagePart[]): ChatInputContentPart[] 
   return out
 }
 
+const ROLE_ALIASES: Record<string, ChatInputMessage['role']> = {
+  assistant: 'assistant',
+  developer: 'system',
+  function: 'tool',
+  system: 'system',
+  tool: 'tool',
+}
+
+function mapRole(raw: string | undefined): ChatInputMessage['role'] {
+  if (!raw) return 'user'
+  return ROLE_ALIASES[raw] ?? 'user'
+}
+
+function normalizeContent(item: RawChatMessage): string | ChatInputContentPart[] {
+  if (typeof item.content === 'string') return item.content
+  if (Array.isArray(item.content)) {
+    const parts = normalizeContentParts(item.content)
+    if (parts.length > 0) return parts
+  }
+
+  if (Array.isArray(item.parts)) {
+    const parts = normalizeContentParts(item.parts)
+    if (parts.length > 0) return parts
+  }
+
+  return ''
+}
+
+function normalizeToolCalls(
+  toolCalls: RawChatMessage['tool_calls'],
+): ChatMessageToolCall[] | undefined {
+  if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) return undefined
+
+  return toolCalls.map((tc, i) => {
+    const id = typeof tc.id === 'string' && tc.id.length > 0 ? tc.id : `tool_${i}`
+    const name = typeof tc.function?.name === 'string' ? tc.function.name : ''
+    const args = tc.function?.arguments
+    let argumentsStr = '{}'
+    if (typeof args === 'string') argumentsStr = args
+    else if (args !== undefined) argumentsStr = JSON.stringify(args)
+    return { id, type: 'function' as const, function: { name, arguments: argumentsStr } }
+  })
+}
+
 function normalizeMessages(input: RawChatMessage[]): ChatInputMessage[] {
   if (!Array.isArray(input)) return []
 
-  const out: ChatInputMessage[] = []
-  for (const item of input) {
-    let role: ChatInputMessage['role'] = 'user'
-    if (item.role === 'assistant' || item.role === 'system' || item.role === 'tool') {
-      role = item.role
-    } else if (item.role === 'developer') {
-      role = 'system'
-    } else if (item.role === 'function') {
-      role = 'tool'
+  return input.map((item) => {
+    const msg: ChatInputMessage = {
+      role: mapRole(item.role),
+      content: normalizeContent(item),
     }
 
-    let content: string | ChatInputContentPart[] = ''
+    const toolCalls = normalizeToolCalls(item.tool_calls)
+    if (toolCalls) msg.tool_calls = toolCalls
+    if (typeof item.tool_call_id === 'string' && item.tool_call_id) msg.tool_call_id = item.tool_call_id
+    if (typeof item.name === 'string' && item.name) msg.name = item.name
 
-    if (typeof item.content === 'string') {
-      content = item.content
-    } else if (Array.isArray(item.content)) {
-      const parts = normalizeContentParts(item.content)
-      content = parts.length > 0 ? parts : ''
-    } else if (item.content === null || item.content === undefined) {
-      content = ''
-    }
-
-    if (content === '' && Array.isArray(item.parts)) {
-      const parts = normalizeContentParts(item.parts)
-      content = parts.length > 0 ? parts : ''
-    }
-
-    const msg: ChatInputMessage = { role, content }
-
-    if (item.tool_calls && Array.isArray(item.tool_calls) && item.tool_calls.length > 0) {
-      msg.tool_calls = item.tool_calls.map((tc, i) => {
-        const id = typeof tc.id === 'string' && tc.id.length > 0 ? tc.id : `tool_${i}`
-        const name = typeof tc.function?.name === 'string' ? tc.function.name : ''
-        const args = tc.function?.arguments
-        const argumentsStr =
-          typeof args === 'string' ? args : args !== undefined ? JSON.stringify(args) : '{}'
-        return {
-          id,
-          type: 'function' as const,
-          function: { name, arguments: argumentsStr },
-        }
-      })
-    }
-    if (typeof item.tool_call_id === 'string' && item.tool_call_id) {
-      msg.tool_call_id = item.tool_call_id
-    }
-    if (typeof item.name === 'string' && item.name) {
-      msg.name = item.name
-    }
-
-    out.push(msg)
-  }
-
-  return out
+    return msg
+  })
 }
 
 class AttachmentCapabilityError extends Error {
@@ -339,16 +356,7 @@ async function getModelCapabilities(
   }
 
   if (config.fetchModels) {
-    const fetchedModels = await getCachedModels(
-      config.providerId,
-      () => config.fetchModels?.(credentials) ?? Promise.resolve([]),
-      config.models,
-      config.modelsCacheTtlMs ?? DEFAULT_MODELS_CACHE_TTL_MS,
-      {
-        cacheKeySuffix: buildProviderModelsCacheKeySuffix(userId, credentials),
-        staleWhileRevalidate: false,
-      },
-    )
+    const fetchedModels = await fetchCachedProviderModels(config, credentials, userId)
     const dynamicMatch = fetchedModels.find((model) => model.id === modelId)
     if (dynamicMatch) {
       return dynamicMatch.capabilities
@@ -372,6 +380,146 @@ function requestUsesTools(rawBody: Record<string, unknown>): boolean {
   )
 }
 
+type ResolvedAttachment = {
+  blob: Uint8Array
+  extractedText: string | null
+  extractionStatus: 'completed' | 'failed' | 'processing' | 'unsupported_scan'
+  fileName: string
+  id: string
+  kind: 'document' | 'image'
+  mimeType: string
+}
+
+function collectAttachmentIds(messages: ChatInputMessage[]): Set<string> {
+  const ids = new Set<string>()
+  for (const message of messages) {
+    if (!Array.isArray(message.content)) continue
+    for (const part of message.content) {
+      if (part.type === 'attachment') ids.add(part.attachmentId)
+    }
+  }
+  return ids
+}
+
+async function loadAttachments(
+  attachmentIds: Set<string>,
+  userId: string | undefined,
+): Promise<Map<string, ResolvedAttachment>> {
+  if (attachmentIds.size === 0) return new Map()
+  if (!userId) throw new AttachmentCapabilityError('Authenticated user context is required for attachments')
+
+  const rows = await prisma.conversationAttachment.findMany({
+    where: { conversation: { userId }, id: { in: [...attachmentIds] } },
+    select: {
+      blob: true, extractedText: true, extractionStatus: true,
+      fileName: true, id: true, kind: true, mimeType: true,
+    },
+  })
+
+  return new Map(rows.map((row) => [row.id, {
+    blob: row.blob,
+    extractedText: row.extractedText,
+    extractionStatus: row.extractionStatus as ResolvedAttachment['extractionStatus'],
+    fileName: row.fileName,
+    id: row.id,
+    kind: row.kind as ResolvedAttachment['kind'],
+    mimeType: row.mimeType,
+  }]))
+}
+
+async function buildUserContextMessage(userId: string): Promise<ChatMessage | null> {
+  const findUserSettings = prisma.userSettings?.findUnique?.bind(prisma.userSettings)
+  const findUserMemories = prisma.userMemory?.findMany?.bind(prisma.userMemory)
+  const [userSettings, userMemories] = await Promise.all([
+    findUserSettings
+      ? findUserSettings({ where: { userId } })
+      : Promise.resolve<UserSettingsRecord | null>(null),
+    findUserMemories
+      ? findUserMemories({
+          where: { userId },
+          select: { content: true },
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+        })
+      : Promise.resolve<UserMemoryRecord[]>([]),
+  ])
+
+  const systemParts: string[] = []
+  if (userSettings?.customInstructionsAbout) {
+    systemParts.push(`About the user: ${userSettings.customInstructionsAbout}`)
+  }
+  if (userSettings?.customInstructionsStyle) {
+    systemParts.push(`Response style: ${userSettings.customInstructionsStyle}`)
+  }
+  if (userMemories.length > 0) {
+    systemParts.push(`User memories:\n${userMemories.map((m) => `- ${m.content}`).join('\n')}`)
+  }
+
+  if (systemParts.length === 0) return null
+  return { role: 'system', content: systemParts.join('\n\n') }
+}
+
+function resolveAttachmentPart(
+  part: ChatInputContentPart & { type: 'attachment' },
+  attachmentsById: Map<string, ResolvedAttachment>,
+  modelCapabilities: ProviderModelCapabilities,
+  modelId: string,
+  remainingDocumentChars: number,
+): { contentPart: ChatMessageContentPart | null; consumedChars: number } {
+  const attachment = attachmentsById.get(part.attachmentId)
+  if (!attachment) throw new AttachmentCapabilityError(`Attachment "${part.fileName}" was not found`)
+
+  if (attachment.kind === 'image') {
+    if (!modelCapabilities.images) {
+      throw new AttachmentCapabilityError(`Modelo "${modelId}" nao suporta anexos de imagem`)
+    }
+    return {
+      contentPart: { type: 'image_url', image_url: { url: toDataUrl(attachment.mimeType, attachment.blob) } },
+      consumedChars: 0,
+    }
+  }
+
+  const block = buildDocumentContextBlock({
+    extractedText: attachment.extractedText,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    remainingChars: remainingDocumentChars,
+    status: attachment.extractionStatus,
+  })
+  return {
+    contentPart: block.text ? { type: 'text', text: block.text } : null,
+    consumedChars: block.consumedChars,
+  }
+}
+
+function resolveMessageContent(
+  message: ChatInputMessage,
+  attachmentsById: Map<string, ResolvedAttachment>,
+  modelCapabilities: ProviderModelCapabilities,
+  modelId: string,
+): ChatMessage {
+  if (typeof message.content === 'string') {
+    return { ...message, content: message.content }
+  }
+
+  let remainingDocumentChars = MAX_DOCUMENT_CONTEXT_CHARS
+  const contentParts: ChatMessageContentPart[] = []
+  for (const part of message.content) {
+    if (part.type === 'text' || part.type === 'image_url') {
+      contentParts.push(part)
+      continue
+    }
+
+    const { contentPart, consumedChars } = resolveAttachmentPart(
+      part, attachmentsById, modelCapabilities, modelId, remainingDocumentChars,
+    )
+    if (contentPart) contentParts.push(contentPart)
+    remainingDocumentChars = Math.max(0, remainingDocumentChars - consumedChars)
+  }
+
+  return { ...message, content: contentParts.length > 0 ? contentParts : '' }
+}
+
 export async function resolveMessagesForProvider(input: {
   config: ProviderConfig
   credentials: Record<string, string>
@@ -382,159 +530,19 @@ export async function resolveMessagesForProvider(input: {
 }): Promise<ChatMessage[]> {
   const modelCapabilities =
     input.modelCapabilities ??
-    (await getModelCapabilities(
-      input.config,
-      input.modelId,
-      input.credentials,
-      input.userId,
-    ))
-  const attachmentIds = new Set<string>()
+    (await getModelCapabilities(input.config, input.modelId, input.credentials, input.userId))
 
-  for (const message of input.messages) {
-    if (!Array.isArray(message.content)) continue
-    for (const part of message.content) {
-      if (part.type === 'attachment') {
-        attachmentIds.add(part.attachmentId)
-      }
-    }
-  }
+  const attachmentIds = collectAttachmentIds(input.messages)
+  const attachmentsById = await loadAttachments(attachmentIds, input.userId)
 
-  let attachmentsById = new Map<
-    string,
-    {
-      blob: Uint8Array
-      extractedText: string | null
-      extractionStatus: 'completed' | 'failed' | 'processing' | 'unsupported_scan'
-      fileName: string
-      id: string
-      kind: 'document' | 'image'
-      mimeType: string
-    }
-  >()
-
-  if (attachmentIds.size > 0) {
-    if (!input.userId) {
-      throw new AttachmentCapabilityError('Authenticated user context is required for attachments')
-    }
-
-    const rows = await prisma.conversationAttachment.findMany({
-      where: {
-        conversation: { userId: input.userId },
-        id: { in: [...attachmentIds] },
-      },
-      select: {
-        blob: true,
-        extractedText: true,
-        extractionStatus: true,
-        fileName: true,
-        id: true,
-        kind: true,
-        mimeType: true,
-      },
-    })
-
-    attachmentsById = new Map(
-      rows.map((row) => [
-        row.id,
-        {
-          blob: row.blob,
-          extractedText: row.extractedText,
-          extractionStatus: row.extractionStatus as 'completed' | 'failed' | 'processing' | 'unsupported_scan',
-          fileName: row.fileName,
-          id: row.id,
-          kind: row.kind as 'document' | 'image',
-          mimeType: row.mimeType,
-        },
-      ]),
-    )
-  }
-
-  // Inject custom instructions and memories as a system message
   const resolvedMessages: ChatMessage[] = []
   if (input.userId) {
-    const findUserSettings = prisma.userSettings?.findUnique?.bind(prisma.userSettings)
-    const findUserMemories = prisma.userMemory?.findMany?.bind(prisma.userMemory)
-    const [userSettings, userMemories] = await Promise.all([
-      findUserSettings
-        ? findUserSettings({ where: { userId: input.userId } })
-        : Promise.resolve<UserSettingsRecord | null>(null),
-      findUserMemories
-        ? findUserMemories({
-            where: { userId: input.userId },
-            select: { content: true },
-            orderBy: { createdAt: 'desc' },
-            take: 50,
-          })
-        : Promise.resolve<UserMemoryRecord[]>([]),
-    ])
-
-    const systemParts: string[] = []
-    if (userSettings?.customInstructionsAbout) {
-      systemParts.push(`About the user: ${userSettings.customInstructionsAbout}`)
-    }
-    if (userSettings?.customInstructionsStyle) {
-      systemParts.push(`Response style: ${userSettings.customInstructionsStyle}`)
-    }
-    if (userMemories.length > 0) {
-      systemParts.push(`User memories:\n${userMemories.map((m) => `- ${m.content}`).join('\n')}`)
-    }
-
-    if (systemParts.length > 0) {
-      resolvedMessages.push({
-        role: 'system',
-        content: systemParts.join('\n\n'),
-      })
-    }
+    const ctx = await buildUserContextMessage(input.userId)
+    if (ctx) resolvedMessages.push(ctx)
   }
 
   for (const message of input.messages) {
-    if (typeof message.content === 'string') {
-      resolvedMessages.push({ ...message, content: message.content })
-      continue
-    }
-
-    let remainingDocumentChars = MAX_DOCUMENT_CONTEXT_CHARS
-    const contentParts: ChatMessageContentPart[] = []
-    for (const part of message.content) {
-      if (part.type === 'text' || part.type === 'image_url') {
-        contentParts.push(part)
-        continue
-      }
-
-      const attachment = attachmentsById.get(part.attachmentId)
-      if (!attachment) {
-        throw new AttachmentCapabilityError(`Attachment "${part.fileName}" was not found`)
-      }
-
-      if (attachment.kind === 'image') {
-        if (!modelCapabilities.images) {
-          throw new AttachmentCapabilityError(`Modelo "${input.modelId}" nao suporta anexos de imagem`)
-        }
-
-        contentParts.push({
-          type: 'image_url',
-          image_url: { url: toDataUrl(attachment.mimeType, attachment.blob) },
-        })
-        continue
-      }
-
-      const documentBlock = buildDocumentContextBlock({
-        extractedText: attachment.extractedText,
-        fileName: attachment.fileName,
-        mimeType: attachment.mimeType,
-        remainingChars: remainingDocumentChars,
-        status: attachment.extractionStatus,
-      })
-      if (documentBlock.text) {
-        contentParts.push({ type: 'text', text: documentBlock.text })
-      }
-      remainingDocumentChars = Math.max(0, remainingDocumentChars - documentBlock.consumedChars)
-    }
-
-    resolvedMessages.push({
-      ...message,
-      content: contentParts.length > 0 ? contentParts : '',
-    })
+    resolvedMessages.push(resolveMessageContent(message, attachmentsById, modelCapabilities, input.modelId))
   }
 
   return resolvedMessages
@@ -1180,16 +1188,7 @@ export function createProviderApp(config: ProviderConfig) {
     const credentials = { ...dbCredentials, ...headerCredentials }
 
     if (config.fetchModels) {
-      const models = await getCachedModels(
-        config.providerId,
-        () => config.fetchModels?.(credentials) ?? Promise.resolve([]),
-        config.models,
-        config.modelsCacheTtlMs ?? DEFAULT_MODELS_CACHE_TTL_MS,
-        {
-          cacheKeySuffix: buildProviderModelsCacheKeySuffix(userId, credentials),
-          staleWhileRevalidate: false,
-        },
-      )
+      const models = await fetchCachedProviderModels(config, credentials, userId)
       return c.json({ models })
     }
     return c.json({ models: config.models })

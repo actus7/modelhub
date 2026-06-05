@@ -2,7 +2,6 @@ import JSZip from "jszip";
 import type { Prisma } from "../../generated/prisma/client.ts";
 
 import {
-  createMessageContentFallback,
   type AttachmentExtractionStatus,
   type AttachmentKind,
   type ConversationAttachmentDescriptor,
@@ -10,24 +9,24 @@ import {
   type HydratedConversationMessagePart,
 } from "@/lib/chat-parts";
 
-export const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
+const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
   "image/gif",
   "image/jpeg",
   "image/png",
   "image/webp",
 ]);
 
-export const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
+const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
-export const MAX_IMAGE_ATTACHMENT_FILE_BYTES = Math.floor(1.5 * 1024 * 1024);
-export const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = Math.floor(2.5 * 1024 * 1024);
-export const MAX_DOCUMENT_ATTACHMENT_FILE_BYTES = Math.floor(5 * 1024 * 1024);
-export const MAX_DOCUMENT_ATTACHMENT_TOTAL_BYTES = Math.floor(10 * 1024 * 1024);
+const MAX_IMAGE_ATTACHMENT_FILE_BYTES = Math.floor(1.5 * 1024 * 1024);
+const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = Math.floor(2.5 * 1024 * 1024);
+const MAX_DOCUMENT_ATTACHMENT_FILE_BYTES = Math.floor(5 * 1024 * 1024);
+const MAX_DOCUMENT_ATTACHMENT_TOTAL_BYTES = Math.floor(10 * 1024 * 1024);
 export const MAX_DOCUMENT_CONTEXT_CHARS = 120_000;
 
 const XML_ENTITY_MAP: Record<string, string> = {
@@ -72,12 +71,8 @@ export function resolveAttachmentKind(mimeType: string): AttachmentKind | null {
   return null;
 }
 
-export function getAttachmentByteLimit(kind: AttachmentKind): number {
+function getAttachmentByteLimit(kind: AttachmentKind): number {
   return kind === "image" ? MAX_IMAGE_ATTACHMENT_FILE_BYTES : MAX_DOCUMENT_ATTACHMENT_FILE_BYTES;
-}
-
-export function getAttachmentTotalByteLimit(kind: AttachmentKind): number {
-  return kind === "image" ? MAX_IMAGE_ATTACHMENT_TOTAL_BYTES : MAX_DOCUMENT_ATTACHMENT_TOTAL_BYTES;
 }
 
 export function getAttachmentValidationError(file: File): string | null {
@@ -94,7 +89,7 @@ export function getAttachmentValidationError(file: File): string | null {
   return null;
 }
 
-export function sanitizeExtractedText(text: string): string {
+function sanitizeExtractedText(text: string): string {
   return text.replace(/\u0000/g, "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -310,7 +305,7 @@ export async function readUploadedFile(file: File): Promise<Uint8Array<ArrayBuff
   return new Uint8Array(await file.arrayBuffer()) as Uint8Array<ArrayBuffer>;
 }
 
-export function toAttachmentDescriptor(
+function toAttachmentDescriptor(
   attachment: StoredAttachmentRecord,
   conversationId: string,
 ): ConversationAttachmentDescriptor {
@@ -325,7 +320,7 @@ export function toAttachmentDescriptor(
   };
 }
 
-export function parseStoredMessageParts(value: Prisma.JsonValue | null, fallbackContent: string): ConversationMessagePart[] {
+function parseStoredMessageParts(value: Prisma.JsonValue | null, fallbackContent: string): ConversationMessagePart[] {
   if (!Array.isArray(value)) {
     return fallbackContent
       ? [{ text: fallbackContent, type: "text" }]
@@ -385,10 +380,6 @@ export function hydrateMessageParts(input: {
     result.push({ ...part, ...toAttachmentDescriptor(attachment, input.conversationId) });
     return result;
   }, []);
-}
-
-export function buildFallbackContentFromHydratedParts(parts: readonly HydratedConversationMessagePart[]): string {
-  return createMessageContentFallback(parts);
 }
 
 export function buildDocumentContextBlock(input: {
