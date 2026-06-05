@@ -2,7 +2,6 @@ import JSZip from "jszip";
 import type { Prisma } from "../../generated/prisma/client.ts";
 
 import {
-  createMessageContentFallback,
   type AttachmentExtractionStatus,
   type AttachmentKind,
   type ConversationAttachmentDescriptor,
@@ -10,24 +9,22 @@ import {
   type HydratedConversationMessagePart,
 } from "@/lib/chat-parts";
 
-export const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
+const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
   "image/gif",
   "image/jpeg",
   "image/png",
   "image/webp",
 ]);
 
-export const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
+const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
-export const MAX_IMAGE_ATTACHMENT_FILE_BYTES = Math.floor(1.5 * 1024 * 1024);
-export const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = Math.floor(2.5 * 1024 * 1024);
-export const MAX_DOCUMENT_ATTACHMENT_FILE_BYTES = Math.floor(5 * 1024 * 1024);
-export const MAX_DOCUMENT_ATTACHMENT_TOTAL_BYTES = Math.floor(10 * 1024 * 1024);
+const MAX_IMAGE_ATTACHMENT_FILE_BYTES = Math.floor(1.5 * 1024 * 1024);
+const MAX_DOCUMENT_ATTACHMENT_FILE_BYTES = Math.floor(5 * 1024 * 1024);
 export const MAX_DOCUMENT_CONTEXT_CHARS = 120_000;
 
 const XML_ENTITY_MAP: Record<string, string> = {
@@ -47,15 +44,6 @@ type StoredAttachmentRecord = {
   mimeType: string;
 };
 
-type StoredMessagePart = {
-  attachmentId?: unknown;
-  fileName?: unknown;
-  kind?: unknown;
-  mimeType?: unknown;
-  text?: unknown;
-  type?: unknown;
-};
-
 export function buildAttachmentContentUrl(conversationId: string, attachmentId: string): string {
   return `/conversations/${conversationId}/attachments/${attachmentId}/content`;
 }
@@ -72,12 +60,8 @@ export function resolveAttachmentKind(mimeType: string): AttachmentKind | null {
   return null;
 }
 
-export function getAttachmentByteLimit(kind: AttachmentKind): number {
+function getAttachmentByteLimit(kind: AttachmentKind): number {
   return kind === "image" ? MAX_IMAGE_ATTACHMENT_FILE_BYTES : MAX_DOCUMENT_ATTACHMENT_FILE_BYTES;
-}
-
-export function getAttachmentTotalByteLimit(kind: AttachmentKind): number {
-  return kind === "image" ? MAX_IMAGE_ATTACHMENT_TOTAL_BYTES : MAX_DOCUMENT_ATTACHMENT_TOTAL_BYTES;
 }
 
 export function getAttachmentValidationError(file: File): string | null {
@@ -94,7 +78,7 @@ export function getAttachmentValidationError(file: File): string | null {
   return null;
 }
 
-export function sanitizeExtractedText(text: string): string {
+function sanitizeExtractedText(text: string): string {
   return text.replace(/\u0000/g, "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
@@ -310,7 +294,7 @@ export async function readUploadedFile(file: File): Promise<Uint8Array<ArrayBuff
   return new Uint8Array(await file.arrayBuffer()) as Uint8Array<ArrayBuffer>;
 }
 
-export function toAttachmentDescriptor(
+function toAttachmentDescriptor(
   attachment: StoredAttachmentRecord,
   conversationId: string,
 ): ConversationAttachmentDescriptor {
@@ -325,7 +309,37 @@ export function toAttachmentDescriptor(
   };
 }
 
-export function parseStoredMessageParts(value: Prisma.JsonValue | null, fallbackContent: string): ConversationMessagePart[] {
+/**
+ * Validates a single raw message part (already narrowed to an object) into a
+ * typed {@link ConversationMessagePart}, or returns null if it matches neither
+ * the text nor attachment shape. Shared by stored-part parsing and incoming
+ * client-payload normalization so the validation rules stay in one place.
+ */
+export function parseSingleMessagePart(rawPart: Record<string, unknown>): ConversationMessagePart | null {
+  if (rawPart.type === "text" && typeof rawPart.text === "string") {
+    return { text: rawPart.text, type: "text" };
+  }
+
+  if (
+    rawPart.type === "attachment" &&
+    typeof rawPart.attachmentId === "string" &&
+    (rawPart.kind === "image" || rawPart.kind === "document") &&
+    typeof rawPart.fileName === "string" &&
+    typeof rawPart.mimeType === "string"
+  ) {
+    return {
+      attachmentId: rawPart.attachmentId,
+      fileName: rawPart.fileName,
+      kind: rawPart.kind,
+      mimeType: rawPart.mimeType,
+      type: "attachment",
+    };
+  }
+
+  return null;
+}
+
+function parseStoredMessageParts(value: Prisma.JsonValue | null, fallbackContent: string): ConversationMessagePart[] {
   if (!Array.isArray(value)) {
     return fallbackContent
       ? [{ text: fallbackContent, type: "text" }]
@@ -334,26 +348,12 @@ export function parseStoredMessageParts(value: Prisma.JsonValue | null, fallback
 
   const parts: ConversationMessagePart[] = [];
   for (const rawPart of value) {
-    const part = rawPart as StoredMessagePart;
-    if (part.type === "text" && typeof part.text === "string") {
-      parts.push({ text: part.text, type: "text" });
+    if (!rawPart || typeof rawPart !== "object") {
       continue;
     }
-
-    if (
-      part.type === "attachment" &&
-      typeof part.attachmentId === "string" &&
-      (part.kind === "image" || part.kind === "document") &&
-      typeof part.fileName === "string" &&
-      typeof part.mimeType === "string"
-    ) {
-      parts.push({
-        attachmentId: part.attachmentId,
-        fileName: part.fileName,
-        kind: part.kind,
-        mimeType: part.mimeType,
-        type: "attachment",
-      });
+    const part = parseSingleMessagePart(rawPart as Record<string, unknown>);
+    if (part) {
+      parts.push(part);
     }
   }
 
@@ -385,10 +385,6 @@ export function hydrateMessageParts(input: {
     result.push({ ...part, ...toAttachmentDescriptor(attachment, input.conversationId) });
     return result;
   }, []);
-}
-
-export function buildFallbackContentFromHydratedParts(parts: readonly HydratedConversationMessagePart[]): string {
-  return createMessageContentFallback(parts);
 }
 
 export function buildDocumentContextBlock(input: {

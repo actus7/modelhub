@@ -11,12 +11,14 @@ import {
   extractDocumentText,
   getAttachmentValidationError,
   hydrateMessageParts,
+  parseSingleMessagePart,
   readUploadedFile,
   resolveAttachmentKind,
 } from "../lib/conversation-attachments";
 import { prisma } from "../lib/db";
 import { jsonErrorResponse } from "../lib/provider-core";
 import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
+import { requireAuth } from "./route-helpers";
 
 const app = new Hono().basePath("/conversations");
 app.use("*", securityHeaders);
@@ -33,11 +35,6 @@ type CreateMessageInput = {
   role: string;
 };
 
-function requireAuth(c: Context): string | Response {
-  const userId = c.get("userId") as string | undefined;
-  if (!userId) return jsonErrorResponse(401, "Authentication required");
-  return userId;
-}
 
 function normalizeIncomingMessageParts(value: unknown): ConversationMessagePart[] {
   if (!Array.isArray(value)) {
@@ -50,30 +47,57 @@ function normalizeIncomingMessageParts(value: unknown): ConversationMessagePart[
       continue;
     }
 
-    const part = rawPart as Record<string, unknown>;
-    if (part.type === "text" && typeof part.text === "string") {
-      parts.push({ text: part.text, type: "text" });
-      continue;
-    }
-
-    if (
-      part.type === "attachment" &&
-      typeof part.attachmentId === "string" &&
-      (part.kind === "image" || part.kind === "document") &&
-      typeof part.fileName === "string" &&
-      typeof part.mimeType === "string"
-    ) {
-      parts.push({
-        attachmentId: part.attachmentId,
-        fileName: part.fileName,
-        kind: part.kind,
-        mimeType: part.mimeType,
-        type: "attachment",
-      });
+    const part = parseSingleMessagePart(rawPart as Record<string, unknown>);
+    if (part) {
+      parts.push(part);
     }
   }
 
   return parts;
+}
+
+type StoredAttachment = {
+  byteSize: number;
+  extractionStatus: string;
+  fileName: string;
+  id: string;
+  kind: string;
+  mimeType: string;
+};
+
+type StoredMessage = {
+  content: string;
+  createdAt: Date;
+  id: string;
+  parts: Prisma.JsonValue | null;
+  role: string;
+};
+
+function hydrateMessages(
+  messages: StoredMessage[],
+  attachments: StoredAttachment[],
+  conversationId: string,
+) {
+  const attachmentsById = new Map(
+    attachments.map((a) => [a.id, a]),
+  );
+
+  return messages.map((message) => {
+    const parts = hydrateMessageParts({
+      attachmentsById,
+      conversationId,
+      fallbackContent: message.content,
+      parts: message.parts,
+    });
+
+    return {
+      content: message.content,
+      createdAt: message.createdAt,
+      id: message.id,
+      parts,
+      role: message.role,
+    };
+  });
 }
 
 async function requireConversation(c: Context, userId: string, conversationId: string) {
@@ -86,6 +110,31 @@ async function requireConversation(c: Context, userId: string, conversationId: s
   }
 
   return conversation;
+}
+
+type AuthorizedConversation = {
+  conversation: NonNullable<Awaited<ReturnType<typeof requireConversation>>>;
+  conversationId: string;
+  userId: string;
+};
+
+/**
+ * Resolves the authenticated user and the `:id` conversation they own in one
+ * step, returning a ready-to-return Response (401 or 404) on failure. Collapses
+ * the auth + param + ownership boilerplate shared by every conversation-scoped
+ * handler.
+ */
+async function authorizeConversation(c: Context): Promise<AuthorizedConversation | Response> {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const conversationId = c.req.param("id");
+  if (!conversationId) return jsonErrorResponse(404, "Conversation not found");
+
+  const conversation = await requireConversation(c, userId, conversationId);
+  if (!conversation) return jsonErrorResponse(404, "Conversation not found");
+
+  return { conversation, conversationId, userId };
 }
 
 async function persistMessages(conversationId: string, messages: CreateMessageInput[]) {
@@ -154,36 +203,7 @@ async function persistMessages(conversationId: string, messages: CreateMessageIn
     },
   });
 
-  const attachmentsById = new Map(
-    attachments.map((attachment) => [
-      attachment.id,
-      {
-        byteSize: attachment.byteSize,
-        extractionStatus: attachment.extractionStatus,
-        fileName: attachment.fileName,
-        id: attachment.id,
-        kind: attachment.kind,
-        mimeType: attachment.mimeType,
-      },
-    ]),
-  );
-
-  return createdMessages.map((message) => {
-    const parts = hydrateMessageParts({
-      attachmentsById,
-      conversationId,
-      fallbackContent: message.content,
-      parts: message.parts,
-    });
-
-    return {
-      content: message.content,
-      createdAt: message.createdAt,
-      id: message.id,
-      parts,
-      role: message.role,
-    };
-  });
+  return hydrateMessages(createdMessages, attachments, conversationId);
 }
 
 // GET /conversations — lista conversas do usuário
@@ -244,12 +264,9 @@ app.post("/", async (c) => {
 
 // PATCH /conversations/:id — atualiza título
 app.patch("/:id", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const id = c.req.param("id");
-  const existing = await prisma.conversation.findFirst({ where: { id, userId } });
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId: id } = auth;
 
   const body = await c.req.json().catch(() => ({})) as { title?: string; archived?: boolean };
 
@@ -268,12 +285,9 @@ app.patch("/:id", async (c) => {
 
 // DELETE /conversations/:id
 app.delete("/:id", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const id = c.req.param("id");
-  const existing = await prisma.conversation.findFirst({ where: { id, userId } });
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId: id } = auth;
 
   await prisma.conversation.delete({ where: { id } });
   return c.json({ success: true });
@@ -281,12 +295,9 @@ app.delete("/:id", async (c) => {
 
 // GET /conversations/:id/messages — busca mensagens
 app.get("/:id/messages", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const id = c.req.param("id");
-  const existing = await requireConversation(c, userId, id);
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversation: existing, conversationId: id } = auth;
 
   const [messages, attachments] = await Promise.all([
     prisma.message.findMany({
@@ -307,49 +318,17 @@ app.get("/:id/messages", async (c) => {
     }),
   ]);
 
-  const attachmentsById = new Map(
-    attachments.map((attachment) => [
-      attachment.id,
-      {
-        byteSize: attachment.byteSize,
-        extractionStatus: attachment.extractionStatus,
-        fileName: attachment.fileName,
-        id: attachment.id,
-        kind: attachment.kind,
-        mimeType: attachment.mimeType,
-      },
-    ]),
-  );
-
   return c.json({
     conversation: existing,
-    messages: messages.map((message) => {
-      const parts = hydrateMessageParts({
-        attachmentsById,
-        conversationId: id,
-        fallbackContent: message.content,
-        parts: message.parts,
-      });
-
-      return {
-        content: message.content,
-        createdAt: message.createdAt,
-        id: message.id,
-        parts,
-        role: message.role,
-      };
-    }),
+    messages: hydrateMessages(messages, attachments, id),
   });
 });
 
 // POST /conversations/:id/attachments — upload de anexo
 app.post("/:id/attachments", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const conversationId = c.req.param("id");
-  const conversation = await requireConversation(c, userId, conversationId);
-  if (!conversation) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId } = auth;
 
   const formData = await c.req.raw.formData().catch(() => null);
   if (!formData) {
@@ -408,13 +387,10 @@ app.post("/:id/attachments", async (c) => {
 
 // GET /conversations/:id/attachments/:attachmentId/content — serve o binário autenticado
 app.get("/:id/attachments/:attachmentId/content", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const conversationId = c.req.param("id");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId } = auth;
   const attachmentId = c.req.param("attachmentId");
-  const conversation = await requireConversation(c, userId, conversationId);
-  if (!conversation) return jsonErrorResponse(404, "Conversation not found");
 
   const attachment = await prisma.conversationAttachment.findFirst({
     where: { conversationId, id: attachmentId },
@@ -440,12 +416,9 @@ app.get("/:id/attachments/:attachmentId/content", async (c) => {
 
 // POST /conversations/:id/messages — adiciona mensagem(ns)
 app.post("/:id/messages", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const id = c.req.param("id");
-  const existing = await requireConversation(c, userId, id);
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId: id } = auth;
 
   const body = await c.req.json().catch(() => ({})) as {
     messages?: CreateMessageInput[];
@@ -461,12 +434,9 @@ app.post("/:id/messages", async (c) => {
 
 // DELETE /conversations/:id/messages?fromMessageId=...|afterMessageId=...
 app.delete("/:id/messages", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const conversationId = c.req.param("id");
-  const existing = await requireConversation(c, userId, conversationId);
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId } = auth;
 
   const fromMessageId = c.req.query("fromMessageId");
   const afterMessageId = c.req.query("afterMessageId");
@@ -502,13 +472,10 @@ app.delete("/:id/messages", async (c) => {
 
 // POST /conversations/:id/messages/:messageId/reaction — toggle reaction
 app.post("/:id/messages/:messageId/reaction", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const conversationId = c.req.param("id");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId, userId } = auth;
   const messageId = c.req.param("messageId");
-  const existing = await requireConversation(c, userId, conversationId);
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
 
   const body = await c.req.json().catch(() => ({})) as { type?: string };
   const type = body.type;

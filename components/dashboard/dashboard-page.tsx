@@ -59,7 +59,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
+import { apiJson, apiJsonRequest } from "@/lib/api";
+import { saveProviderCredentials } from "@/lib/save-provider-credentials";
 import { providerHasRequiredCredentials, providerUsesStoredCredentials } from "@/lib/provider-credentials";
 
 export type DashboardSection = "overview" | "keys" | "credentials" | "logs";
@@ -256,28 +257,12 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
 
     setSavingCredentials(true);
     try {
-      // 1. Testar credenciais
-      const creds: Record<string, string> = {};
-      for (const f of requiredKeys) {
-        creds[f.envName] = credentialValues[f.envName];
-      }
-
-      const testResult = await testProviderCredentials(selectedProvider.base, creds);
-      if (!testResult.ok && !testResult.skipped) {
-        toast.error(testResult.error ?? "Chave inválida. Verifique e tente novamente.");
+      const result = await saveProviderCredentials(selectedProvider, credentialValues);
+      if (!result.ok) {
+        toast.error(result.error);
         return;
       }
 
-      // 2. Salvar credenciais
-      await Promise.all(
-        requiredKeys.map((field) =>
-          apiJsonRequest("/user/credentials", "POST", {
-            credentialKey: field.envName,
-            credentialValue: credentialValues[field.envName],
-            providerId: selectedProvider.id,
-          }),
-        ),
-      );
       setCredentialDialogOpen(false);
       setCredentialValues({});
       await Promise.all([refreshCredentials(), refreshUser()]);

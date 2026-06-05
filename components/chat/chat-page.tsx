@@ -90,7 +90,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-import { apiFetch, apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api";
+import { apiFetch, apiJson, apiJsonRequest } from "@/lib/api";
+import { saveProviderCredentials } from "@/lib/save-provider-credentials";
 import {
   getBrowserChatProviderAdapter,
   type BrowserProviderAuthState,
@@ -174,6 +175,61 @@ type ChatRequestError = Error & {
   status?: number;
   suppressToast?: boolean;
 };
+
+async function parseApiErrorResponse(response: Response): Promise<string> {
+  try {
+    const payload = (await response.json()) as { error?: unknown };
+    if (payload.error) {
+      if (typeof payload.error === "string") return payload.error;
+      if (typeof payload.error === "object" && payload.error !== null && "message" in payload.error) {
+        return String((payload.error as { message: unknown }).message);
+      }
+      return JSON.stringify(payload.error);
+    }
+  } catch {
+    // Keep fallback.
+  }
+  return `HTTP ${response.status}`;
+}
+
+function resolveModelFallbackFromHeaders(
+  response: Response,
+  defaultLabel: string | undefined,
+  models: ProviderModel[],
+  providerLabel: string,
+) {
+  const effectiveModelId = response.headers.get(MODELHUB_EFFECTIVE_MODEL_HEADER)?.trim() ?? "";
+  const requestedModel = response.headers.get(MODELHUB_REQUESTED_MODEL_HEADER)?.trim() ?? "";
+  const fallbackUsed = response.headers.get(MODELHUB_MODEL_FALLBACK_USED_HEADER) === "true";
+  const attemptedIds = (response.headers.get(MODELHUB_MODELS_ATTEMPTED_HEADER) ?? "")
+    .split(",").map((s) => s.trim()).filter(Boolean);
+
+  const resolvedLabel = effectiveModelId.length > 0
+    ? resolveAssistantModelLabel({ modelId: effectiveModelId, models, providerLabel })
+    : defaultLabel;
+
+  const fallbackMeta =
+    fallbackUsed && requestedModel.length > 0 && effectiveModelId.length > 0 && attemptedIds.length > 0
+      ? {
+          requestedLabel: resolveAssistantModelLabel({ modelId: requestedModel, models, providerLabel }) ?? requestedModel,
+          effectiveLabel: resolvedLabel ?? effectiveModelId,
+          attemptedIds: [...attemptedIds],
+        }
+      : undefined;
+
+  return { resolvedLabel, fallbackMeta };
+}
+
+function resolveStreamErrorContent(
+  parsedStream: { errorMessage?: string; hadPartialOutput: boolean; text: string },
+  fullText: string,
+  providerId: string,
+): string | null {
+  if (!parsedStream.errorMessage) return null;
+  if (parsedStream.hadPartialOutput) return `${fullText}${STREAM_INTERRUPTED_NOTE}`;
+  if (providerId === "duckai") return DUCKAI_TEMPORARY_INLINE_MESSAGE;
+  return `Erro: ${parsedStream.errorMessage}`;
+}
 
 function resolveAssistantModelLabel(input: {
   modelId?: string;
@@ -595,28 +651,12 @@ export function ChatPage() {
 
     setSavingCredentials(true);
     try {
-      // 1. Testar credenciais
-      const creds: Record<string, string> = {};
-      for (const f of requiredKeys) {
-        creds[f.envName] = credentialValues[f.envName];
-      }
-
-      const testResult = await testProviderCredentials(selectedProvider.base, creds);
-      if (!testResult.ok && !testResult.skipped) {
-        toast.error(testResult.error ?? "Chave inválida. Verifique e tente novamente.");
+      const result = await saveProviderCredentials(selectedProvider, credentialValues);
+      if (!result.ok) {
+        toast.error(result.error);
         return;
       }
 
-      // 2. Salvar credenciais
-      await Promise.all(
-        requiredKeys.map((field) =>
-          apiJsonRequest("/user/credentials", "POST", {
-            credentialKey: field.envName,
-            credentialValue: credentialValues[field.envName],
-            providerId: selectedProvider.id,
-          }),
-        ),
-      );
       await refreshCredentials();
       setCredentialDialogOpen(false);
       setCredentialValues({});
@@ -1083,63 +1123,15 @@ export function ChatPage() {
       });
 
       if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}`;
-        try {
-          const payload = (await response.json()) as { error?: unknown };
-          if (payload.error) {
-            errorMessage =
-              typeof payload.error === "string"
-                ? payload.error
-                : typeof payload.error === "object" && payload.error !== null && "message" in payload.error
-                  ? String((payload.error as { message: unknown }).message)
-                  : JSON.stringify(payload.error);
-          }
-        } catch {
-          // Keep fallback.
-        }
+        const errorMessage = await parseApiErrorResponse(response);
         const requestError = new Error(errorMessage) as ChatRequestError;
         requestError.status = response.status;
         requestError.suppressToast = selectedProviderId === "duckai" && response.status === 503;
         throw requestError;
       }
 
-      const effectiveModelIdFromHeader =
-        response.headers.get(MODELHUB_EFFECTIVE_MODEL_HEADER)?.trim() ?? "";
-      const requestedModelFromHeader =
-        response.headers.get(MODELHUB_REQUESTED_MODEL_HEADER)?.trim() ?? "";
-      const fallbackUsedHeader =
-        response.headers.get(MODELHUB_MODEL_FALLBACK_USED_HEADER) === "true";
-      const attemptedRaw = response.headers.get(MODELHUB_MODELS_ATTEMPTED_HEADER) ?? "";
-      const attemptedIds = attemptedRaw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
-
-      const resolvedAssistantLabel =
-        effectiveModelIdFromHeader.length > 0
-          ? resolveAssistantModelLabel({
-              modelId: effectiveModelIdFromHeader,
-              models,
-              providerLabel: selectedProvider.label,
-            })
-          : assistantModelLabel;
-
-      const modelFallbackMeta =
-        fallbackUsedHeader &&
-        requestedModelFromHeader.length > 0 &&
-        effectiveModelIdFromHeader.length > 0 &&
-        attemptedIds.length > 0
-          ? {
-              requestedLabel:
-                resolveAssistantModelLabel({
-                  modelId: requestedModelFromHeader,
-                  models,
-                  providerLabel: selectedProvider.label,
-                }) ?? requestedModelFromHeader,
-              effectiveLabel: resolvedAssistantLabel ?? effectiveModelIdFromHeader,
-              attemptedIds: [...attemptedIds],
-            }
-          : undefined;
+      const { resolvedLabel: resolvedAssistantLabel, fallbackMeta: modelFallbackMeta } =
+        resolveModelFallbackFromHeaders(response, assistantModelLabel, models, selectedProvider.label);
 
       setMessages((current) =>
         current.map((message) => {
@@ -1191,24 +1183,15 @@ export function ChatPage() {
       }
       fullText = parsedStream.text;
 
-      if (parsedStream.errorMessage) {
-        let nextContent: string;
-        if (parsedStream.hadPartialOutput) {
-          nextContent = `${fullText}${STREAM_INTERRUPTED_NOTE}`;
-        } else if (selectedProviderId === "duckai") {
-          nextContent = DUCKAI_TEMPORARY_INLINE_MESSAGE;
-        } else {
-          nextContent = `Erro: ${parsedStream.errorMessage}`;
-        }
-
+      const errorContent = resolveStreamErrorContent(parsedStream, fullText, selectedProviderId);
+      if (errorContent) {
         setMessages((current) =>
           current.map((message) =>
             message.id === assistantMessageId
-              ? { ...message, content: nextContent, isError: true }
+              ? { ...message, content: errorContent, isError: true }
               : message,
           ),
         );
-
         return;
       }
       }

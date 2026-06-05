@@ -1,4 +1,3 @@
-import type { Context } from "hono";
 import { Hono } from "hono";
 import {
   apiKeyLabelSchema,
@@ -9,6 +8,7 @@ import { encryptCredential, generateApiKey } from "../lib/crypto";
 import { prisma } from "../lib/db";
 import { jsonErrorResponse } from "../lib/provider-core";
 import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
+import { requireAuth } from "./route-helpers";
 
 const app = new Hono().basePath("/user");
 app.use("*", securityHeaders);
@@ -20,15 +20,6 @@ app.use("*", async (c, next) => {
   return next();
 });
 
-function getUserId(c: Context): string | undefined {
-  return c.get("userId") as string | undefined;
-}
-
-function requireAuth(c: Context): string | Response {
-  const userId = getUserId(c);
-  if (!userId) return jsonErrorResponse(401, "Authentication required");
-  return userId;
-}
 
 app.get("/api-keys", async (c) => {
   const userId = requireAuth(c);

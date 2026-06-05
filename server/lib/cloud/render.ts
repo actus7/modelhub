@@ -5,7 +5,7 @@ import type { CloudDeploymentStatus } from "@/lib/contracts";
 const RENDER_API_BASE = "https://api.render.com/v1";
 export const RENDER_PROVIDER = "render" as const;
 export const RENDER_SPIKE_REPO = "https://github.com/traefik/whoami";
-export const RENDER_SPIKE_BRANCH = "master";
+const RENDER_SPIKE_BRANCH = "master";
 export const RENDER_SPIKE_REGION = "oregon";
 export const RENDER_SPIKE_PLAN = "free";
 export const RENDER_SPIKE_PORT = 80;
@@ -21,7 +21,7 @@ export const OPENCLAW_PROVIDER_TIMEOUT_SECONDS = 300;
 // gateway reads openclaw.json — relying on the ~/.openclaw default proved unreliable
 // (the gateway reported "Missing config" even though we wrote there). We set this env
 // var AND write the file to the exact same path, removing all ambiguity.
-export const RENDER_OPENCLAW_CONFIG_PATH = "/tmp/openclaw-state/openclaw.json";
+const RENDER_OPENCLAW_CONFIG_PATH = "/tmp/openclaw-state/openclaw.json";
 // Render runs the Docker Command by splitting on whitespace and exec'ing directly
 // (no shell, no quote handling). So the command must be a single `node -e <script>`
 // where the script has NO spaces and uses only single quotes — otherwise Render
@@ -245,7 +245,12 @@ async function findExistingService(token: string, name: string): Promise<RenderS
   }
 }
 
-export async function createRenderSpikeDeployment(token: string, userId: string): Promise<RenderSpikeDeployment> {
+/**
+ * Fetches the first accessible Render workspace owner for the token, throwing a
+ * 403 RenderApiError if none is reachable. Shared by every deployment creation
+ * path, which all need the owner id to scope the created service.
+ */
+async function requireRenderOwner(token: string): Promise<RenderOwner & { id: string }> {
   type OwnerItem = { cursor?: string; owner?: RenderOwner };
   const items = await renderRequest<OwnerItem[]>(token, "/owners?limit=1");
   const owner = items?.[0]?.owner;
@@ -255,21 +260,64 @@ export async function createRenderSpikeDeployment(token: string, userId: string)
       status: 403,
     });
   }
+  return owner as RenderOwner & { id: string };
+}
+
+/**
+ * Builds the common deployment result shape shared by every Render create path
+ * (both the "service already exists" and "service just created" branches, for
+ * the spike and OpenClaw flows). Callers spread extra fields (gatewayToken,
+ * openclaw) on top for the OpenClaw variant.
+ */
+function buildRenderDeploymentBase(args: {
+  deployId: string | null;
+  owner: RenderOwner & { id: string };
+  serviceId: string;
+  serviceName: string;
+  serviceUrl: string | null;
+}): RenderSpikeDeployment {
+  const { deployId, owner, serviceId, serviceName, serviceUrl } = args;
+  return {
+    deployId,
+    error: null,
+    ownerId: owner.id,
+    ownerName: owner.name ?? serviceName,
+    publicUrl: serviceUrl,
+    serviceId,
+    serviceName,
+    status: "provisioning",
+  };
+}
+
+/**
+ * Validates a Render POST /services reply and returns the created service, or
+ * throws a 502 RenderApiError if Render didn't return a usable service id/name.
+ */
+function requireCreatedRenderService(reply: { service?: RenderService } | null): RenderService & { id: string; name: string } {
+  const service = reply?.service;
+  if (!service?.id || !service?.name) {
+    throw new RenderApiError({
+      message: "Render nao retornou um ID de servico.",
+      status: 502,
+    });
+  }
+  return service as RenderService & { id: string; name: string };
+}
+
+export async function createRenderSpikeDeployment(token: string, userId: string): Promise<RenderSpikeDeployment> {
+  const owner = await requireRenderOwner(token);
 
   const serviceName = renderServiceNameForUser(userId);
 
   const existing = await findExistingService(token, serviceName);
   if (existing?.id) {
-    return {
+    return buildRenderDeploymentBase({
       deployId: null,
-      error: null,
-      ownerId: owner.id,
-      ownerName: owner.name ?? serviceName,
-      publicUrl: existing.serviceDetails?.url ?? null,
+      owner,
       serviceId: existing.id,
       serviceName: existing.name ?? serviceName,
-      status: "provisioning",
-    };
+      serviceUrl: existing.serviceDetails?.url ?? null,
+    });
   }
 
   type CreateResponse = { deployId?: string; service?: RenderService };
@@ -295,24 +343,15 @@ export async function createRenderSpikeDeployment(token: string, userId: string)
     method: "POST",
   });
 
-  const service = reply?.service;
-  if (!service?.id || !service?.name) {
-    throw new RenderApiError({
-      message: "Render nao retornou um ID de servico.",
-      status: 502,
-    });
-  }
+  const service = requireCreatedRenderService(reply);
 
-  return {
+  return buildRenderDeploymentBase({
     deployId: reply.deployId ?? null,
-    error: null,
-    ownerId: owner.id,
-    ownerName: owner.name ?? serviceName,
-    publicUrl: service.serviceDetails?.url ?? null,
+    owner,
     serviceId: service.id,
     serviceName: service.name,
-    status: "provisioning",
-  };
+    serviceUrl: service.serviceDetails?.url ?? null,
+  });
 }
 
 export async function refreshRenderDeployment(
@@ -535,15 +574,7 @@ export async function createRenderOpenClawDeployment(
   modelhubApiKey: string,
   openclawConfig: Pick<OpenClawConfigInput, "allowedOrigins" | "model" | "provider">,
 ): Promise<RenderOpenClawDeployment> {
-  type OwnerItem = { cursor?: string; owner?: RenderOwner };
-  const items = await renderRequest<OwnerItem[]>(token, "/owners?limit=1");
-  const owner = items?.[0]?.owner;
-  if (!owner?.id) {
-    throw new RenderApiError({
-      message: "Nenhum workspace acessivel com este token.",
-      status: 403,
-    });
-  }
+  const owner = await requireRenderOwner(token);
 
   const serviceName = renderOpenClawServiceName(userId);
   const plannedServiceUrl = publicUrlForOpenClawServiceName(serviceName);
@@ -586,16 +617,15 @@ export async function createRenderOpenClawDeployment(
     );
     const deployId = ("deploy" in deployReply ? deployReply.deploy?.id : (deployReply as { id?: string }).id) ?? null;
     return {
-      deployId,
-      error: null,
+      ...buildRenderDeploymentBase({
+        deployId,
+        owner,
+        serviceId: existing.id,
+        serviceName: existing.name ?? serviceName,
+        serviceUrl: existing.serviceDetails?.url ?? null,
+      }),
       gatewayToken,
       openclaw,
-      ownerId: owner.id,
-      ownerName: owner.name ?? serviceName,
-      publicUrl: existing.serviceDetails?.url ?? null,
-      serviceId: existing.id,
-      serviceName: existing.name ?? serviceName,
-      status: "provisioning",
     };
   }
 
@@ -622,25 +652,18 @@ export async function createRenderOpenClawDeployment(
     method: "POST",
   });
 
-  const service = reply?.service;
-  if (!service?.id || !service?.name) {
-    throw new RenderApiError({
-      message: "Render nao retornou um ID de servico.",
-      status: 502,
-    });
-  }
+  const service = requireCreatedRenderService(reply);
 
   return {
-    deployId: reply.deployId ?? null,
-    error: null,
+    ...buildRenderDeploymentBase({
+      deployId: reply.deployId ?? null,
+      owner,
+      serviceId: service.id,
+      serviceName: service.name,
+      serviceUrl: service.serviceDetails?.url ?? null,
+    }),
     gatewayToken,
     openclaw,
-    ownerId: owner.id,
-    ownerName: owner.name ?? serviceName,
-    publicUrl: service.serviceDetails?.url ?? null,
-    serviceId: service.id,
-    serviceName: service.name,
-    status: "provisioning",
   };
 }
 

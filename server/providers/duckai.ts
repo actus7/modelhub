@@ -109,6 +109,16 @@ type PrimedDuckAiStreamResult =
   | { response: Response }
   | { retryableError: DuckAiRetryableError }
   | { errorResponse: Response }
+type DuckAiChatAttemptContext = {
+  activeVqdData: DuckAiVqdData
+  attempt: number
+  deps: DuckAiChatDeps
+  reusedVqd: boolean
+}
+type DuckAiChatAttemptResult =
+  | { kind: 'response'; response: Response }
+  | { kind: 'retry'; refreshVqd: boolean }
+  | { kind: 'error'; response: Response }
 
 let duckAiModelMetadataPromise: Promise<DuckAiModelMetadata[]> | null = null
 let jsdomCtorPromise: Promise<JsdomCtor> | null = null
@@ -1028,6 +1038,31 @@ async function sendDuckAiChatRequest(input: {
   }
 }
 
+/**
+ * Writes a batch of raw SSE chunks to the AI-stream writer. Content events are
+ * forwarded as `0:` lines; the first error event emits the `3:`/error-finish
+ * lines and returns true, signalling the caller to stop pumping.
+ */
+async function writeDuckAiContentChunks(
+  rawChunks: string[],
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  encoder: TextEncoder,
+): Promise<{ errored: boolean }> {
+  for (const rawChunk of rawChunks) {
+    const event = createDuckAiStreamEvent(rawChunk)
+    if (!event) continue
+
+    if (event.kind === 'error') {
+      await writer.write(encoder.encode(`3:${JSON.stringify(event.message)}\n`))
+      await writer.write(encoder.encode('d:{"finishReason":"error"}\n'))
+      return { errored: true }
+    }
+
+    await writer.write(encoder.encode(`0:${JSON.stringify(event.content)}\n`))
+  }
+  return { errored: false }
+}
+
 async function pumpDuckAiStream(input: {
   initialBuffer: string
   initialChunks: string[]
@@ -1058,34 +1093,16 @@ async function pumpDuckAiStream(input: {
       const chunksToProcess = pendingChunks
       pendingChunks = []
 
-      for (const rawChunk of chunksToProcess) {
-        const event = createDuckAiStreamEvent(rawChunk)
-        if (!event) continue
-
-        if (event.kind === 'error') {
-          await input.writer.write(encoder.encode(`3:${JSON.stringify(event.message)}\n`))
-          await input.writer.write(encoder.encode('d:{"finishReason":"error"}\n'))
-          didFinish = true
-          return
-        }
-
-        await input.writer.write(encoder.encode(`0:${JSON.stringify(event.content)}\n`))
+      if ((await writeDuckAiContentChunks(chunksToProcess, input.writer, encoder)).errored) {
+        didFinish = true
+        return
       }
     }
 
     const remaining = extractDuckAiSseChunks(buffer, true).chunks
-    for (const rawChunk of remaining) {
-      const event = createDuckAiStreamEvent(rawChunk)
-      if (!event) continue
-
-      if (event.kind === 'error') {
-        await input.writer.write(encoder.encode(`3:${JSON.stringify(event.message)}\n`))
-        await input.writer.write(encoder.encode('d:{"finishReason":"error"}\n'))
-        didFinish = true
-        return
-      }
-
-      await input.writer.write(encoder.encode(`0:${JSON.stringify(event.content)}\n`))
+    if ((await writeDuckAiContentChunks(remaining, input.writer, encoder)).errored) {
+      didFinish = true
+      return
     }
 
     await input.writer.write(encoder.encode('d:{"finishReason":"stop"}\n'))
@@ -1100,6 +1117,42 @@ async function pumpDuckAiStream(input: {
       await input.writer.write(encoder.encode('d:{"finishReason":"error"}\n')).catch(() => {})
     }
     await input.writer.close().catch(() => {})
+  }
+}
+
+/** Wraps the primed readable stream in the chunked text/plain Response the chat UI consumes. */
+function buildDuckAiStreamResponse(readable: ReadableStream<Uint8Array>): Response {
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Transfer-Encoding': 'chunked',
+      'Cache-Control': 'no-cache',
+    },
+  })
+}
+
+function classifyDuckAiStreamError(event: DuckAiSseEvent & { kind: 'error' }): PrimedDuckAiStreamResult {
+  if (event.retryClass) {
+    return {
+      retryableError: new DuckAiRetryableError(event.message, {
+        overrideCode: event.overrideCode,
+        phase: 'chat_stream_prelude',
+        retryClass: event.retryClass,
+        type: event.type,
+      }),
+    }
+  }
+
+  return {
+    errorResponse: upstreamErrorResponse(
+      'Duck.ai',
+      502,
+      JSON.stringify({
+        message: event.message,
+        overrideCode: event.overrideCode,
+        type: event.type,
+      }),
+    ),
   }
 }
 
@@ -1128,28 +1181,7 @@ async function primeDuckAiStream(chatResponse: Response): Promise<PrimedDuckAiSt
         if (event.kind === 'error') {
           await reader.cancel().catch(() => {})
           await writer.close().catch(() => {})
-          if (event.retryClass) {
-            return {
-              retryableError: new DuckAiRetryableError(event.message, {
-                overrideCode: event.overrideCode,
-                phase: 'chat_stream_prelude',
-                retryClass: event.retryClass,
-                type: event.type,
-              }),
-            }
-          }
-
-          return {
-            errorResponse: upstreamErrorResponse(
-              'Duck.ai',
-              502,
-              JSON.stringify({
-                message: event.message,
-                overrideCode: event.overrideCode,
-                type: event.type,
-              }),
-            ),
-          }
+          return classifyDuckAiStreamError(event)
         }
 
         void pumpDuckAiStream({
@@ -1158,15 +1190,7 @@ async function primeDuckAiStream(chatResponse: Response): Promise<PrimedDuckAiSt
           reader,
           writer,
         });
-        return {
-          response: new Response(readable, {
-            headers: {
-              'Content-Type': 'text/plain; charset=utf-8',
-              'Transfer-Encoding': 'chunked',
-              'Cache-Control': 'no-cache',
-            },
-          }),
-        }
+        return { response: buildDuckAiStreamResponse(readable) }
       }
 
       await reader.cancel().catch(() => {})
@@ -1194,28 +1218,7 @@ async function primeDuckAiStream(chatResponse: Response): Promise<PrimedDuckAiSt
       if (event.kind === 'error') {
         await reader.cancel().catch(() => {})
         await writer.close().catch(() => {})
-        if (event.retryClass) {
-          return {
-            retryableError: new DuckAiRetryableError(event.message, {
-              overrideCode: event.overrideCode,
-              phase: 'chat_stream_prelude',
-              retryClass: event.retryClass,
-              type: event.type,
-            }),
-          }
-        }
-
-        return {
-          errorResponse: upstreamErrorResponse(
-            'Duck.ai',
-            502,
-            JSON.stringify({
-              message: event.message,
-              overrideCode: event.overrideCode,
-              type: event.type,
-            }),
-          ),
-        }
+        return classifyDuckAiStreamError(event)
       }
 
       void pumpDuckAiStream({
@@ -1224,17 +1227,99 @@ async function primeDuckAiStream(chatResponse: Response): Promise<PrimedDuckAiSt
         reader,
         writer,
       })
-      return {
-        response: new Response(readable, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Transfer-Encoding': 'chunked',
-            'Cache-Control': 'no-cache',
-          },
-        }),
-      }
+      return { response: buildDuckAiStreamResponse(readable) }
     }
   }
+}
+
+async function handleDuckAiChatAttempt(
+  chatResponse: Response,
+  ctx: DuckAiChatAttemptContext,
+): Promise<DuckAiChatAttemptResult> {
+  if (!chatResponse.ok) {
+    const errorText = await chatResponse.text().catch(() => '')
+    const classification = isRetryableDuckAiHttpFailure(chatResponse.status, errorText)
+
+    if (classification.retryable && classification.retryClass) {
+      const delayMs = getDuckAiRetryDelay(ctx.attempt, classification.retryClass)
+      const finalOutcome =
+        ctx.attempt < DUCKAI_CHAT_MAX_ATTEMPTS ? 'retrying' : 'exhausted'
+      logDuckAi('chat', finalOutcome === 'retrying' ? 'warn' : 'error', {
+        attempt: ctx.attempt,
+        browserFallbackUsed: ctx.activeVqdData.browserFallbackUsed,
+        delayMs: finalOutcome === 'retrying' ? delayMs : undefined,
+        finalOutcome,
+        jsdomAttempts: ctx.activeVqdData.jsdomAttempts,
+        phase: 'chat_http',
+        retryClass: classification.retryClass,
+        reusedVqd: ctx.reusedVqd,
+        status: chatResponse.status,
+        type: classification.info.type,
+        overrideCode: classification.info.overrideCode,
+      })
+
+      const refreshVqd = shouldRefreshDuckAiVqd(classification.retryClass)
+
+      if (ctx.attempt < DUCKAI_CHAT_MAX_ATTEMPTS) {
+        await ctx.deps.sleep(delayMs)
+        return { kind: 'retry', refreshVqd }
+      }
+
+      return { kind: 'error', response: createDuckAiTemporaryUnavailableResponse() }
+    }
+
+    return { kind: 'error', response: upstreamErrorResponse('Duck.ai', chatResponse.status, errorText) }
+  }
+
+  const primed = await primeDuckAiStream(chatResponse)
+  if ('retryableError' in primed) {
+    const delayMs = getDuckAiRetryDelay(ctx.attempt, primed.retryableError.info.retryClass)
+    const finalOutcome =
+      ctx.attempt < DUCKAI_CHAT_MAX_ATTEMPTS ? 'retrying' : 'exhausted'
+    logDuckAi('chat', finalOutcome === 'retrying' ? 'warn' : 'error', {
+      attempt: ctx.attempt,
+      browserFallbackUsed: ctx.activeVqdData.browserFallbackUsed,
+      delayMs: finalOutcome === 'retrying' ? delayMs : undefined,
+      finalOutcome,
+      jsdomAttempts: ctx.activeVqdData.jsdomAttempts,
+      phase: 'chat_stream',
+      retryClass: primed.retryableError.info.retryClass,
+      reusedVqd: ctx.reusedVqd,
+      status: primed.retryableError.info.status,
+      type: primed.retryableError.info.type,
+      overrideCode: primed.retryableError.info.overrideCode,
+    })
+
+    const refreshVqd = shouldRefreshDuckAiVqd(primed.retryableError.info.retryClass)
+
+    if (ctx.attempt < DUCKAI_CHAT_MAX_ATTEMPTS) {
+      await ctx.deps.sleep(delayMs)
+      return { kind: 'retry', refreshVqd }
+    }
+
+    return { kind: 'error', response: createDuckAiTemporaryUnavailableResponse() }
+  }
+
+  if ('errorResponse' in primed) {
+    return { kind: 'error', response: primed.errorResponse }
+  }
+
+  if (
+    ctx.attempt > 1 ||
+    ctx.activeVqdData.browserFallbackUsed ||
+    ctx.activeVqdData.jsdomAttempts > 1
+  ) {
+    logDuckAi('chat', 'log', {
+      attempt: ctx.attempt,
+      browserFallbackUsed: ctx.activeVqdData.browserFallbackUsed,
+      finalOutcome: 'success',
+      jsdomAttempts: ctx.activeVqdData.jsdomAttempts,
+      phase: 'chat_http',
+      reusedVqd: ctx.reusedVqd,
+    })
+  }
+
+  return { kind: 'response', response: primed.response }
 }
 
 export function createDuckAiChatHandler(overrides: Partial<DuckAiChatDeps> = {}) {
@@ -1265,119 +1350,23 @@ export function createDuckAiChatHandler(overrides: Partial<DuckAiChatDeps> = {})
       for (let attempt = 1; attempt <= DUCKAI_CHAT_MAX_ATTEMPTS; attempt++) {
         try {
           const durableStreamPromise = deps.buildDuckAiDurableStreamPayload()
+          let durableStream: Awaited<ReturnType<typeof buildDuckAiDurableStreamPayload>>
           let reusedVqd = false
 
-          if (!activeVqdData) {
+          if (activeVqdData) {
+            reusedVqd = true
+            durableStream = await durableStreamPromise
+          } else {
             const freshVqdDataPromise = deps.getVqdData(cookieJar)
-            const [freshVqdData, durableStream] = await Promise.all([
+            const [freshVqdData, ds] = await Promise.all([
               freshVqdDataPromise,
               durableStreamPromise,
             ])
+            durableStream = ds
             activeVqdData = freshVqdData
             cookieJar = mergeCookies(cookieJar, freshVqdData.cookies)
-
-            const { cookies, response: chatResponse } = await deps.sendChatRequest({
-              cookies: cookieJar,
-              durableStream,
-              messages: ddgMessages,
-              modelId,
-              reasoningEffort,
-              vqdData: activeVqdData,
-            })
-            cookieJar = mergeCookies(cookieJar, cookies)
-
-            if (!chatResponse.ok) {
-              const errorText = await chatResponse.text().catch(() => '')
-              const classification = isRetryableDuckAiHttpFailure(chatResponse.status, errorText)
-
-              if (classification.retryable && classification.retryClass) {
-                const delayMs = getDuckAiRetryDelay(attempt, classification.retryClass)
-                const finalOutcome =
-                  attempt < DUCKAI_CHAT_MAX_ATTEMPTS ? 'retrying' : 'exhausted'
-                logDuckAi('chat', finalOutcome === 'retrying' ? 'warn' : 'error', {
-                  attempt,
-                  browserFallbackUsed: activeVqdData.browserFallbackUsed,
-                  delayMs: finalOutcome === 'retrying' ? delayMs : undefined,
-                  finalOutcome,
-                  jsdomAttempts: activeVqdData.jsdomAttempts,
-                  phase: 'chat_http',
-                  retryClass: classification.retryClass,
-                  reusedVqd,
-                  status: chatResponse.status,
-                  type: classification.info.type,
-                  overrideCode: classification.info.overrideCode,
-                })
-
-                if (shouldRefreshDuckAiVqd(classification.retryClass)) {
-                  activeVqdData = null
-                }
-
-                if (attempt < DUCKAI_CHAT_MAX_ATTEMPTS) {
-                  await deps.sleep(delayMs)
-                  continue
-                }
-
-                return createDuckAiTemporaryUnavailableResponse()
-              }
-
-              return upstreamErrorResponse('Duck.ai', chatResponse.status, errorText)
-            }
-
-            const primed = await primeDuckAiStream(chatResponse)
-            if ('retryableError' in primed) {
-              const delayMs = getDuckAiRetryDelay(attempt, primed.retryableError.info.retryClass)
-              const finalOutcome =
-                attempt < DUCKAI_CHAT_MAX_ATTEMPTS ? 'retrying' : 'exhausted'
-              logDuckAi('chat', finalOutcome === 'retrying' ? 'warn' : 'error', {
-                attempt,
-                browserFallbackUsed: activeVqdData.browserFallbackUsed,
-                delayMs: finalOutcome === 'retrying' ? delayMs : undefined,
-                finalOutcome,
-                jsdomAttempts: activeVqdData.jsdomAttempts,
-                phase: 'chat_stream',
-                retryClass: primed.retryableError.info.retryClass,
-                reusedVqd,
-                status: primed.retryableError.info.status,
-                type: primed.retryableError.info.type,
-                overrideCode: primed.retryableError.info.overrideCode,
-              })
-
-              if (shouldRefreshDuckAiVqd(primed.retryableError.info.retryClass)) {
-                activeVqdData = null
-              }
-
-              if (attempt < DUCKAI_CHAT_MAX_ATTEMPTS) {
-                await deps.sleep(delayMs)
-                continue
-              }
-
-              return createDuckAiTemporaryUnavailableResponse()
-            }
-
-            if ('errorResponse' in primed) {
-              return primed.errorResponse
-            }
-
-            if (
-              attempt > 1 ||
-              activeVqdData.browserFallbackUsed ||
-              activeVqdData.jsdomAttempts > 1
-            ) {
-              logDuckAi('chat', 'log', {
-                attempt,
-                browserFallbackUsed: activeVqdData.browserFallbackUsed,
-                finalOutcome: 'success',
-                jsdomAttempts: activeVqdData.jsdomAttempts,
-                phase: 'chat_http',
-                reusedVqd,
-              })
-            }
-
-            return primed.response
           }
 
-          reusedVqd = true
-          const durableStream = await durableStreamPromise
           const { cookies, response: chatResponse } = await deps.sendChatRequest({
             cookies: cookieJar,
             durableStream,
@@ -1388,94 +1377,23 @@ export function createDuckAiChatHandler(overrides: Partial<DuckAiChatDeps> = {})
           })
           cookieJar = mergeCookies(cookieJar, cookies)
 
-          if (!chatResponse.ok) {
-            const errorText = await chatResponse.text().catch(() => '')
-            const classification = isRetryableDuckAiHttpFailure(chatResponse.status, errorText)
+          const result = await handleDuckAiChatAttempt(chatResponse, {
+            activeVqdData,
+            attempt,
+            deps,
+            reusedVqd,
+          })
 
-            if (classification.retryable && classification.retryClass) {
-              const delayMs = getDuckAiRetryDelay(attempt, classification.retryClass)
-              const finalOutcome =
-                attempt < DUCKAI_CHAT_MAX_ATTEMPTS ? 'retrying' : 'exhausted'
-              logDuckAi('chat', finalOutcome === 'retrying' ? 'warn' : 'error', {
-                attempt,
-                browserFallbackUsed: activeVqdData.browserFallbackUsed,
-                delayMs: finalOutcome === 'retrying' ? delayMs : undefined,
-                finalOutcome,
-                jsdomAttempts: activeVqdData.jsdomAttempts,
-                phase: 'chat_http',
-                retryClass: classification.retryClass,
-                reusedVqd,
-                status: chatResponse.status,
-                type: classification.info.type,
-                overrideCode: classification.info.overrideCode,
-              })
-
-              if (shouldRefreshDuckAiVqd(classification.retryClass)) {
-                activeVqdData = null
-              }
-
-              if (attempt < DUCKAI_CHAT_MAX_ATTEMPTS) {
-                await deps.sleep(delayMs)
-                continue
-              }
-
-              return createDuckAiTemporaryUnavailableResponse()
-            }
-
-            return upstreamErrorResponse('Duck.ai', chatResponse.status, errorText)
+          if (result.kind === 'response') {
+            return result.response
           }
 
-          const primed = await primeDuckAiStream(chatResponse)
-          if ('retryableError' in primed) {
-            const delayMs = getDuckAiRetryDelay(attempt, primed.retryableError.info.retryClass)
-            const finalOutcome =
-              attempt < DUCKAI_CHAT_MAX_ATTEMPTS ? 'retrying' : 'exhausted'
-            logDuckAi('chat', finalOutcome === 'retrying' ? 'warn' : 'error', {
-              attempt,
-              browserFallbackUsed: activeVqdData.browserFallbackUsed,
-              delayMs: finalOutcome === 'retrying' ? delayMs : undefined,
-              finalOutcome,
-              jsdomAttempts: activeVqdData.jsdomAttempts,
-              phase: 'chat_stream',
-              retryClass: primed.retryableError.info.retryClass,
-              reusedVqd,
-              status: primed.retryableError.info.status,
-              type: primed.retryableError.info.type,
-              overrideCode: primed.retryableError.info.overrideCode,
-            })
-
-            if (shouldRefreshDuckAiVqd(primed.retryableError.info.retryClass)) {
-              activeVqdData = null
-            }
-
-            if (attempt < DUCKAI_CHAT_MAX_ATTEMPTS) {
-              await deps.sleep(delayMs)
-              continue
-            }
-
-            return createDuckAiTemporaryUnavailableResponse()
+          if (result.kind === 'retry') {
+            if (result.refreshVqd) activeVqdData = null
+            continue
           }
 
-          if ('errorResponse' in primed) {
-            return primed.errorResponse
-          }
-
-          if (
-            attempt > 1 ||
-            activeVqdData.browserFallbackUsed ||
-            activeVqdData.jsdomAttempts > 1
-          ) {
-            logDuckAi('chat', 'log', {
-              attempt,
-              browserFallbackUsed: activeVqdData.browserFallbackUsed,
-              finalOutcome: 'success',
-              jsdomAttempts: activeVqdData.jsdomAttempts,
-              phase: 'chat_http',
-              reusedVqd,
-            })
-          }
-
-          return primed.response
+          return result.response
         } catch (error) {
           const retryable = isRetryableDuckAiThrownError(error)
           if (retryable) {
