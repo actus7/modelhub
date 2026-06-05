@@ -11,6 +11,7 @@ import {
   extractDocumentText,
   getAttachmentValidationError,
   hydrateMessageParts,
+  parseSingleMessagePart,
   readUploadedFile,
   resolveAttachmentKind,
 } from "../lib/conversation-attachments";
@@ -46,26 +47,9 @@ function normalizeIncomingMessageParts(value: unknown): ConversationMessagePart[
       continue;
     }
 
-    const part = rawPart as Record<string, unknown>;
-    if (part.type === "text" && typeof part.text === "string") {
-      parts.push({ text: part.text, type: "text" });
-      continue;
-    }
-
-    if (
-      part.type === "attachment" &&
-      typeof part.attachmentId === "string" &&
-      (part.kind === "image" || part.kind === "document") &&
-      typeof part.fileName === "string" &&
-      typeof part.mimeType === "string"
-    ) {
-      parts.push({
-        attachmentId: part.attachmentId,
-        fileName: part.fileName,
-        kind: part.kind,
-        mimeType: part.mimeType,
-        type: "attachment",
-      });
+    const part = parseSingleMessagePart(rawPart as Record<string, unknown>);
+    if (part) {
+      parts.push(part);
     }
   }
 
@@ -126,6 +110,31 @@ async function requireConversation(c: Context, userId: string, conversationId: s
   }
 
   return conversation;
+}
+
+type AuthorizedConversation = {
+  conversation: NonNullable<Awaited<ReturnType<typeof requireConversation>>>;
+  conversationId: string;
+  userId: string;
+};
+
+/**
+ * Resolves the authenticated user and the `:id` conversation they own in one
+ * step, returning a ready-to-return Response (401 or 404) on failure. Collapses
+ * the auth + param + ownership boilerplate shared by every conversation-scoped
+ * handler.
+ */
+async function authorizeConversation(c: Context): Promise<AuthorizedConversation | Response> {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const conversationId = c.req.param("id");
+  if (!conversationId) return jsonErrorResponse(404, "Conversation not found");
+
+  const conversation = await requireConversation(c, userId, conversationId);
+  if (!conversation) return jsonErrorResponse(404, "Conversation not found");
+
+  return { conversation, conversationId, userId };
 }
 
 async function persistMessages(conversationId: string, messages: CreateMessageInput[]) {
@@ -255,12 +264,9 @@ app.post("/", async (c) => {
 
 // PATCH /conversations/:id — atualiza título
 app.patch("/:id", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const id = c.req.param("id");
-  const existing = await prisma.conversation.findFirst({ where: { id, userId } });
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId: id } = auth;
 
   const body = await c.req.json().catch(() => ({})) as { title?: string; archived?: boolean };
 
@@ -279,12 +285,9 @@ app.patch("/:id", async (c) => {
 
 // DELETE /conversations/:id
 app.delete("/:id", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const id = c.req.param("id");
-  const existing = await prisma.conversation.findFirst({ where: { id, userId } });
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId: id } = auth;
 
   await prisma.conversation.delete({ where: { id } });
   return c.json({ success: true });
@@ -292,12 +295,9 @@ app.delete("/:id", async (c) => {
 
 // GET /conversations/:id/messages — busca mensagens
 app.get("/:id/messages", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const id = c.req.param("id");
-  const existing = await requireConversation(c, userId, id);
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversation: existing, conversationId: id } = auth;
 
   const [messages, attachments] = await Promise.all([
     prisma.message.findMany({
@@ -326,12 +326,9 @@ app.get("/:id/messages", async (c) => {
 
 // POST /conversations/:id/attachments — upload de anexo
 app.post("/:id/attachments", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const conversationId = c.req.param("id");
-  const conversation = await requireConversation(c, userId, conversationId);
-  if (!conversation) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId } = auth;
 
   const formData = await c.req.raw.formData().catch(() => null);
   if (!formData) {
@@ -390,13 +387,10 @@ app.post("/:id/attachments", async (c) => {
 
 // GET /conversations/:id/attachments/:attachmentId/content — serve o binário autenticado
 app.get("/:id/attachments/:attachmentId/content", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const conversationId = c.req.param("id");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId } = auth;
   const attachmentId = c.req.param("attachmentId");
-  const conversation = await requireConversation(c, userId, conversationId);
-  if (!conversation) return jsonErrorResponse(404, "Conversation not found");
 
   const attachment = await prisma.conversationAttachment.findFirst({
     where: { conversationId, id: attachmentId },
@@ -422,12 +416,9 @@ app.get("/:id/attachments/:attachmentId/content", async (c) => {
 
 // POST /conversations/:id/messages — adiciona mensagem(ns)
 app.post("/:id/messages", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const id = c.req.param("id");
-  const existing = await requireConversation(c, userId, id);
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId: id } = auth;
 
   const body = await c.req.json().catch(() => ({})) as {
     messages?: CreateMessageInput[];
@@ -443,12 +434,9 @@ app.post("/:id/messages", async (c) => {
 
 // DELETE /conversations/:id/messages?fromMessageId=...|afterMessageId=...
 app.delete("/:id/messages", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const conversationId = c.req.param("id");
-  const existing = await requireConversation(c, userId, conversationId);
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId } = auth;
 
   const fromMessageId = c.req.query("fromMessageId");
   const afterMessageId = c.req.query("afterMessageId");
@@ -484,13 +472,10 @@ app.delete("/:id/messages", async (c) => {
 
 // POST /conversations/:id/messages/:messageId/reaction — toggle reaction
 app.post("/:id/messages/:messageId/reaction", async (c) => {
-  const userId = requireAuth(c);
-  if (typeof userId !== "string") return userId;
-
-  const conversationId = c.req.param("id");
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId, userId } = auth;
   const messageId = c.req.param("messageId");
-  const existing = await requireConversation(c, userId, conversationId);
-  if (!existing) return jsonErrorResponse(404, "Conversation not found");
 
   const body = await c.req.json().catch(() => ({})) as { type?: string };
   const type = body.type;

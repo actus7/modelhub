@@ -25,7 +25,7 @@ export async function saveProviderCredentials(
     requiredKeys.map((field) =>
       apiJsonRequest("/user/credentials", "POST", {
         credentialKey: field.envName,
-        credentialValue: credentialValues[field.envName],
+        credentialValue: creds[field.envName],
         providerId: provider.id,
       }),
     ),

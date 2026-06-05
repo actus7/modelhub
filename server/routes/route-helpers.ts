@@ -2,7 +2,7 @@ import type { Context } from "hono";
 
 import { jsonErrorResponse } from "../lib/provider-core";
 
-export function getUserId(c: Context): string | undefined {
+function getUserId(c: Context): string | undefined {
   return c.get("userId") as string | undefined;
 }
 

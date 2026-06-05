@@ -245,7 +245,12 @@ async function findExistingService(token: string, name: string): Promise<RenderS
   }
 }
 
-export async function createRenderSpikeDeployment(token: string, userId: string): Promise<RenderSpikeDeployment> {
+/**
+ * Fetches the first accessible Render workspace owner for the token, throwing a
+ * 403 RenderApiError if none is reachable. Shared by every deployment creation
+ * path, which all need the owner id to scope the created service.
+ */
+async function requireRenderOwner(token: string): Promise<RenderOwner & { id: string }> {
   type OwnerItem = { cursor?: string; owner?: RenderOwner };
   const items = await renderRequest<OwnerItem[]>(token, "/owners?limit=1");
   const owner = items?.[0]?.owner;
@@ -255,6 +260,11 @@ export async function createRenderSpikeDeployment(token: string, userId: string)
       status: 403,
     });
   }
+  return owner as RenderOwner & { id: string };
+}
+
+export async function createRenderSpikeDeployment(token: string, userId: string): Promise<RenderSpikeDeployment> {
+  const owner = await requireRenderOwner(token);
 
   const serviceName = renderServiceNameForUser(userId);
 
@@ -535,15 +545,7 @@ export async function createRenderOpenClawDeployment(
   modelhubApiKey: string,
   openclawConfig: Pick<OpenClawConfigInput, "allowedOrigins" | "model" | "provider">,
 ): Promise<RenderOpenClawDeployment> {
-  type OwnerItem = { cursor?: string; owner?: RenderOwner };
-  const items = await renderRequest<OwnerItem[]>(token, "/owners?limit=1");
-  const owner = items?.[0]?.owner;
-  if (!owner?.id) {
-    throw new RenderApiError({
-      message: "Nenhum workspace acessivel com este token.",
-      status: 403,
-    });
-  }
+  const owner = await requireRenderOwner(token);
 
   const serviceName = renderOpenClawServiceName(userId);
   const plannedServiceUrl = publicUrlForOpenClawServiceName(serviceName);

@@ -52,6 +52,12 @@ app.use("*", async (c, next) => {
   return next();
 });
 
+/**
+ * Resolves the ModelHub API base URL that the OpenClaw container (running on
+ * Render) will call back into. Prefers MODELHUB_PUBLIC_URL so a publicly
+ * reachable address can be used even when the server detects a localhost origin
+ * in dev; falls back to the request origin in production where it is already public.
+ */
 function resolveModelhubApiUrl(c: Context): string {
   const configured = process.env.MODELHUB_PUBLIC_URL?.trim();
   const base = configured && configured.length > 0 ? configured : new URL(c.req.url).origin;
@@ -184,6 +190,37 @@ async function getOrCreateModelhubApiKey(
   return raw;
 }
 
+/**
+ * Loads the user's Render connection and guards against creating a second active
+ * deployment. Returns the connection on success, or a ready-to-return error
+ * Response. "failed" is included in the active-status set so a previous failed
+ * deploy must be removed first — the Render service name is deterministic per
+ * user, otherwise we'd create a duplicate DB row pointing at the same service.
+ */
+async function requireRenderConnectionWithoutActiveDeployment(
+  userId: string,
+): Promise<NonNullable<Awaited<ReturnType<typeof prisma.cloudConnection.findFirst>>> | Response> {
+  const connection = await prisma.cloudConnection.findFirst({
+    where: { provider: RENDER_PROVIDER, userId },
+  });
+  if (!connection) {
+    return jsonErrorResponse(400, "Conecte o Render antes de criar um ambiente.");
+  }
+
+  const activeDeploymentCount = await prisma.cloudDeployment.count({
+    where: {
+      provider: RENDER_PROVIDER,
+      status: { in: ["provisioning", "healthy", "deleting", "failed"] },
+      userId,
+    },
+  });
+  if (activeDeploymentCount > 0) {
+    return jsonErrorResponse(409, "Já existe um ambiente Render ativo. Remova-o antes de criar outro.");
+  }
+
+  return connection;
+}
+
 app.get("/connections", async (c) => {
   const userId = requireAuth(c);
   if (typeof userId !== "string") return userId;
@@ -302,26 +339,8 @@ app.post("/deployments/render", async (c) => {
   const userId = requireAuth(c);
   if (typeof userId !== "string") return userId;
 
-  const connection = await prisma.cloudConnection.findFirst({
-    where: { provider: RENDER_PROVIDER, userId },
-  });
-  if (!connection) {
-    return jsonErrorResponse(400, "Conecte o Render antes de criar um ambiente.");
-  }
-
-  const activeDeploymentCount = await prisma.cloudDeployment.count({
-    where: {
-      provider: RENDER_PROVIDER,
-      // "failed" included so a previous failed deploy must be removed first —
-      // the Render service name is deterministic per user, otherwise we'd create
-      // a duplicate DB row pointing at the same physical service.
-      status: { in: ["provisioning", "healthy", "deleting", "failed"] },
-      userId,
-    },
-  });
-  if (activeDeploymentCount > 0) {
-    return jsonErrorResponse(409, "Já existe um ambiente Render ativo. Remova-o antes de criar outro.");
-  }
+  const connection = await requireRenderConnectionWithoutActiveDeployment(userId);
+  if (connection instanceof Response) return connection;
 
   const token = decryptConnectionToken(connection);
   if (typeof token !== "string") return token;
@@ -376,26 +395,8 @@ app.post("/deployments/render/openclaw", async (c) => {
   }
   const { provider: selectedProvider, model: selectedModel } = parsed.data;
 
-  const connection = await prisma.cloudConnection.findFirst({
-    where: { provider: RENDER_PROVIDER, userId },
-  });
-  if (!connection) {
-    return jsonErrorResponse(400, "Conecte o Render antes de criar um ambiente.");
-  }
-
-  const activeDeploymentCount = await prisma.cloudDeployment.count({
-    where: {
-      provider: RENDER_PROVIDER,
-      // "failed" included so a previous failed deploy must be removed first —
-      // the Render service name is deterministic per user, otherwise we'd create
-      // a duplicate DB row pointing at the same physical service.
-      status: { in: ["provisioning", "healthy", "deleting", "failed"] },
-      userId,
-    },
-  });
-  if (activeDeploymentCount > 0) {
-    return jsonErrorResponse(409, "Já existe um ambiente Render ativo. Remova-o antes de criar outro.");
-  }
+  const connection = await requireRenderConnectionWithoutActiveDeployment(userId);
+  if (connection instanceof Response) return connection;
 
   const renderToken = decryptConnectionToken(connection);
   if (typeof renderToken !== "string") return renderToken;

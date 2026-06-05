@@ -24,9 +24,7 @@ const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
 ]);
 
 const MAX_IMAGE_ATTACHMENT_FILE_BYTES = Math.floor(1.5 * 1024 * 1024);
-const MAX_IMAGE_ATTACHMENT_TOTAL_BYTES = Math.floor(2.5 * 1024 * 1024);
 const MAX_DOCUMENT_ATTACHMENT_FILE_BYTES = Math.floor(5 * 1024 * 1024);
-const MAX_DOCUMENT_ATTACHMENT_TOTAL_BYTES = Math.floor(10 * 1024 * 1024);
 export const MAX_DOCUMENT_CONTEXT_CHARS = 120_000;
 
 const XML_ENTITY_MAP: Record<string, string> = {
@@ -44,15 +42,6 @@ type StoredAttachmentRecord = {
   id: string;
   kind: string;
   mimeType: string;
-};
-
-type StoredMessagePart = {
-  attachmentId?: unknown;
-  fileName?: unknown;
-  kind?: unknown;
-  mimeType?: unknown;
-  text?: unknown;
-  type?: unknown;
 };
 
 export function buildAttachmentContentUrl(conversationId: string, attachmentId: string): string {
@@ -320,6 +309,36 @@ function toAttachmentDescriptor(
   };
 }
 
+/**
+ * Validates a single raw message part (already narrowed to an object) into a
+ * typed {@link ConversationMessagePart}, or returns null if it matches neither
+ * the text nor attachment shape. Shared by stored-part parsing and incoming
+ * client-payload normalization so the validation rules stay in one place.
+ */
+export function parseSingleMessagePart(rawPart: Record<string, unknown>): ConversationMessagePart | null {
+  if (rawPart.type === "text" && typeof rawPart.text === "string") {
+    return { text: rawPart.text, type: "text" };
+  }
+
+  if (
+    rawPart.type === "attachment" &&
+    typeof rawPart.attachmentId === "string" &&
+    (rawPart.kind === "image" || rawPart.kind === "document") &&
+    typeof rawPart.fileName === "string" &&
+    typeof rawPart.mimeType === "string"
+  ) {
+    return {
+      attachmentId: rawPart.attachmentId,
+      fileName: rawPart.fileName,
+      kind: rawPart.kind,
+      mimeType: rawPart.mimeType,
+      type: "attachment",
+    };
+  }
+
+  return null;
+}
+
 function parseStoredMessageParts(value: Prisma.JsonValue | null, fallbackContent: string): ConversationMessagePart[] {
   if (!Array.isArray(value)) {
     return fallbackContent
@@ -329,26 +348,12 @@ function parseStoredMessageParts(value: Prisma.JsonValue | null, fallbackContent
 
   const parts: ConversationMessagePart[] = [];
   for (const rawPart of value) {
-    const part = rawPart as StoredMessagePart;
-    if (part.type === "text" && typeof part.text === "string") {
-      parts.push({ text: part.text, type: "text" });
+    if (!rawPart || typeof rawPart !== "object") {
       continue;
     }
-
-    if (
-      part.type === "attachment" &&
-      typeof part.attachmentId === "string" &&
-      (part.kind === "image" || part.kind === "document") &&
-      typeof part.fileName === "string" &&
-      typeof part.mimeType === "string"
-    ) {
-      parts.push({
-        attachmentId: part.attachmentId,
-        fileName: part.fileName,
-        kind: part.kind,
-        mimeType: part.mimeType,
-        type: "attachment",
-      });
+    const part = parseSingleMessagePart(rawPart as Record<string, unknown>);
+    if (part) {
+      parts.push(part);
     }
   }
 
