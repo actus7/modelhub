@@ -1038,6 +1038,31 @@ async function sendDuckAiChatRequest(input: {
   }
 }
 
+/**
+ * Writes a batch of raw SSE chunks to the AI-stream writer. Content events are
+ * forwarded as `0:` lines; the first error event emits the `3:`/error-finish
+ * lines and returns true, signalling the caller to stop pumping.
+ */
+async function writeDuckAiContentChunks(
+  rawChunks: string[],
+  writer: WritableStreamDefaultWriter<Uint8Array>,
+  encoder: TextEncoder,
+): Promise<{ errored: boolean }> {
+  for (const rawChunk of rawChunks) {
+    const event = createDuckAiStreamEvent(rawChunk)
+    if (!event) continue
+
+    if (event.kind === 'error') {
+      await writer.write(encoder.encode(`3:${JSON.stringify(event.message)}\n`))
+      await writer.write(encoder.encode('d:{"finishReason":"error"}\n'))
+      return { errored: true }
+    }
+
+    await writer.write(encoder.encode(`0:${JSON.stringify(event.content)}\n`))
+  }
+  return { errored: false }
+}
+
 async function pumpDuckAiStream(input: {
   initialBuffer: string
   initialChunks: string[]
@@ -1068,34 +1093,16 @@ async function pumpDuckAiStream(input: {
       const chunksToProcess = pendingChunks
       pendingChunks = []
 
-      for (const rawChunk of chunksToProcess) {
-        const event = createDuckAiStreamEvent(rawChunk)
-        if (!event) continue
-
-        if (event.kind === 'error') {
-          await input.writer.write(encoder.encode(`3:${JSON.stringify(event.message)}\n`))
-          await input.writer.write(encoder.encode('d:{"finishReason":"error"}\n'))
-          didFinish = true
-          return
-        }
-
-        await input.writer.write(encoder.encode(`0:${JSON.stringify(event.content)}\n`))
+      if ((await writeDuckAiContentChunks(chunksToProcess, input.writer, encoder)).errored) {
+        didFinish = true
+        return
       }
     }
 
     const remaining = extractDuckAiSseChunks(buffer, true).chunks
-    for (const rawChunk of remaining) {
-      const event = createDuckAiStreamEvent(rawChunk)
-      if (!event) continue
-
-      if (event.kind === 'error') {
-        await input.writer.write(encoder.encode(`3:${JSON.stringify(event.message)}\n`))
-        await input.writer.write(encoder.encode('d:{"finishReason":"error"}\n'))
-        didFinish = true
-        return
-      }
-
-      await input.writer.write(encoder.encode(`0:${JSON.stringify(event.content)}\n`))
+    if ((await writeDuckAiContentChunks(remaining, input.writer, encoder)).errored) {
+      didFinish = true
+      return
     }
 
     await input.writer.write(encoder.encode('d:{"finishReason":"stop"}\n'))
@@ -1111,6 +1118,17 @@ async function pumpDuckAiStream(input: {
     }
     await input.writer.close().catch(() => {})
   }
+}
+
+/** Wraps the primed readable stream in the chunked text/plain Response the chat UI consumes. */
+function buildDuckAiStreamResponse(readable: ReadableStream<Uint8Array>): Response {
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/plain; charset=utf-8',
+      'Transfer-Encoding': 'chunked',
+      'Cache-Control': 'no-cache',
+    },
+  })
 }
 
 function classifyDuckAiStreamError(event: DuckAiSseEvent & { kind: 'error' }): PrimedDuckAiStreamResult {
@@ -1172,15 +1190,7 @@ async function primeDuckAiStream(chatResponse: Response): Promise<PrimedDuckAiSt
           reader,
           writer,
         });
-        return {
-          response: new Response(readable, {
-            headers: {
-              'Content-Type': 'text/plain; charset=utf-8',
-              'Transfer-Encoding': 'chunked',
-              'Cache-Control': 'no-cache',
-            },
-          }),
-        }
+        return { response: buildDuckAiStreamResponse(readable) }
       }
 
       await reader.cancel().catch(() => {})
@@ -1208,28 +1218,7 @@ async function primeDuckAiStream(chatResponse: Response): Promise<PrimedDuckAiSt
       if (event.kind === 'error') {
         await reader.cancel().catch(() => {})
         await writer.close().catch(() => {})
-        if (event.retryClass) {
-          return {
-            retryableError: new DuckAiRetryableError(event.message, {
-              overrideCode: event.overrideCode,
-              phase: 'chat_stream_prelude',
-              retryClass: event.retryClass,
-              type: event.type,
-            }),
-          }
-        }
-
-        return {
-          errorResponse: upstreamErrorResponse(
-            'Duck.ai',
-            502,
-            JSON.stringify({
-              message: event.message,
-              overrideCode: event.overrideCode,
-              type: event.type,
-            }),
-          ),
-        }
+        return classifyDuckAiStreamError(event)
       }
 
       void pumpDuckAiStream({
@@ -1238,15 +1227,7 @@ async function primeDuckAiStream(chatResponse: Response): Promise<PrimedDuckAiSt
         reader,
         writer,
       })
-      return {
-        response: new Response(readable, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Transfer-Encoding': 'chunked',
-            'Cache-Control': 'no-cache',
-          },
-        }),
-      }
+      return { response: buildDuckAiStreamResponse(readable) }
     }
   }
 }
