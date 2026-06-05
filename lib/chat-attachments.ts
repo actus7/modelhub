@@ -62,8 +62,8 @@ export function validateFileSelection(
   let totalDocumentBytes = getTotalAttachmentBytesByType(currentAttachments, "document");
 
   for (const file of files) {
-    const isImage = ACCEPTED_IMAGE_TYPES.includes(file.type as (typeof ACCEPTED_IMAGE_TYPES)[number]);
-    const isDocument = ACCEPTED_DOCUMENT_TYPES.includes(file.type as (typeof ACCEPTED_DOCUMENT_TYPES)[number]);
+    const isImage = (ACCEPTED_IMAGE_TYPES as readonly string[]).includes(file.type);
+    const isDocument = (ACCEPTED_DOCUMENT_TYPES as readonly string[]).includes(file.type);
 
     if (!isImage && !isDocument) {
       errors.push(`Tipo nao suportado: ${file.name}.`);
