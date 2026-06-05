@@ -92,12 +92,12 @@ import { useProviderModels } from "@/lib/use-provider-models";
 import {
   estimateSerializedPayloadBytes,
   formatBytes,
-  getTotalAttachmentBytesByType,
   MAX_ATTACHMENT_FILE_BYTES,
   MAX_DOCUMENT_ATTACHMENT_FILE_BYTES,
   MAX_SERIALIZED_CHAT_REQUEST_BYTES,
   MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES,
   MAX_TOTAL_ATTACHMENT_BYTES,
+  validateFileSelection,
 } from "@/lib/chat-attachments";
 import { parseChatStream, type ParsedToolCall } from "@/lib/chat-stream";
 import {
@@ -113,6 +113,7 @@ import {
   ACCEPTED_DOCUMENT_TYPES,
   ACCEPTED_IMAGE_TYPES,
   buildAttachmentLabel,
+  buildTitleGenerationPrompt,
   buildUserMessageParts,
   DUCKAI_TEMPORARY_INLINE_MESSAGE,
   EMPTY_STATE_PROMPTS,
@@ -128,6 +129,7 @@ import {
   resolveModelSelectPlaceholder,
   resolveStreamErrorContent,
   trimConversation,
+  validateAttachmentCompatibility,
   type ChatMessage,
   type ChatRequestError,
   type ComposerAttachment,
@@ -479,63 +481,20 @@ export function ChatPage() {
       return;
     }
 
-    const uploadQueue: Array<{ file: File; kind: AttachmentKind; previewUrl?: string }> = [];
-    let totalImageBytes = getTotalAttachmentBytesByType(
+    const { accepted, errors } = validateFileSelection(
+      Array.from(files),
       attachments.map((attachment) => ({ kind: attachment.kind, size: attachment.byteSize })),
-      "image",
+      { allowImages: allowImageAttachments, allowDocuments: allowDocumentAttachments },
     );
-    let totalDocumentBytes = getTotalAttachmentBytesByType(
-      attachments.map((attachment) => ({ kind: attachment.kind, size: attachment.byteSize })),
-      "document",
-    );
+    errors.forEach((message) => toast.error(message));
 
-    for (const file of Array.from(files)) {
-      const isImage = ACCEPTED_IMAGE_TYPES.includes(file.type as (typeof ACCEPTED_IMAGE_TYPES)[number]);
-      const isDocument = ACCEPTED_DOCUMENT_TYPES.includes(file.type as (typeof ACCEPTED_DOCUMENT_TYPES)[number]);
-
-      if (!isImage && !isDocument) {
-        toast.error(`Tipo nao suportado: ${file.name}.`);
-        continue;
-      }
-
-      if (isImage && !allowImageAttachments) {
-        toast.error("O modelo selecionado nao aceita imagens.");
-        continue;
-      }
-
-      if (isDocument && !allowDocumentAttachments) {
-        toast.error("O modelo selecionado nao aceita documentos.");
-        continue;
-      }
-
-      if (isImage) {
-        if (file.size > MAX_ATTACHMENT_FILE_BYTES) {
-          toast.error(`Arquivo muito grande: ${file.name}. Maximo ${formatBytes(MAX_ATTACHMENT_FILE_BYTES)} por imagem.`);
-          continue;
-        }
-        if (totalImageBytes + file.size > MAX_TOTAL_ATTACHMENT_BYTES) {
-          toast.error(`Limite total de imagens excedido. Use ate ${formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} por mensagem.`);
-          continue;
-        }
-        totalImageBytes += file.size;
-      } else {
-        if (file.size > MAX_DOCUMENT_ATTACHMENT_FILE_BYTES) {
-          toast.error(`Arquivo muito grande: ${file.name}. Maximo ${formatBytes(MAX_DOCUMENT_ATTACHMENT_FILE_BYTES)} por documento.`);
-          continue;
-        }
-        if (totalDocumentBytes + file.size > MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES) {
-          toast.error(`Limite total de documentos excedido. Use ate ${formatBytes(MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES)} por mensagem.`);
-          continue;
-        }
-        totalDocumentBytes += file.size;
-      }
-
-      uploadQueue.push({
+    const uploadQueue: Array<{ file: File; kind: AttachmentKind; previewUrl?: string }> = accepted.map(
+      ({ file, kind }) => ({
         file,
-        kind: isImage ? "image" : "document",
-        previewUrl: isImage ? URL.createObjectURL(file) : undefined,
-      });
-    }
+        kind,
+        previewUrl: kind === "image" ? URL.createObjectURL(file) : undefined,
+      }),
+    );
 
     if (uploadQueue.length === 0) {
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -762,25 +721,14 @@ export function ChatPage() {
       return;
     }
 
-    if (currentAttachments.some((attachment) => attachment.kind === "image") && !allowImageAttachments) {
-      toast.error("O modelo selecionado nao suporta anexos de imagem.");
-      return;
-    }
-
-    if (currentAttachments.some((attachment) => attachment.kind === "document") && !allowDocumentAttachments) {
-      toast.error("O modelo selecionado nao suporta anexos de documento.");
-      return;
-    }
-
-    if (
-      browserProviderAdapter &&
-      currentAttachments.some((attachment) =>
-        attachment.kind === "image"
-          ? !browserProviderAdapter.attachments.images
-          : !browserProviderAdapter.attachments.documents,
-      )
-    ) {
-      toast.error(`${selectedProvider.label} aceita apenas mensagens de texto por enquanto.`);
+    const compatibilityError = validateAttachmentCompatibility(
+      currentAttachments,
+      { allowImages: allowImageAttachments, allowDocuments: allowDocumentAttachments },
+      selectedProvider.label,
+      browserProviderAdapter?.attachments,
+    );
+    if (compatibilityError) {
+      toast.error(compatibilityError);
       return;
     }
 
@@ -1038,7 +986,7 @@ export function ChatPage() {
                     messages: [
                       {
                         role: "user",
-                        parts: [{ type: "text", text: `Gere um título curto (máximo 6 palavras) para esta conversa. Responda APENAS com o título, sem aspas, sem pontuação final.\n\nUsuário: ${text}\nAssistente: ${fullText.slice(0, 500)}` }],
+                        parts: [{ type: "text", text: buildTitleGenerationPrompt(text, fullText) }],
                       },
                     ],
                     modelId: selectedProvider.hasModels ? selectedModelId : undefined,

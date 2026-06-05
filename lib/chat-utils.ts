@@ -174,6 +174,43 @@ export function buildUserMessageParts(
   ];
 }
 
+/**
+ * Validates whether the given attachments are compatible with the selected
+ * model and (when applicable) the browser provider adapter. Returns the first
+ * error message to show, or null when everything is allowed. Precedence: image
+ * capability → document capability → browser adapter support.
+ */
+export function validateAttachmentCompatibility(
+  attachments: { kind: AttachmentKind }[],
+  caps: { allowImages: boolean; allowDocuments: boolean },
+  providerLabel: string,
+  browserAdapterCaps?: { images: boolean; documents: boolean },
+): string | null {
+  if (attachments.some((attachment) => attachment.kind === "image") && !caps.allowImages) {
+    return "O modelo selecionado nao suporta anexos de imagem.";
+  }
+
+  if (attachments.some((attachment) => attachment.kind === "document") && !caps.allowDocuments) {
+    return "O modelo selecionado nao suporta anexos de documento.";
+  }
+
+  if (
+    browserAdapterCaps &&
+    attachments.some((attachment) =>
+      attachment.kind === "image" ? !browserAdapterCaps.images : !browserAdapterCaps.documents,
+    )
+  ) {
+    return `${providerLabel} aceita apenas mensagens de texto por enquanto.`;
+  }
+
+  return null;
+}
+
+/** Builds the prompt used to auto-generate a short conversation title. */
+export function buildTitleGenerationPrompt(userText: string, assistantText: string): string {
+  return `Gere um título curto (máximo 6 palavras) para esta conversa. Responda APENAS com o título, sem aspas, sem pontuação final.\n\nUsuário: ${userText}\nAssistente: ${assistantText.slice(0, 500)}`;
+}
+
 export function getUserMessageText(message: { parts?: HydratedConversationMessagePart[]; content: string }): string {
   if (!message.parts?.length) {
     return message.content;
