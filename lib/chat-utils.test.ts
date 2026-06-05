@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ProviderModel } from "@/lib/contracts";
 import {
   buildAttachmentLabel,
+  buildTitleGenerationPrompt,
   buildUserMessageParts,
   createTextPart,
   DUCKAI_TEMPORARY_INLINE_MESSAGE,
@@ -15,6 +16,7 @@ import {
   resolveModelSelectPlaceholder,
   resolveStreamErrorContent,
   STREAM_INTERRUPTED_NOTE,
+  validateAttachmentCompatibility,
 } from "./chat-utils";
 
 const MODELS: ProviderModel[] = [
@@ -234,5 +236,64 @@ describe("parseApiErrorResponse", () => {
 
   it("falls back without throwing when the JSON payload is not an object", async () => {
     expect(await parseApiErrorResponse(Response.json("boom", { status: 502 }))).toBe("HTTP 502");
+  });
+});
+
+describe("validateAttachmentCompatibility", () => {
+  const allowAll = { allowImages: true, allowDocuments: true };
+
+  it("returns null when everything is allowed", () => {
+    expect(
+      validateAttachmentCompatibility([{ kind: "image" }, { kind: "document" }], allowAll, "OpenAI"),
+    ).toBeNull();
+  });
+
+  it("rejects images when the model has no image capability", () => {
+    expect(
+      validateAttachmentCompatibility([{ kind: "image" }], { allowImages: false, allowDocuments: true }, "OpenAI"),
+    ).toBe("O modelo selecionado nao suporta anexos de imagem.");
+  });
+
+  it("rejects documents when the model has no document capability", () => {
+    expect(
+      validateAttachmentCompatibility([{ kind: "document" }], { allowImages: true, allowDocuments: false }, "OpenAI"),
+    ).toBe("O modelo selecionado nao suporta anexos de documento.");
+  });
+
+  it("checks image capability before document capability", () => {
+    expect(
+      validateAttachmentCompatibility(
+        [{ kind: "image" }, { kind: "document" }],
+        { allowImages: false, allowDocuments: false },
+        "OpenAI",
+      ),
+    ).toBe("O modelo selecionado nao suporta anexos de imagem.");
+  });
+
+  it("rejects attachments unsupported by the browser adapter", () => {
+    expect(
+      validateAttachmentCompatibility([{ kind: "image" }], allowAll, "Puter", { images: false, documents: true }),
+    ).toBe("Puter aceita apenas mensagens de texto por enquanto.");
+  });
+
+  it("allows attachments supported by the browser adapter", () => {
+    expect(
+      validateAttachmentCompatibility([{ kind: "image" }], allowAll, "Puter", { images: true, documents: true }),
+    ).toBeNull();
+  });
+});
+
+describe("buildTitleGenerationPrompt", () => {
+  it("includes the user and assistant text", () => {
+    const prompt = buildTitleGenerationPrompt("qual a capital da França?", "A capital é Paris.");
+    expect(prompt).toContain("Usuário: qual a capital da França?");
+    expect(prompt).toContain("Assistente: A capital é Paris.");
+  });
+
+  it("truncates the assistant text to 500 characters", () => {
+    const long = "x".repeat(800);
+    const prompt = buildTitleGenerationPrompt("oi", long);
+    expect(prompt).toContain(`Assistente: ${"x".repeat(500)}`);
+    expect(prompt).not.toContain("x".repeat(501));
   });
 });
