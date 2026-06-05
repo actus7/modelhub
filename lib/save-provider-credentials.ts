@@ -9,7 +9,11 @@ export async function saveProviderCredentials(
 
   const creds: Record<string, string> = {};
   for (const f of requiredKeys) {
-    creds[f.envName] = credentialValues[f.envName];
+    const val = credentialValues[f.envName]?.trim();
+    if (!val) {
+      return { ok: false, error: `A credencial "${f.label}" é obrigatória.` };
+    }
+    creds[f.envName] = val;
   }
 
   const testResult = await testProviderCredentials(provider.base, creds);
