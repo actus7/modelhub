@@ -227,4 +227,12 @@ describe("parseApiErrorResponse", () => {
   it("falls back to the HTTP status when there is no error field", async () => {
     expect(await parseApiErrorResponse(new Response("", { status: 503 }))).toBe("HTTP 503");
   });
+
+  it("falls back without throwing when the JSON payload is null", async () => {
+    expect(await parseApiErrorResponse(Response.json(null, { status: 500 }))).toBe("HTTP 500");
+  });
+
+  it("falls back without throwing when the JSON payload is not an object", async () => {
+    expect(await parseApiErrorResponse(Response.json("boom", { status: 502 }))).toBe("HTTP 502");
+  });
 });

@@ -77,8 +77,8 @@ export type ChatRequestError = Error & {
 
 export async function parseApiErrorResponse(response: Response): Promise<string> {
   try {
-    const payload = (await response.json()) as { error?: unknown };
-    if (payload.error) {
+    const payload = (await response.json()) as { error?: unknown } | null;
+    if (payload && typeof payload === "object" && payload.error) {
       if (typeof payload.error === "string") return payload.error;
       if (typeof payload.error === "object" && payload.error !== null && "message" in payload.error) {
         return String((payload.error as { message: unknown }).message);
