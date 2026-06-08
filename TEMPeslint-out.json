@@ -1,0 +1,29 @@
+ESLint: 0 errors, 38 warnings in 11 files
+═══════════════════════════════════════
+Top rules:
+  @typescript-eslint/no-unused-vars (38x)
+
+Top files:
+  sidebar.tsx (9 issues)
+    @typescript-eslint/no-unused-vars (9)
+  dropdown-menu.tsx (8 issues)
+    @typescript-eslint/no-unused-vars (8)
+  field.tsx (6 issues)
+    @typescript-eslint/no-unused-vars (6)
+  dialog.tsx (3 issues)
+    @typescript-eslint/no-unused-vars (3)
+  alert-dialog.tsx (2 issues)
+    @typescript-eslint/no-unused-vars (2)
+  card.tsx (2 issues)
+    @typescript-eslint/no-unused-vars (2)
+  chart.tsx (2 issues)
+    @typescript-eslint/no-unused-vars (2)
+  sheet.tsx (2 issues)
+    @typescript-eslint/no-unused-vars (2)
+  table.tsx (2 issues)
+    @typescript-eslint/no-unused-vars (2)
+  alert.tsx (1 issues)
+    @typescript-eslint/no-unused-vars (1)
+
+… +1 more files
+  [see remaining: tail -n +11 ~/AppData\Local\rtk\tee\1780947584_eslint-files.log]

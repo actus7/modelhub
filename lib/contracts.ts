@@ -138,7 +138,7 @@ export const cloudDeploymentStatusSchema = z.enum([
   "deleting",
 ]);
 
-type CloudProvider = "render";
+export type CloudProvider = "render" | "railway";
 export type CloudDeploymentStatus = z.infer<typeof cloudDeploymentStatusSchema>;
 
 export type CloudConnectionSummary = {
@@ -208,6 +208,11 @@ export const providerCredentialSchema = z.object({
 });
 
 export const cloudRenderConnectionSchema = z.object({
+  label: z.string().trim().min(1).max(100).optional(),
+  token: z.string().trim().min(1).max(4096),
+});
+
+export const cloudRailwayConnectionSchema = z.object({
   label: z.string().trim().min(1).max(100).optional(),
   token: z.string().trim().min(1).max(4096),
 });
