@@ -63,7 +63,7 @@ async function railwayRequest<T>(token: string, query: string, variables?: Recor
 
   if (result.errors) {
     const errorMessage = `Railway GraphQL errors: ${JSON.stringify(result.errors)}`;
-    const isAuth = result.errors.some((err: any) => {
+    const isAuth = result.errors.some((err: { message?: string }) => {
       const msg = (err.message ?? "").toLowerCase();
       return msg.includes('unauthorized') || msg.includes('not authorized') || msg.includes('authentication') || msg.includes('forbidden');
     });

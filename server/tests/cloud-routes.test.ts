@@ -56,6 +56,15 @@ vi.mock("../lib/cloud/render", () => ({
   RENDER_SPIKE_PORT: 80,
   RENDER_SPIKE_REGION: "oregon",
   RENDER_SPIKE_REPO: "https://github.com/traefik/whoami",
+  renderDriver: {
+    validateToken: mockRender.validateRenderToken,
+    createOpenClaw: mockRender.createRenderOpenClawDeployment,
+    updateOpenClaw: mockRender.updateRenderOpenClawDeployment,
+    refresh: mockRender.refreshRenderDeployment,
+    deleteService: mockRender.deleteRenderService,
+    isFreeTierError: mockRender.isRenderFreeTierError,
+    getServiceName: vi.fn(),
+  },
   ...mockRender,
 }));
 
