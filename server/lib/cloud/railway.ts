@@ -220,6 +220,8 @@ const LIST_SERVICE_DEPLOYMENTS_QUERY = `
 
 // Service URL query — Railway often stores the public URL on the service instance,
 // not on the deployment object. We use this as fallback during refresh.
+// Includes environmentId so we can filter to the correct environment when
+// multiple exist (e.g. production + staging).
 const GET_SERVICE_URL_QUERY = `
   query GetServiceUrl($id: String!) {
     service(id: $id) {
@@ -227,6 +229,7 @@ const GET_SERVICE_URL_QUERY = `
       serviceInstances {
         edges {
           node {
+            environmentId
             domains {
               serviceDomains {
                 domain
@@ -591,6 +594,7 @@ export async function refreshRailwayDeployment(
             serviceInstances: {
               edges: Array<{
                 node: {
+                  environmentId?: string;
                   domains?: {
                     serviceDomains?: Array<{ domain: string }>;
                   };
@@ -600,7 +604,11 @@ export async function refreshRailwayDeployment(
           };
         }>(token, GET_SERVICE_URL_QUERY, { id: serviceId });
 
-        const domain = svc?.service?.serviceInstances?.edges?.[0]?.node?.domains?.serviceDomains?.[0]?.domain;
+        const edges = svc?.service?.serviceInstances?.edges || [];
+        const matchingEdge = environmentId
+          ? edges.find(e => e?.node?.environmentId === environmentId)
+          : edges[0];
+        const domain = matchingEdge?.node?.domains?.serviceDomains?.[0]?.domain;
         if (domain) {
           publicUrl = `https://${domain}`;
         }
