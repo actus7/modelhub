@@ -78,6 +78,10 @@ export class CloudProviderError extends Error {
   }
 }
 
+export function isCloudProviderError(error: unknown): error is CloudProviderError {
+  return error instanceof CloudProviderError;
+}
+
 // Unified cloud provider driver interface
 export interface CloudProviderDriver {
   // Core operations
@@ -105,8 +109,8 @@ export function formatCloudProviderError(error: CloudProviderError): string {
         case "render":
           return `Limite do plano gratuito do Render atingido. Considere upgrade para o plano Starter ($7/mês).`;
         case "railway":
-          return `Crédito mensal de $5 do Railway esgotado. Adicione método de pagamento ou aguarde próximo mês.`;
-default:
+          return `Limite do plano gratuito do Railway atingido (créditos ou número de recursos). Faça upgrade do plano, adicione método de pagamento ou remova projetos/serviços existentes no Railway.`;
+        default:
           return `Limite do plano gratuito atingido. Considere fazer upgrade.`;
       }
 

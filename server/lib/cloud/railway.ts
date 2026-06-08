@@ -9,17 +9,12 @@ const RAILWAY_API_BASE = "https://backboard.railway.app/graphql/v2";
 export const RAILWAY_OPENCLAW_IMAGE = "ghcr.io/openclaw/openclaw:latest";
 export const RAILWAY_OPENCLAW_PORT = 10000;
 
-// Bootstrap script: writes openclaw.json from MODELHUB_OPENCLAW_CONFIG_JSON then starts the gateway.
-// Must have no spaces (Railway splits start command on whitespace).
-const RAILWAY_OPENCLAW_START_COMMAND = [
-  "node",
-  "-e",
-  [
-    "require('node:fs').mkdirSync(require('node:path').dirname(process.env.OPENCLAW_CONFIG_PATH),{recursive:true})",
-    "require('node:fs').writeFileSync(process.env.OPENCLAW_CONFIG_PATH,process.env.MODELHUB_OPENCLAW_CONFIG_JSON||'{}')",
-    "process.exit(require('node:child_process').spawnSync(process.execPath,['openclaw.mjs','gateway','run','--bind','lan'],{stdio:'inherit'}).status||0)",
-  ].join(";"),
-].join(" ");
+// Bootstrap command: writes openclaw.json from MODELHUB_OPENCLAW_CONFIG_JSON then starts the gateway.
+// Railway validates start commands at deploy time (Docker exec form).
+// Using sh -c with single quotes avoids shell escaping issues: the JSON in
+// $MODELHUB_OPENCLAW_CONFIG_JSON may contain double quotes, which is safe inside single quotes.
+// printf is used instead of echo to handle arbitrary content safely.
+const RAILWAY_OPENCLAW_START_COMMAND = `sh -c 'mkdir -p /tmp/openclaw-state && printf "%s" "$MODELHUB_OPENCLAW_CONFIG_JSON" > /tmp/openclaw-state/openclaw.json && exec node openclaw.mjs gateway run --bind lan'`;
 
 // Railway-specific types
 type RailwayUser = {
@@ -225,6 +220,12 @@ const LIST_SERVICE_DEPLOYMENTS_QUERY = `
 const DELETE_SERVICE_MUTATION = `
   mutation DeleteService($id: String!) {
     serviceDelete(id: $id)
+  }
+`;
+
+const DELETE_PROJECT_MUTATION = `
+  mutation DeleteProject($id: String!) {
+    projectDelete(id: $id)
   }
 `;
 
@@ -565,7 +566,24 @@ export async function refreshRailwayDeployment(
 }
 
 export async function deleteRailwayService(token: string, compositeServiceId: string): Promise<"deleted" | "missing"> {
-  const [serviceId] = compositeServiceId.split(":");
+  // compositeServiceId format: "serviceId:projectId:environmentId"
+  const [serviceId, projectId] = compositeServiceId.split(":");
+
+  // Prefer deleting the entire project (cleans up all resources including the service).
+  // This avoids orphaned projects consuming free-tier resource quotas.
+  if (projectId) {
+    try {
+      await railwayRequest(token, DELETE_PROJECT_MUTATION, { id: projectId });
+      return "deleted";
+    } catch (error) {
+      if (error instanceof CloudProviderError && error.type === CloudProviderErrorType.RESOURCE_NOT_FOUND) {
+        return "missing";
+      }
+      // Fall through to service-level delete as a best-effort cleanup
+    }
+  }
+
+  // Fallback: delete only the service (for legacy records without projectId)
   try {
     await railwayRequest(token, DELETE_SERVICE_MUTATION, { id: serviceId });
     return "deleted";

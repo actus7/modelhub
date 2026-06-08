@@ -17,6 +17,7 @@ import { prisma } from "../lib/db";
 import {
   getCloudDriver,
   isProviderSupported,
+  isCloudProviderError,
   formatCloudProviderError,
   type CloudProvider,
   type CloudProviderError,
@@ -605,10 +606,17 @@ app.post("/deployments/:provider/openclaw", async (c) => {
       serviceUrl: "",
     });
   } catch (error) {
-    console.error(`[cloud/${provider}] failed to create OpenClaw deployment`, error);
-    if (driver.isFreeTierError(error)) {
-      return jsonErrorResponse(409, "Não foi possível criar no plano gratuito. Considere fazer upgrade.");
+    const isFreeTier = driver.isFreeTierError(error);
+    // Free-tier/billing limits são uma condição esperada de negócio, não falha do sistema:
+    // logamos como warning (não error) para não poluir o monitoramento com stack traces.
+    if (isFreeTier) {
+      console.warn(`[cloud/${provider}] OpenClaw deployment blocked by free-tier/billing limit`);
+      const message = isCloudProviderError(error)
+        ? formatCloudProviderError(error)
+        : "Limite do plano gratuito atingido. Considere fazer upgrade.";
+      return jsonErrorResponse(409, message);
     }
+    console.error(`[cloud/${provider}] failed to create OpenClaw deployment`, error);
     const detail = error instanceof Error ? error.message : "Erro desconhecido";
     return jsonErrorResponse(502, `Falha ao criar OpenClaw no ${provider}: ${detail}`);
   }
