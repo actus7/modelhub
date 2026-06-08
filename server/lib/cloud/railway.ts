@@ -14,6 +14,9 @@ type RailwayUser = {
   id: string;
   name?: string;
   email?: string;
+  workspaces?: {
+    edges: Array<{ node: { id: string; name: string } }>;
+  };
 };
 
 type RailwayProject = {
@@ -84,6 +87,14 @@ const VALIDATE_TOKEN_QUERY = `
       id
       name
       email
+      workspaces {
+        edges {
+          node {
+            id
+            name
+          }
+        }
+      }
     }
   }
 `;
@@ -277,8 +288,16 @@ export async function createRailwayOpenClaw(
   modelhubApiKey: string,
   config: OpenClawConfigInput
 ): Promise<OpenClawDeployResult> {
-  // 1. Validate token
-  await railwayRequest<{ me: RailwayUser }>(token, VALIDATE_TOKEN_QUERY);
+  // 1. Validate token and get workspaceId
+  const meData = await railwayRequest<{ me: RailwayUser }>(token, VALIDATE_TOKEN_QUERY);
+  const workspaceId = meData.me.workspaces?.edges[0]?.node.id;
+  if (!workspaceId) {
+    throw new CloudProviderError(
+      CloudProviderErrorType.INVALID_CONFIGURATION,
+      "railway",
+      "Nenhum workspace encontrado na conta Railway"
+    );
+  }
 
   const projectName = generateResourceName(userId);
 
@@ -300,7 +319,7 @@ export async function createRailwayOpenClaw(
     const newProject = await railwayRequest<{ projectCreate: RailwayProject }>(
       token,
       CREATE_PROJECT_MUTATION,
-      { input: { name: projectName } }
+      { input: { name: projectName, workspaceId } }
     );
     projectId = newProject.projectCreate.id;
   }
