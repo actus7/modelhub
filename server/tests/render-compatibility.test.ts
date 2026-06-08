@@ -11,7 +11,6 @@ import {
   getRenderSpikeServiceName,
   getRenderOpenClawServiceName,
   renderDriver,
-  RENDER_LIMITS
 } from "../lib/cloud/render";
 
 // Mock fetch to avoid actual API calls
@@ -54,14 +53,6 @@ describe("Render Driver Compatibility", () => {
       expect(spikeName1).not.toBe(openclawName1);
     });
 
-    it("should have RENDER_LIMITS defined", () => {
-      expect(RENDER_LIMITS).toBeDefined();
-      expect(RENDER_LIMITS.freeTier).toBeDefined();
-      expect(RENDER_LIMITS.freeTier.memory).toBe("512MB");
-      expect(RENDER_LIMITS.freeTier.cpu).toBe("0.1 CPU");
-      expect(RENDER_LIMITS.rateLimits.general).toBe("Não documentado publicamente");
-      expect(Array.isArray(RENDER_LIMITS.constraints)).toBe(true);
-    });
   });
 
   describe("New Driver Interface", () => {
@@ -74,13 +65,6 @@ describe("Render Driver Compatibility", () => {
       expect(typeof renderDriver.deleteService).toBe("function");
       expect(typeof renderDriver.getServiceName).toBe("function");
       expect(typeof renderDriver.isFreeTierError).toBe("function");
-      expect(typeof renderDriver.getProviderLimits).toBe("function");
-      expect(typeof renderDriver.getProviderName).toBe("function");
-    });
-
-    it("should return correct provider metadata", () => {
-      expect(renderDriver.getProviderName()).toBe("render");
-      expect(renderDriver.getProviderLimits()).toEqual(RENDER_LIMITS);
     });
 
     it("should use legacy service name function", () => {

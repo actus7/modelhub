@@ -48,20 +48,6 @@ describe("Cloud Provider Drivers", () => {
           expect(typeof driver.deleteService).toBe("function");
           expect(typeof driver.getServiceName).toBe("function");
           expect(typeof driver.isFreeTierError).toBe("function");
-          expect(typeof driver.getProviderLimits).toBe("function");
-          expect(typeof driver.getProviderName).toBe("function");
-        });
-
-        it("should return correct provider name", () => {
-          expect(driver.getProviderName()).toBe(provider);
-        });
-
-        it("should return provider limits", () => {
-          const limits = driver.getProviderLimits();
-          expect(limits).toHaveProperty("freeTier");
-          expect(limits).toHaveProperty("rateLimits");
-          expect(limits).toHaveProperty("constraints");
-          expect(Array.isArray(limits.constraints)).toBe(true);
         });
 
         it("should generate service name for user", () => {
@@ -131,20 +117,4 @@ describe("Cloud Provider Drivers", () => {
     });
   });
 
-  describe("Provider Limits", () => {
-    supportedProviders.forEach((provider) => {
-      it(`should have valid limits for ${provider}`, () => {
-        const limits = getCloudDriver(provider).getProviderLimits();
-
-        expect(limits.freeTier).toBeDefined();
-        expect(limits.freeTier.memory).toBeDefined();
-        expect(limits.freeTier.cpu).toBeDefined();
-
-        expect(limits.rateLimits).toBeDefined();
-        expect(limits.rateLimits.general).toBeDefined();
-
-        expect(Array.isArray(limits.constraints)).toBe(true);
-      });
-    });
-  });
 });

@@ -4,25 +4,6 @@ import type { CloudDeploymentStatus } from "@/lib/contracts";
 
 export type CloudProvider = "render" | "railway" | "fly.io";
 
-export type ProviderLimits = {
-  freeTier: {
-    memory: string;
-    cpu: string;
-    storage?: string;
-    bandwidth?: string;
-    sleepBehavior?: string;
-    expiryDays?: number;
-    instanceHours?: number;
-    buildMinutes?: number;
-  };
-  rateLimits: {
-    general: string;
-    burst?: string;
-    specific?: Record<string, string>;
-  };
-  constraints: string[];
-};
-
 export type AccountMetadata = {
   userEmail: string | null;
   userId: string | null;
@@ -109,82 +90,6 @@ export interface CloudProviderDriver {
   // Provider-specific metadata
   getServiceName(userId: string): string;
   isFreeTierError(error: unknown): boolean;
-  getProviderLimits(): ProviderLimits;
-  getProviderName(): CloudProvider;
-}
-
-// Provider-specific result extensions
-export type RenderOpenClawResult = OpenClawDeployResult & {
-  ownerId: string;
-  ownerName: string;
-  serviceName: string;
-};
-
-export type RailwayOpenClawResult = OpenClawDeployResult & {
-  projectId: string;
-  environmentId: string;
-  serviceName: string;
-};
-
-export type FlyioOpenClawResult = OpenClawDeployResult & {
-  appId: string;
-  machineId: string;
-  region: string;
-};
-
-// Rate limiting and retry utilities
-export class CloudRetryManager {
-  static async withRetry<T>(
-    operation: () => Promise<T>,
-    provider: CloudProvider,
-    maxRetries: number = 3
-  ): Promise<T> {
-    let lastError: unknown;
-
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        return await operation();
-      } catch (error) {
-        lastError = error;
-
-        if (error instanceof CloudProviderError) {
-          // Don't retry authentication or configuration errors
-          if ([
-            CloudProviderErrorType.AUTHENTICATION,
-            CloudProviderErrorType.INVALID_CONFIGURATION
-          ].includes(error.type)) {
-            throw error;
-          }
-
-          // Rate limit: use specific delay if provided
-          if (error.type === CloudProviderErrorType.RATE_LIMIT && error.retryAfterMs) {
-            if (attempt < maxRetries) {
-              await new Promise(resolve => setTimeout(resolve, error.retryAfterMs!));
-              continue;
-            }
-          }
-        }
-
-        if (attempt < maxRetries) {
-          const delay = this.calculateBackoffDelay(provider, attempt);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-    }
-
-    throw lastError;
-  }
-
-  private static calculateBackoffDelay(provider: CloudProvider, attempt: number): number {
-    const baseDelays = {
-      "fly.io": 1000, // More conservative due to strict rate limiting
-      "railway": 500,
-      "render": 500
-    };
-
-    const baseDelay = baseDelays[provider] || 500;
-    return baseDelay * Math.pow(2, attempt) + Math.random() * 1000; // Jitter
-  }
 }
 
 // Utility functions
@@ -227,7 +132,7 @@ export function formatCloudProviderError(error: CloudProviderError): string {
   }
 }
 
-export function generateResourceName(_provider: CloudProvider, userId: string, _resourceType: 'app' | 'service' | 'project'): string {
+export function generateResourceName(userId: string): string {
   const hash = createHash("sha256").update(userId).digest("hex").slice(0, 8);
   return `modelhub-openclaw-${hash}`;
 }

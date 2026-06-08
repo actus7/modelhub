@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { CloudDeploymentStatus } from "@/lib/contracts";
-import type { CloudProviderDriver, CloudProvider, ProviderLimits, AccountMetadata, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh, RenderOpenClawResult } from "./driver";
+import type { CloudProviderDriver, AccountMetadata, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh } from "./driver";
 import { CloudProviderError, CloudProviderErrorType } from "./driver";
 
 const RENDER_API_BASE = "https://api.render.com/v1";
@@ -725,27 +725,6 @@ export async function deleteRenderService(token: string, serviceId: string): Pro
   }
 }
 
-// Provider limits for Render
-export const RENDER_LIMITS: ProviderLimits = {
-  freeTier: {
-    memory: "512MB",
-    cpu: "0.1 CPU",
-    sleepBehavior: "Sleep após 15 min inatividade",
-    instanceHours: 750,
-    buildMinutes: 500,
-    bandwidth: "100GB outbound/mês"
-  },
-  rateLimits: {
-    general: "Não documentado publicamente"
-  },
-  constraints: [
-    "Free PostgreSQL expira em 30 dias",
-    "Free Redis limitado a 25MB",
-    "Build pode falhar por OOM em projetos grandes",
-    "Cold start pode ser lento após sleep"
-  ]
-};
-
 // Adapter functions to convert between old and new types
 function convertRenderAccountToAccountMetadata(renderAccount: RenderAccountMetadata): AccountMetadata {
   return {
@@ -770,7 +749,7 @@ function convertRenderOpenClawToOpenClawInfo(renderOpenclaw: RenderOpenClawInfo)
   };
 }
 
-function convertRenderDeploymentToOpenClawResult(renderDeployment: RenderOpenClawDeployment): RenderOpenClawResult {
+function convertRenderDeploymentToOpenClawResult(renderDeployment: RenderOpenClawDeployment): OpenClawDeployResult {
   return {
     serviceId: renderDeployment.serviceId,
     deployId: renderDeployment.deployId,
@@ -778,9 +757,6 @@ function convertRenderDeploymentToOpenClawResult(renderDeployment: RenderOpenCla
     status: renderDeployment.status,
     openclaw: convertRenderOpenClawToOpenClawInfo(renderDeployment.openclaw),
     gatewayToken: renderDeployment.gatewayToken,
-    ownerId: renderDeployment.ownerId,
-    ownerName: renderDeployment.ownerName,
-    serviceName: renderDeployment.serviceName
   };
 }
 
@@ -934,12 +910,4 @@ export const renderDriver: CloudProviderDriver = {
   isFreeTierError(error: unknown): boolean {
     return isRenderFreeTierError(error);
   },
-
-  getProviderLimits(): ProviderLimits {
-    return RENDER_LIMITS;
-  },
-
-  getProviderName(): CloudProvider {
-    return "render";
-  }
 };

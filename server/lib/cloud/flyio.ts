@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import type { CloudDeploymentStatus } from "@/lib/contracts";
-import type { CloudProviderDriver, CloudProvider, ProviderLimits, AccountMetadata, OpenClawConfigInput, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh, FlyioOpenClawResult } from "./driver";
+import type { CloudProviderDriver, AccountMetadata, OpenClawConfigInput, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh } from "./driver";
 import {
   CloudProviderError,
   CloudProviderErrorType,
@@ -223,30 +223,6 @@ export function isFlyFreeTierError(error: unknown): boolean {
   );
 }
 
-// Provider limits
-export const FLYIO_LIMITS: ProviderLimits = {
-  freeTier: {
-    memory: "256MB por VM",
-    cpu: "Shared vCPUs",
-    storage: "3GB persistent volumes total",
-    sleepBehavior: "Stop automático após inatividade"
-  },
-  rateLimits: {
-    general: "5 req/s",
-    burst: "10 req/s",
-    specific: {
-      "GET operations": "Diferentes limites",
-      "App deletions": "100/min"
-    }
-  },
-  constraints: [
-    "Máximo 3 VMs ativas no free tier",
-    "Volumes limitados a 3GB total",
-    "Rate limiting rigoroso pode afetar operações complexas",
-    "Cold start após auto-stop"
-  ]
-};
-
 // Machine config builder
 function buildFlyMachineConfig(
   gatewayToken: string,
@@ -318,11 +294,11 @@ export async function createFlyOpenClaw(
   modelhubApiUrl: string,
   modelhubApiKey: string,
   config: OpenClawConfigInput
-): Promise<FlyioOpenClawResult> {
+): Promise<OpenClawDeployResult> {
   // 1. Validate token
   await flyRequest<FlyApp[]>(token, "/apps");
 
-  const appName = generateResourceName("fly.io", userId, "app");
+  const appName = generateResourceName(userId);
   const gatewayToken = randomBytes(32).toString("hex");
   const publicUrl = `https://${appName}.fly.dev`;
 
@@ -392,9 +368,6 @@ export async function createFlyOpenClaw(
     publicUrl,
     status: "provisioning",
     openclaw,
-    appId: app.id,
-    machineId: machine.id,
-    region: machine.region
   };
 }
 
@@ -561,18 +534,10 @@ export const flyioDriver: CloudProviderDriver = {
   },
 
   getServiceName(userId: string): string {
-    return generateResourceName("fly.io", userId, "app");
+    return generateResourceName(userId);
   },
 
   isFreeTierError(error: unknown): boolean {
     return isFlyFreeTierError(error);
   },
-
-  getProviderLimits(): ProviderLimits {
-    return FLYIO_LIMITS;
-  },
-
-  getProviderName(): CloudProvider {
-    return "fly.io";
-  }
 };

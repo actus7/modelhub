@@ -1,9 +1,8 @@
 import { randomBytes } from "node:crypto";
 
 import type { CloudDeploymentStatus } from "@/lib/contracts";
-import type { CloudProviderDriver, CloudProvider, ProviderLimits, AccountMetadata, OpenClawConfigInput, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh, RailwayOpenClawResult } from "./driver";
-import { CloudProviderError, CloudProviderErrorType } from "./driver";
-import { generateResourceName } from "./driver";
+import type { CloudProviderDriver, AccountMetadata, OpenClawConfigInput, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh } from "./driver";
+import { CloudProviderError, CloudProviderErrorType, generateResourceName } from "./driver";
 import { buildOpenClawInfo, buildOpenClawRuntimeConfig } from "./render";
 
 const RAILWAY_API_BASE = "https://backboard.railway.app/graphql/v2";
@@ -215,23 +214,6 @@ export function isRailwayFreeTierError(error: unknown): boolean {
   );
 }
 
-// Provider limits
-export const RAILWAY_LIMITS: ProviderLimits = {
-  freeTier: {
-    memory: "Baseado em crédito ($5/mês)",
-    cpu: "Baseado em crédito",
-    sleepBehavior: "Sem sleep automático"
-  },
-  rateLimits: {
-    general: "Não documentado publicamente"
-  },
-  constraints: [
-    "Crédito de $5/mês pode esgotar rapidamente",
-    "Sem controle fino de recursos no free tier",
-    "Billing baseado em uso de CPU/RAM por segundo"
-  ]
-};
-
 // Helper functions
 function buildRailwayEnvVars(
   gatewayToken: string,
@@ -280,11 +262,11 @@ export async function createRailwayOpenClaw(
   modelhubApiUrl: string,
   modelhubApiKey: string,
   config: OpenClawConfigInput
-): Promise<RailwayOpenClawResult> {
+): Promise<OpenClawDeployResult> {
   // 1. Validate token
   await railwayRequest<{ me: RailwayUser }>(token, VALIDATE_TOKEN_QUERY);
 
-  const projectName = generateResourceName("railway", userId, "project");
+  const projectName = generateResourceName(userId);
 
   // 2. Find or create project
   const projects = await railwayRequest<{
@@ -395,9 +377,6 @@ export async function createRailwayOpenClaw(
     publicUrl,
     status: "provisioning",
     openclaw,
-    projectId,
-    environmentId,
-    serviceName
   };
 }
 
@@ -581,18 +560,10 @@ export const railwayDriver: CloudProviderDriver = {
   },
 
   getServiceName(userId: string): string {
-    return generateResourceName("railway", userId, "service");
+    return generateResourceName(userId);
   },
 
   isFreeTierError(error: unknown): boolean {
     return isRailwayFreeTierError(error);
   },
-
-  getProviderLimits(): ProviderLimits {
-    return RAILWAY_LIMITS;
-  },
-
-  getProviderName(): CloudProvider {
-    return "railway";
-  }
 };
