@@ -183,6 +183,14 @@ const UPDATE_SERVICE_INSTANCE_MUTATION = `
   }
 `;
 
+const CREATE_SERVICE_DOMAIN_MUTATION = `
+  mutation CreateServiceDomain($input: ServiceDomainCreateInput!) {
+    serviceDomainCreate(input: $input) {
+      domain
+    }
+  }
+`;
+
 const TRIGGER_DEPLOY_MUTATION = `
   mutation TriggerDeploy($input: EnvironmentTriggersDeployInput!) {
     environmentTriggersDeploy(input: $input)
@@ -497,10 +505,38 @@ export async function createRailwayOpenClaw(
     { input: { environmentId, projectId, serviceId } }
   );
 
+  // 9. Generate public domain — Railway does not auto-generate DNS for
+  // Docker image services. Without this step the service has no public URL.
+  let generatedDomain: string | null = null;
+  try {
+    const domainResult = await railwayRequest<{
+      serviceDomainCreate: { domain: string };
+    }>(
+      token,
+      CREATE_SERVICE_DOMAIN_MUTATION,
+      {
+        input: {
+          environmentId,
+          serviceId,
+          targetPort: RAILWAY_OPENCLAW_PORT,
+        },
+      },
+    );
+    generatedDomain = domainResult.serviceDomainCreate.domain;
+  } catch (err) {
+    // Best-effort: if domain creation fails the service is still deployed.
+    // Refresh will retry via GET_SERVICE_URL_QUERY when the user clicks Refresh.
+    console.warn(
+      "[cloud/railway] failed to generate public domain — refresh may still pick it up",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+
   const deployId = null;
+  const effectiveUrl = generatedDomain ? `https://${generatedDomain}` : publicUrl;
   const openclaw = buildOpenClawInfo({
     ...config,
-    serviceUrl: publicUrl ?? "",
+    serviceUrl: effectiveUrl ?? "",
     modelhubApiUrl
   });
 
@@ -512,7 +548,7 @@ export async function createRailwayOpenClaw(
     serviceId: compositeServiceId,
     deployId,
     gatewayToken,
-    publicUrl,
+    publicUrl: effectiveUrl ?? null,
     status: "provisioning",
     openclaw,
   };
