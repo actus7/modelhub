@@ -218,6 +218,30 @@ const LIST_SERVICE_DEPLOYMENTS_QUERY = `
   }
 `;
 
+// Service URL query — Railway often stores the public URL on the service instance,
+// not on the deployment object. We use this as fallback during refresh.
+// Includes environmentId so we can filter to the correct environment when
+// multiple exist (e.g. production + staging).
+const GET_SERVICE_URL_QUERY = `
+  query GetServiceUrl($id: String!) {
+    service(id: $id) {
+      id
+      serviceInstances {
+        edges {
+          node {
+            environmentId
+            domains {
+              serviceDomains {
+                domain
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 const DELETE_SERVICE_MUTATION = `
   mutation DeleteService($id: String!) {
     serviceDelete(id: $id)
@@ -559,11 +583,45 @@ export async function refreshRailwayDeployment(
     }
 
     const mapped = mapRailwayDeploymentStatus(dep.status);
+
+    // Railway deployment.url is often null even for healthy services.
+    // Fall back to the service instance domain when available.
+    let publicUrl: string | null = dep.url || null;
+    if (!publicUrl && mapped.status === "healthy") {
+      try {
+        const svc = await railwayRequest<{
+          service: {
+            serviceInstances: {
+              edges: Array<{
+                node: {
+                  environmentId?: string;
+                  domains?: {
+                    serviceDomains?: Array<{ domain: string }>;
+                  };
+                };
+              }>;
+            };
+          };
+        }>(token, GET_SERVICE_URL_QUERY, { id: serviceId });
+
+        const edges = svc?.service?.serviceInstances?.edges || [];
+        const matchingEdge = environmentId
+          ? edges.find(e => e?.node?.environmentId === environmentId)
+          : edges[0];
+        const domain = matchingEdge?.node?.domains?.serviceDomains?.[0]?.domain;
+        if (domain) {
+          publicUrl = `https://${domain}`;
+        }
+      } catch {
+        // Non-critical: URL is best-effort
+      }
+    }
+
     return {
       deployId: dep.id,
       error: mapped.error,
       missing: false,
-      publicUrl: dep.url || null,
+      publicUrl,
       status: mapped.status,
     };
   } catch (error) {
