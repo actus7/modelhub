@@ -645,6 +645,7 @@ app.post("/deployments/:provider/openclaw", async (c) => {
       },
       connectionId: connection.id,
       error: null,
+      externalAppId: name,
       externalAppName: name,
       externalDeploymentId: created.deployId,
       externalServiceId: created.serviceId,
