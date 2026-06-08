@@ -9,6 +9,18 @@ const RAILWAY_API_BASE = "https://backboard.railway.app/graphql/v2";
 export const RAILWAY_OPENCLAW_IMAGE = "ghcr.io/openclaw/openclaw:latest";
 export const RAILWAY_OPENCLAW_PORT = 10000;
 
+// Bootstrap script: writes openclaw.json from MODELHUB_OPENCLAW_CONFIG_JSON then starts the gateway.
+// Must have no spaces (Railway splits start command on whitespace).
+const RAILWAY_OPENCLAW_START_COMMAND = [
+  "node",
+  "-e",
+  [
+    "require('node:fs').mkdirSync(require('node:path').dirname(process.env.OPENCLAW_CONFIG_PATH),{recursive:true})",
+    "require('node:fs').writeFileSync(process.env.OPENCLAW_CONFIG_PATH,process.env.MODELHUB_OPENCLAW_CONFIG_JSON||'{}')",
+    "process.exit(require('node:child_process').spawnSync(process.execPath,['openclaw.mjs','gateway','run','--bind','lan'],{stdio:'inherit'}).status||0)",
+  ].join(";"),
+].join(" ");
+
 // Railway-specific types
 type RailwayUser = {
   id: string;
@@ -151,6 +163,12 @@ const CREATE_SERVICE_MUTATION = `
 const UPSERT_VARIABLES_MUTATION = `
   mutation UpsertVariables($input: VariableCollectionUpsertInput!) {
     variableCollectionUpsert(input: $input)
+  }
+`;
+
+const UPDATE_SERVICE_INSTANCE_MUTATION = `
+  mutation UpdateServiceInstance($serviceId: String!, $environmentId: String, $input: ServiceInstanceUpdateInput!) {
+    serviceInstanceUpdate(serviceId: $serviceId, environmentId: $environmentId, input: $input)
   }
 `;
 
@@ -371,7 +389,18 @@ export async function createRailwayOpenClaw(
 
   const serviceId = service.serviceCreate.id;
 
-  // 5. Set environment variables
+  // 5. Configure start command (writes openclaw.json from env var before starting gateway)
+  await railwayRequest(
+    token,
+    UPDATE_SERVICE_INSTANCE_MUTATION,
+    {
+      serviceId,
+      environmentId,
+      input: { startCommand: RAILWAY_OPENCLAW_START_COMMAND },
+    }
+  );
+
+  // 7. Set environment variables
   const envVars = buildRailwayEnvVars(gatewayToken, modelhubApiUrl, modelhubApiKey, {
     ...config,
     serviceUrl: publicUrl ?? "",
@@ -395,7 +424,7 @@ export async function createRailwayOpenClaw(
     }
   );
 
-  // 6. Trigger deployment
+  // 8. Trigger deployment
   await railwayRequest(
     token,
     TRIGGER_DEPLOY_MUTATION,
