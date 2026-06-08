@@ -18,6 +18,7 @@ FROM base AS deps
 # Copiar arquivos de dependências
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY prisma ./prisma/
+COPY prisma.config.ts .
 
 # Instalar dependências de produção e desenvolvimento
 RUN pnpm install --frozen-lockfile
@@ -72,9 +73,12 @@ COPY --from=builder /app/prisma ./prisma
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 
-# Copiar node_modules necessários (incluindo Prisma)
-COPY --from=builder --chown=nextjs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
+# Copiar node_modules necessários (incluindo Prisma Client)
+# Prisma 7.x gera o client em @prisma/client/, não em .prisma/
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@prisma ./node_modules/@prisma
+
+# Copiar Prisma Client gerado (output customizado em generated/prisma)
+COPY --from=builder --chown=nextjs:nodejs /app/generated ./generated
 
 USER nextjs
 

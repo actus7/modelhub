@@ -1,1036 +1,1465 @@
-# Plano de Expansao Cloud — Suporte Oracle OCI
+# Plano de Expansão Cloud — Railway + Fly.io + Render
 
-> **Data:** 2026-06-03
-> **Status:** Proposta (revisada)
-> **Autor:** @actus7
+> **Data:** 2026-06-08  
+> **Status:** Plano de implementação REVISADO  
+> **Autor:** Jarbas  
+> **Versão:** 2.0  
 
-## Sumario Executivo
+## Sumário Executivo
 
-O ModelHub atualmente oferece deploy cloud do OpenClaw exclusivamente via **Render** (free tier). Este documento propoe a adicao do **Oracle Cloud Infrastructure (OCI)** como segundo provider cloud, aproveitando o **Always Free Tier** da Oracle — que oferece recursos drasticamente superiores ao Render free (4 OCPUs ARM + 24 GB RAM vs 0.1 CPU + 512 MB) e sem cold start.
+O ModelHub atualmente oferece deploy cloud do OpenClaw exclusivamente via **Render** (driver completo em `server/lib/cloud/render.ts`). Este documento propõe a adição de **Railway** e **Fly.io** como novos providers cloud, além de refatorar a arquitetura atual com uma abstração `CloudProviderDriver` unificada e padronizada para eliminar duplicação e facilitar futuros providers.
 
-O OCI e posicionado como **"modo poderoso guiado"**: o ModelHub gerencia toda a infraestrutura (chaves RSA, rede, containers, updates) de forma transparente, enquanto Render continua como "modo simples". O usuario fornece 2 IDs da conta OCI e copia uma chave publica gerada — todo o resto e automatizado. Ha uma etapa manual inevitavel (colar a public key no Console Oracle), mas e guiada passo-a-passo com deep links.
+### Providers Alvo
 
----
-
-## 1. Motivacao
-
-### Limitacoes do Render Free Tier
-
-| Aspecto | Render Free | Impacto |
-|---------|------------|---------|
-| CPU | 0.1 CPU | Respostas lentas do agente |
-| RAM | 512 MB | OOM com plugins habilitados |
-| Sleep | Apos 15 min de inatividade | Cold start de 30-60s |
-| Banda | 100 GB/mes | Limitado para uso intenso |
-| Persistencia | Efemera | Sem estado entre deploys |
-
-### Vantagens do OCI Always Free
-
-| Aspecto | OCI Always Free | Ganho vs Render |
-|---------|----------------|-----------------|
-| CPU | Ate 4 OCPUs ARM (Ampere A1) | ~40x mais |
-| RAM | Ate 24 GB | ~48x mais |
-| Sleep | Sem sleep (always-on) | Sem cold start |
-| Banda | 10 TB/mes outbound | 100x mais |
-| Storage | 200 GB block storage | Persistente |
-| Load Balancer | 1 Flexible LB (10 Mbps) gratis | Incluso |
-
-> **Nota sobre permanencia:** O free tier da Oracle nao tem data de expiracao (diferente dos 12 meses de AWS/GCP/Azure). Porem, a Oracle aplica uma **politica de reclamacao de instancias ociosas**: se a utilizacao de CPU ficar abaixo de 20% por 7 dias consecutivos, a instancia pode ser parada. Um agente OpenClaw ativo respondendo requisicoes normalmente nao sera afetado, mas o usuario deve estar ciente. Converter para conta Pay-As-You-Go (sem custo adicional dentro dos limites free) elimina completamente essa restricao.
-
-### Por que OCI e nao outro provider?
-
-- **Free tier mais generoso** do mercado para compute (ARM A1)
-- **Sem expiracao** — ao contrario do trial de 12 meses de AWS/GCP/Azure
-- **Container Instances** — servico serverless para containers, sem gerenciar VMs
-- **SDK TypeScript oficial** (`oci-common`, `oci-containerinstances`, `oci-core`) ativamente mantido (v2.131+)
-- **Complementar ao Render** — OCI para workloads pesados, Render para simplicidade
+| Provider | Autenticação | API | Deploy | Free Tier | Rate Limits |
+|----------|-------------|-----|--------|-----------|-------------|
+| **Render (existente)** | Bearer Token | REST `api.render.com/v1` | Web Service (Docker) | 512MB RAM, 0.1 CPU, sleep 15min | Não documentado publicamente |
+| **Railway (novo)** | Bearer Token | GraphQL `backboard.railway.com/graphql/v2` | Service (Docker image) | $5/mês crédito, sem sleep | Não documentado publicamente |
+| **Fly.io (novo)** | Bearer Token | REST `api.machines.dev/v1` | Machines (Docker image) | 3 VMs 256MB, 3GB persistência | 5 req/s (burst 10 req/s), 100 deletes/min |
 
 ---
 
-## 2. Arquitetura Proposta
+## 1. Problemas Identificados e Soluções
 
-### 2.1 Visao Geral
+### 1.1 Problemas de Alta Prioridade
 
-```
-+-----------------------------------------------------+
-|                    ModelHub App                       |
-|                                                      |
-|  server/lib/cloud/                                   |
-|  +-- driver.ts          (NOVO - CloudProviderDriver) |
-|  +-- render.ts          (existente, implementa Driver)|
-|  +-- oci.ts             (NOVO, implementa Driver)    |
-|                                                      |
-|  server/routes/cloud.ts (provider-agnostic via Driver)|
-|                                                      |
-|  components/dashboard/cloud-section.tsx (expandir)   |
-+-------------+------------------------+--------------+
-              |                        |
-              v                        v
-    +-----------------+  +-------------------------+
-    |   Render API     |  |    OCI REST API          |
-    |  (Bearer token)  |  |  (RSA Signature auth)   |
-    +--------+--------+  +----------+--------------+
-             |                      |
-             v                      v
-    +-----------------+  +-------------------------+
-    |  OpenClaw        |  |  OCI Container Instance  |
-    |  (Render Web     |  |  CI.Standard.A1.Flex     |
-    |   Service)       |  |  1 OCPU + 6 GB RAM       |
-    +-----------------+  |  ghcr.io/openclaw:latest  |
-                          +-------------------------+
-```
+#### Interface CloudProviderDriver Incompleta
 
-### 2.2 Abstraciao: CloudProviderDriver
+**Problema:** Interface atual não possui métodos essenciais como `getServiceName`, `isFreeTierError`, `getProviderLimits`.
 
-Em vez de espalhar `if (provider === "oci")` por `cloud.ts`, a logica provider-especifica
-e encapsulada em uma interface `CloudProviderDriver`. As rotas delegam para o driver correto
-via um `Record<CloudProvider, CloudProviderDriver>`:
-
+**Solução:**
 ```typescript
-// server/lib/cloud/driver.ts
 export interface CloudProviderDriver {
-  createOpenClaw(connection: CloudConnection, config: OpenClawConfig): Promise<DeployResult>;
-  refresh(connection: CloudConnection, deployment: CloudDeployment): Promise<RefreshResult>;
-  updateOpenClaw(connection: CloudConnection, deployment: CloudDeployment, config: OpenClawConfig): Promise<DeployResult>;
-  deleteDeployment(connection: CloudConnection, deployment: CloudDeployment): Promise<void>;
-  deleteConnection(connection: CloudConnection): Promise<void>;
+  // Métodos existentes
+  validateToken(token: string): Promise<AccountMetadata>;
+  createOpenClaw(token: string, userId: string, modelhubApiUrl: string, modelhubApiKey: string, config: OpenClawConfigInput): Promise<OpenClawDeployResult>;
+  updateOpenClaw(token: string, serviceId: string, gatewayToken: string, modelhubApiUrl: string, modelhubApiKey: string, config: OpenClawConfigInput): Promise<DeploymentUpdateResult>;
+  refresh(token: string, serviceId: string, deployId: string | null): Promise<DeploymentRefresh>;
+  deleteService(token: string, serviceId: string): Promise<"deleted" | "missing">;
+  
+  // Métodos novos OBRIGATÓRIOS
+  getServiceName(userId: string): string;
+  isFreeTierError(error: unknown): boolean;
+  getProviderLimits(): ProviderLimits;
+  getProviderName(): CloudProvider;
 }
+```
 
-// server/lib/cloud/index.ts
-export const cloudDrivers: Record<CloudProvider, CloudProviderDriver> = {
-  render: renderDriver,
-  oci: ociDriver,
+#### Tipos de Retorno Inconsistentes
+
+**Problema:** Render retorna `gatewayToken` mas outros providers podem ter campos específicos diferentes.
+
+**Solução:** Padronizar tipos base e usar intersection types para campos específicos:
+```typescript
+export type OpenClawDeployResult = {
+  serviceId: string;
+  deployId: string | null;
+  publicUrl: string | null;
+  status: CloudDeploymentStatus;
+  openclaw: OpenClawInfo;
+} & ProviderSpecificFields;
+
+// Provider-specific extensions
+export type RenderOpenClawResult = OpenClawDeployResult & {
+  gatewayToken: string;
+  ownerId: string;
+  ownerName: string;
+  serviceName: string;
+};
+
+export type RailwayOpenClawResult = OpenClawDeployResult & {
+  gatewayToken: string;
+  projectId: string;
+  environmentId: string;
+  serviceName: string;
+};
+
+export type FlyioOpenClawResult = OpenClawDeployResult & {
+  gatewayToken: string;
+  appId: string;
+  machineId: string;
+  region: string;
 };
 ```
 
-Isso elimina branching nas rotas e facilita adicionar futuros providers (Fly.io, Railway, etc.).
+#### Error Handling Não Padronizado
 
-### 2.2 Servico OCI Escolhido: Container Instances
-
-**Container Instances** e a opcao ideal porque:
-
-- Serverless — sem gerenciar VMs, OS, ou Docker daemon
-- Puxa imagens diretamente do ghcr.io (sem OCIR necessario)
-- Shape `CI.Standard.A1.Flex` (ARM) — elegivel ao budget free do A1
-- Suporta env vars, health checks (TCP/HTTP), restart policies
-- API REST completa para CRUD programatico via SDK
-
-**Shape recomendado para deploy OpenClaw:**
-
-| Parametro | Valor |
-|-----------|-------|
-| Shape | `CI.Standard.A1.Flex` |
-| OCPUs | 1 |
-| Memoria | 6 GB |
-| Storage efemero | 15 GB (incluso, sem custo) |
-| Restart policy | `ALWAYS` |
-| Image | `ghcr.io/openclaw/openclaw:latest` |
-
-> **Budget mensal:** 1 OCPU x 744h = 744 OCPU-hours + 6 GB x 744h = 4,464 GB-hours.
-> Limite free: 3,000 OCPU-hours + 18,000 GB-hours/mes.
->
-> **IMPORTANTE:** Este budget e **compartilhado** entre VMs, bare metal e Container Instances.
-> Se o usuario tiver outras instancias A1 rodando na mesma conta OCI, o budget free sera
-> dividido entre todas. O ModelHub deve exibir um aviso sobre isso no formulario de conexao.
-
-> **Nota de documentacao:** A pagina oficial [Always Free Resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm) lista apenas VMs na secao A1. Porem, a [FAQ de Container Instances](https://www.oracle.com/europe/cloud/cloud-native/container-instances/faq/) e a [pagina de pricing](https://www.oracle.com/cloud/cloud-native/container-instances/pricing/) confirmam explicitamente que o budget e compartilhado com Container Instances. Este detalhe deve ser comunicado ao usuario.
-
-### 2.3 Infraestrutura de Rede (100% gerenciada pelo ModelHub)
-
-Diferente do Render (que abstrai toda a rede), o OCI requer setup explicito de networking. O ModelHub cria toda essa infraestrutura **automaticamente** na primeira conexao — o usuario nao precisa tocar no console OCI para rede:
-
-```
-VCN "modelhub-vcn" (10.0.0.0/16)
-+-- Internet Gateway "modelhub-igw"
-+-- Route Table (0.0.0.0/0 -> IGW)
-+-- Public Subnet "modelhub-subnet" (10.0.0.0/24)
-    +-- Security List (ingress TCP 10000, egress all)
-    +-- Container Instance (IP publico)
-```
-
-**Identificacao por tags (nao displayName):** Todos os recursos criados pelo ModelHub recebem `freeformTags`:
-
-```json
-{
-  "managedBy": "modelhub",
-  "connectionId": "<cloud-connection-id>",
-  "userId": "<user-id>"
+**Solução:** Base class para erros + enum para tipos:
+```typescript
+export enum CloudProviderErrorType {
+  AUTHENTICATION = "authentication",
+  FREE_TIER_LIMIT = "free_tier_limit", 
+  RATE_LIMIT = "rate_limit",
+  RESOURCE_NOT_FOUND = "resource_not_found",
+  RESOURCE_CONFLICT = "resource_conflict",
+  SERVICE_UNAVAILABLE = "service_unavailable",
+  INVALID_CONFIGURATION = "invalid_configuration",
+  UNKNOWN = "unknown"
 }
-```
 
-`ensureOciNetworking()` busca recursos existentes por tag `managedBy=modelhub` + `connectionId` antes de criar (idempotente). Isso evita colisao com recursos criados manualmente pelo usuario ou por outra instancia ModelHub. `deleteOciNetworking()` so remove recursos com a tag correspondente.
-
-Os OCIDs sao armazenados no campo `config` (JSON) do `CloudConnection` como cache para evitar lookups repetidos.
-
-**Requisito de IAM:** O usuario OCI precisa ter permissoes para Compute, Virtual Network e Container Instances. Se faltar permissao, a API OCI retorna `404 NotAuthorizedOrNotFound`. O ModelHub interpreta esse erro e exibe mensagem especifica: "Seu usuario OCI nao tem permissao para [recurso]. Peca ao admin da conta para adicionar as policies necessarias." A validacao de IAM e oportunistica (tenta e interpreta o erro), nao preventiva.
-
----
-
-## 3. Autenticacao OCI
-
-### 3.1 Estrategia Plug-and-Play: Key Pair Gerenciado pelo ModelHub
-
-O ModelHub **gera o par de chaves RSA** internamente e computa o fingerprint automaticamente.
-O usuario so precisa fornecer 2 campos + copiar a public key para o OCI Console:
-
-| O que | Quem faz | Como |
-|-------|----------|------|
-| RSA key pair (2048-bit) | **ModelHub gera** | `crypto.generateKeyPairSync('rsa', ...)` no backend |
-| Fingerprint | **ModelHub computa** | MD5 do DER-encoded public key, formatado `xx:xx:...:xx` |
-| Private key PEM | **ModelHub armazena** | Encriptada com AES-256 via `encryptCredential()` |
-| Regiao | **ModelHub sugere** | Default `sa-saopaulo-1`, dropdown editavel |
-| Compartment OCID | **ModelHub deduz** | Root compartment = tenancy OCID (padrao) |
-| Tenancy OCID | **Usuario cola** | 1 campo — encontrado em OCI Console > Tenancy Details |
-| User OCID | **Usuario cola** | 1 campo — encontrado em OCI Console > User Settings |
-| Upload da public key | **Usuario copia** | ModelHub exibe a public key + deep link pro Console |
-
-**Resultado: 2 campos + 1 acao externa (copiar public key no Console).**
-
-Nenhuma chave privada sai do OCI Console do usuario, nenhum config file, nenhum fingerprint manual.
-
-### 3.2 Como Funciona a Autenticacao
-
-O OCI usa **HTTP Signature** (draft-cavage-http-signatures):
-
-1. Monta uma **signing string** com headers HTTP especificos
-2. Assina com a chave privada RSA usando **RSA-SHA256**
-3. Codifica em Base64
-4. Inclui no header `Authorization`
-
-```
-Authorization: Signature version="1",
-  keyId="<tenancy_ocid>/<user_ocid>/<fingerprint>",
-  algorithm="rsa-sha256",
-  headers="(request-target) date host x-content-sha256 content-type content-length",
-  signature="<base64_signature>"
-```
-
-O SDK `oci-common` abstrai completamente esse processo — basta instanciar o `SimpleAuthenticationDetailsProvider`.
-
-### 3.3 Geracao de Key Pair no Backend
-
-```typescript
-import { generateKeyPairSync, createHash } from 'node:crypto';
-
-export function generateOciApiKeyPair() {
-  const { publicKey, privateKey } = generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-    publicKeyEncoding: { type: 'spki', format: 'pem' },
-    privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-  });
-
-  // Fingerprint = MD5 do DER-encoded public key, formatado xx:xx:...:xx
-  const derBuffer = generateKeyPairSync('rsa', {
-    modulusLength: 2048,
-  }).publicKey.export({ type: 'spki', format: 'der' });
-  // Na pratica, reutilizar o publicKey gerado acima:
-  const derFromPem = Buffer.from(
-    publicKey.replace(/-----[A-Z ]+-----/g, '').replace(/\s/g, ''),
-    'base64',
-  );
-  const md5 = createHash('md5').update(derFromPem).digest('hex');
-  const fingerprint = md5.match(/.{2}/g)!.join(':');
-
-  return { publicKeyPem: publicKey, privateKeyPem: privateKey, fingerprint };
-}
-```
-
-### 3.4 SDK TypeScript
-
-```bash
-pnpm add oci-common oci-containerinstances oci-core
-```
-
-- `oci-common` — autenticacao, signing, HTTP client (~v2.131+)
-- `oci-containerinstances` — client para Container Instances (~v2.112+)
-- `oci-core` — VCN, subnets, security lists (networking)
-
-> **Nota:** `oci-sdk` instala tudo (~100+ packages). Preferir packages individuais para manter o bundle enxuto.
-
-**Autenticacao programatica com credenciais geradas:**
-
-```typescript
-import { SimpleAuthenticationDetailsProvider, Region } from 'oci-common';
-
-const provider = new SimpleAuthenticationDetailsProvider(
-  tenancyId,     // string — fornecido pelo usuario
-  userId,        // string — fornecido pelo usuario
-  fingerprint,   // string — computado pelo ModelHub
-  privateKeyPem, // string — gerado pelo ModelHub, descriptografado do banco
-  null,          // passphrase (sem passphrase, gerado por nos)
-  Region.fromRegionId(region), // Region — default sa-saopaulo-1
-);
-```
-
-### 3.5 Armazenamento Seguro
-
-| Dado | Tratamento | Justificativa |
-|------|-----------|---------------|
-| Private key PEM | `encryptCredential()` (AES-256) | Secret critico — gerado pelo ModelHub |
-| Fingerprint | `encryptCredential()` (AES-256) | Derivado da public key |
-| Public key PEM | Plaintext no `config` JSON | Necessaria para resume do wizard se o usuario fechar o browser |
-| Tenancy OCID | Plaintext no `config` JSON | Identificador publico |
-| User OCID | Plaintext no `config` JSON | Identificador publico |
-| Compartment OCID | Plaintext no `config` JSON | Identificador publico |
-| Regiao | Plaintext no `config` JSON | Informacao publica |
-| OCIDs de infra (VCN, subnet, etc.) | Plaintext no `config` JSON | Identificadores internos |
-
-A private key PEM e armazenada no campo `token` do `CloudConnection` (encriptada com AES-256), reaproveitando o mesmo fluxo do token Render. O fingerprint e armazenado encriptado no `config` JSON.
-
----
-
-## 4. Implementacao — Camadas
-
-### 4.1 Camada de Dados (Prisma)
-
-O schema atual ja e multi-provider. O campo `provider` e `String` e o campo `config` e `Json?`:
-
-**`lib/contracts.ts` — unica alteracao de tipo:**
-```typescript
-// Antes
-type CloudProvider = "render";
-
-// Depois
-type CloudProvider = "render" | "oci";
-```
-
-**`prisma/schema.prisma`:** Nenhuma alteracao estrutural necessaria.
-
-**Estrutura do `config` JSON para OCI (`CloudConnection`):**
-```json
-{
-  "status": "connected",
-  "tenancyOcid": "ocid1.tenancy.oc1...",
-  "userOcid": "ocid1.user.oc1...",
-  "compartmentOcid": "ocid1.compartment.oc1...",
-  "region": "sa-saopaulo-1",
-  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\n...",
-  "networking": {
-    "vcnOcid": "ocid1.vcn.oc1...",
-    "subnetOcid": "ocid1.subnet.oc1...",
-    "internetGatewayOcid": "ocid1.internetgateway.oc1...",
-    "securityListOcid": "ocid1.securitylist.oc1...",
-    "routeTableOcid": "ocid1.routetable.oc1..."
+export class CloudProviderError extends Error {
+  constructor(
+    public readonly type: CloudProviderErrorType,
+    public readonly provider: CloudProvider,
+    message: string,
+    public readonly originalError?: unknown,
+    public readonly retryAfterMs?: number
+  ) {
+    super(message);
+    this.name = "CloudProviderError";
   }
 }
 ```
 
-O campo `status` tem 3 valores: `"pending_validation"` (aguardando usuario colar public key),
-`"connected"` (validado), `"invalid"` (API key revogada). O campo `publicKeyPem` permite
-re-exibir a chave se o usuario retomar o wizard.
+### 1.2 Problemas de Média Prioridade
 
-O campo `networking` e populado no primeiro deploy (nao na conexao) — comeca como `null`.
-```
+#### Rate Limiting e Backoff Strategy
 
-**Estrutura do `config` JSON para OCI (`CloudDeployment`):**
-```json
-{
-  "containerInstanceOcid": "ocid1.containerinstance.oc1...",
-  "containerOcid": "ocid1.container.oc1...",
-  "availabilityDomain": "Uocm:SA-SAOPAULO-1-AD-1",
-  "model": "gpt-4o",
-  "provider": "openai",
-  "modelhubApiUrl": "https://modelhub.example.com/v1",
-  "allowedOrigins": ["https://modelhub.example.com"],
-  "controlUiUrl": "http://<ip>:10000",
-  "healthUrl": "http://<ip>:10000/healthz",
-  "readyUrl": "http://<ip>:10000/readyz",
-  "webSocketUrl": "ws://<ip>:10000/ws",
-  "gatewayToken": "<encrypted>"
+**Solução:** Helper para retry com backoff exponencial:
+```typescript
+export class CloudRateLimiter {
+  async executeWithBackoff<T>(
+    operation: () => Promise<T>,
+    provider: CloudProvider,
+    maxRetries: number = 3
+  ): Promise<T> {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (this.isRateLimitError(error, provider) && attempt < maxRetries) {
+          const delayMs = this.getBackoffDelay(provider, attempt, error);
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Max retries exceeded");
+  }
 }
 ```
 
-### 4.2 Bugfix necessario: serializers hardcodam Render
+#### Nomes de Recursos Padronizados
 
-Em `server/routes/cloud.ts`, as funcoes `serializeConnection` (linha ~117) e `serializeDeployment` (linha ~165) hardcodam `provider: RENDER_PROVIDER`. Isso precisa ser corrigido para usar `connection.provider` / `deployment.provider`:
-
+**Solução:** Função para gerar nomes únicos por provider:
 ```typescript
-// serializeConnection — ANTES
-provider: RENDER_PROVIDER,
-// DEPOIS
-provider: connection.provider as CloudProvider,
-
-// serializeDeployment — ANTES
-provider: RENDER_PROVIDER,
-// DEPOIS
-provider: deployment.provider as CloudProvider,
-```
-
-### 4.3 Camada Cloud Client (`server/lib/cloud/oci.ts`)
-
-Novo arquivo seguindo o padrao de `render.ts`:
-
-```
-server/lib/cloud/
-+-- render.ts   (existente, ~700 linhas)
-+-- oci.ts      (NOVO, estimativa ~800-1000 linhas)
-```
-
-**Funcoes a implementar:**
-
-| Funcao | Descricao |
-|--------|-----------|
-| `generateOciApiKeyPair()` | Gera RSA 2048 key pair + computa fingerprint MD5 |
-| `validateOciCredentials()` | Valida credenciais chamando `listAvailabilityDomains` |
-| `ensureOciNetworking()` | Cria VCN + IGW + Route + Subnet + Security List (idempotente) |
-| `createOciOpenClawDeployment()` | Cria Container Instance com imagem OpenClaw |
-| `refreshOciDeployment()` | Consulta status da Container Instance |
-| `updateOciOpenClawDeployment()` | Recreate atomico (criar nova -> aguardar -> deletar antiga) |
-| `deleteOciDeployment()` | Deleta Container Instance |
-| `deleteOciNetworking()` | Remove infra de rede (cleanup na desconexao) |
-| `getOciContainerLogs()` | Recupera logs do container |
-| `isOciFreeTierError()` | Detecta erros de quota/limite/capacity |
-| `buildOciOpenClawInfo()` | Monta URLs de health/ready/ws/controlUi a partir do IP |
-
-**Constantes:**
-
-```typescript
-export const OCI_PROVIDER = "oci" as const;
-export const OCI_OPENCLAW_SHAPE = "CI.Standard.A1.Flex";
-export const OCI_OPENCLAW_OCPUS = 1;
-export const OCI_OPENCLAW_MEMORY_GB = 6;
-export const OCI_OPENCLAW_PORT = 10000;
-export const OCI_OPENCLAW_IMAGE = "ghcr.io/openclaw/openclaw:latest";
-export const OCI_VCN_CIDR = "10.0.0.0/16";
-export const OCI_SUBNET_CIDR = "10.0.0.0/24";
-export const OCI_DISPLAY_PREFIX = "modelhub";
-```
-
-### 4.4 Camada de Rotas (`server/routes/cloud.ts`)
-
-Novos endpoints (espelhando os do Render):
-
-| Metodo | Path | Descricao |
-|--------|------|-----------|
-| `POST` | `/user/cloud/connections/oci` | Recebe OCIDs + regiao, gera key pair, retorna public key |
-| `POST` | `/user/cloud/connections/oci/validate` | Valida conexao apos usuario adicionar key no Console |
-| `POST` | `/user/cloud/deployments/oci/openclaw` | Deploy OpenClaw no OCI |
-
-Endpoints existentes que viram **provider-agnostic** via `CloudProviderDriver`:
-
-| Endpoint | Alteracao |
-|----------|-----------|
-| `POST /:id/refresh` | `cloudDrivers[provider].refresh(...)` |
-| `DELETE /:id` | `cloudDrivers[provider].deleteDeployment(...)` |
-| `PATCH /:id/openclaw` | `cloudDrivers[provider].updateOpenClaw(...)` |
-| `DELETE /connections/:id` | `cloudDrivers[provider].deleteConnection(...)` |
-| `GET /:id/gateway-token` | Ja funciona (token no config JSON, provider-agnostic) |
-| `POST /:id/api/chat` | Ja funciona (usa publicUrl generico, **mas precisa fix de `maxDuration`**) |
-
-### 4.5 Camada de UI (`components/dashboard/cloud-section.tsx`)
-
-#### 4.5.1 Seletor de Provider (novo)
-
-Ao clicar "Conectar Cloud", o usuario ve um seletor visual:
-
-```
-+---------------------------+  +---------------------------+
-|  [Render logo]            |  |  [Oracle logo]            |
-|  Render                   |  |  Oracle Cloud (OCI)       |
-|  Simples, 1 API key       |  |  Poderoso, sem cold start |
-|  0.1 CPU / 512 MB         |  |  1 OCPU / 6 GB RAM       |
-|  Sleep apos 15 min        |  |  Always-on, gratuito      |
-|  Setup: ~30s              |  |  Setup: ~2 min            |
-|  [Conectar]               |  |  [Conectar]               |
-+---------------------------+  +---------------------------+
-```
-
-#### 4.5.2 Formulario de Conexao OCI (2 campos + 1 acao)
-
-**Step 1 — Identificacao da conta:**
-```
-+-----------------------------------------------------------+
-|  Conectar Oracle Cloud (OCI)                               |
-|                                                            |
-|  Tenancy OCID                                              |
-|  [ocid1.tenancy.oc1..________________________]             |
-|  Onde encontrar: OCI Console > Tenancy Details    [?]      |
-|                                                            |
-|  User OCID                                                 |
-|  [ocid1.user.oc1..__________________________]              |
-|  Onde encontrar: OCI Console > User Settings      [?]      |
-|                                                            |
-|  Regiao              [sa-saopaulo-1       v]               |
-|                       (recomendado para BR)                |
-|                                                            |
-|                                  [ Gerar Chave de Acesso ] |
-+-----------------------------------------------------------+
-```
-
-Validacao inline: regex `ocid1\.(tenancy|user)\.oc1\.\..{60}` — feedback
-instantaneo se o formato esta correto.
-
-**Step 2 — Autorizar ModelHub (copiar public key):**
-```
-+-----------------------------------------------------------+
-|  Autorizar ModelHub                                        |
-|                                                            |
-|  Copie a chave publica abaixo e adicione ao seu            |
-|  usuario no OCI Console:                                   |
-|                                                            |
-|  +-----------------------------------------------+        |
-|  | -----BEGIN PUBLIC KEY-----                     |        |
-|  | MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...           |        |
-|  | -----END PUBLIC KEY-----                       |        |
-|  +-----------------------------------------------+        |
-|                           [Copiar Chave]  [Copiado!]       |
-|                                                            |
-|  Como fazer:                                               |
-|  1. Clique no botao abaixo para abrir o OCI Console        |
-|  2. Va em "API Keys" > "Add API Key"                       |
-|  3. Selecione "Paste a public key"                         |
-|  4. Cole a chave copiada acima e clique "Add"              |
-|  5. Volte aqui                                             |
-|                                                            |
-|  [Abrir OCI Console ->]      [ Ja colei, validar ]         |
-+-----------------------------------------------------------+
-```
-
-O deep link abre diretamente a pagina de API Keys do usuario:
-`https://cloud.oracle.com/identity/users/<user-ocid>/api-keys`
-
-**Resiliencia do wizard:**
-- A public key e persistida no `config` JSON da `CloudConnection` (status `pending_validation`).
-  Se o usuario fechar o browser, ao reabrir ele ve o Step 2 com a mesma public key — sem precisar regerar.
-- O botao "Ja colei, validar" faz **ate 3 tentativas** com delay de 2s entre elas (a API Key pode
-  demorar alguns segundos para propagar no OCI). Se falhar, exibe: "Chave ainda nao detectada.
-  Verifique se colou no usuario correto e tente novamente."
-
-**Step 3 — Validacao:**
-```
-+-----------------------------------------------------------+
-|  Validando conexao...                                      |
-|                                                            |
-|  [x] Autenticacao bem-sucedida                             |
-|  [x] Availability Domain detectado                         |
-|  [x] Rede sera configurada automaticamente                 |
-|                                                            |
-|  [i] O budget free A1 (3000 OCPU-h / 18000 GB-h) e        |
-|      compartilhado com outras instancias A1 na sua conta.  |
-|                                                            |
-|  [i] Seu usuario OCI precisa ter permissoes para           |
-|      Compute, Virtual Network e Container Instances.       |
-|                                                            |
-|  Conectado!                            [ Ir para Deploy ]  |
-+-----------------------------------------------------------+
-```
-
-#### 4.5.3 Onde encontrar os OCIDs (tooltips [?])
-
-Ao clicar no icone [?] ao lado de cada campo, exibe um popover:
-
-**Tenancy OCID:**
-```
-1. Acesse cloud.oracle.com
-2. Clique no icone de perfil (canto superior direito)
-3. Clique em "Tenancy: <nome>"
-4. Copie o OCID exibido
-```
-
-**User OCID:**
-```
-1. Acesse cloud.oracle.com
-2. Clique no icone de perfil (canto superior direito)
-3. Clique em "User Settings" (ou "My Profile")
-4. Copie o OCID exibido
-```
-
-#### 4.5.4 Card de Deployment OCI
-
-Apos deploy, o card mostra:
-
-```
-+---------------------------------------------------+
-| Oracle Cloud (OCI)              [Pronto]           |
-| modelhub-openclaw-a1b2c3d4                         |
-|                                                    |
-| Regiao:       sa-saopaulo-1                        |
-| Shape:        CI.Standard.A1.Flex (1 OCPU, 6 GB)  |
-| Modelo:       gpt-4o  Provider: openai             |
-|                                                    |
-| O chat com este agente funciona diretamente        |
-| pelo ModelHub (via proxy HTTPS).                   |
-|                                                    |
-| [Configurar]  [Refresh]  [Remover]                 |
-|                                                    |
-| v Acesso direto (avancado)                         |
-| +-----------------------------------------------+ |
-| | IP Publico:  http://129.151.x.x:10000 [Copiar]| |
-| | Control UI:  http://129.151.x.x:10000  [Abrir]| |
-| | WebSocket:   ws://129.151.x.x:10000/ws         | |
-| | Health:      http://129.151.x.x:10000/healthz  | |
-| |                                                 | |
-| | [!] Conexao direta sem HTTPS.                   | |
-| +-----------------------------------------------+ |
-+---------------------------------------------------+
-```
-
-O acesso direto (IP publico, Control UI, WebSocket) fica em secao **colapsada por padrao**. O fluxo principal do usuario e via chat proxy HTTPS do ModelHub — sem exposicao a HTTP. Usuarios avancados podem expandir para acessar diretamente.
-
----
-
-## 5. Fluxo de Uso (UX)
-
-### 5.1 Conexao Inicial (< 2 minutos)
-
-O wizard tem 3 estados persistentes: `identifying` -> `pending_validation` -> `connected`.
-Se o usuario fechar o browser a qualquer momento, ao reabrir ele retoma de onde parou.
-
-```
-1. Usuario clica "Conectar Cloud" no Dashboard
-2. Seleciona "Oracle Cloud (OCI)"
-3. [IDENTIFICAR] Cola Tenancy OCID + User OCID (2 campos), seleciona regiao
-4. Clica "Gerar Chave de Acesso"
-5. Backend gera RSA key pair, salva conexao como `pending_validation`
-   (public key no config JSON, private key encriptada no token)
-6. [AUTORIZAR] Frontend exibe a PUBLIC key + deep link pro OCI Console
-7. Usuario copia a public key e adiciona no Console OCI (paste + click)
-8. Volta ao ModelHub e clica "Ja colei, validar"
-9. Backend tenta validar (ate 3 retries com 2s delay — propagacao da key)
-10. [CONECTADO] Conexao confirmada — pronto para deploy
-```
-
-Se o usuario reabrir o ModelHub com conexao `pending_validation`, ve diretamente o Step 2
-com a mesma public key — sem precisar regerar.
-
-### 5.2 Deploy do OpenClaw (< 1 minuto)
-
-```
-1. Usuario clica "Deploy OpenClaw" (ja conectado ao OCI)
-2. Seleciona modelo e provider (igual ao Render)
-3. POST /user/cloud/deployments/oci/openclaw
-4. Backend (transparente para o usuario):
-   a. ensureOciNetworking() — cria VCN/subnet se necessario (idempotente)
-   b. Detecta Availability Domain automaticamente
-   c. Gera gateway token
-   d. Cria Container Instance com env vars do OpenClaw
-   e. Retorna status "provisioning"
-5. Frontend faz polling via POST /:id/refresh
-6. Container Instance fica "ACTIVE" em ~30-60s
-7. UI exibe IP publico + porta (http://<ip>:10000)
-8. Chat proxy do ModelHub ja funciona via HTTPS
-```
-
-### 5.3 Atualizacao de Configuracao (transparente)
-
-```
-1. Usuario altera modelo/provider no painel OpenClaw
-2. Clica "Salvar"
-3. Backend executa recreate atomico:
-   a. Cria NOVA Container Instance com config atualizada
-   b. Aguarda status ACTIVE (~30-60s)
-   c. Deleta instance ANTIGA
-   d. Atualiza registro no banco
-4. UI mostra "Atualizando..." durante o processo
-5. Downtime efetivo: ~30-60s (vs ~2-5 min no Render)
-```
-
-### 5.4 Comparativo de UX — Render vs OCI
-
-| Aspecto | Render | OCI |
-|---------|--------|-----|
-| Setup | 1 API key | 2 OCIDs + copiar 1 chave publica |
-| URL do servico | `https://name.onrender.com` | `http://<ip>:10000` (sem TLS nativo) |
-| Tempo de deploy | 2-5 min (build) | 30-60s (pull + start) |
-| Cold start | 30-60s apos 15 min idle | Nenhum |
-| TLS | Automatico | Via chat proxy HTTPS do ModelHub |
-| Update de config | Redeploy (2-5 min) | Recreate (~30-60s) |
-| Rede | Abstraida | 100% gerenciada pelo ModelHub |
-| Custo | Gratuito | Gratuito (budget compartilhado) |
-
----
-
-## 6. Desafios e Mitigacoes
-
-### 6.0 Bug pre-existente: timeout do chat proxy (corrigir ANTES do OCI)
-
-**Problema:** `app/user/[...path]/route.ts` define `maxDuration = 60` (60s), e `vercel.json` impoe 60s globalmente. Porem o chat proxy OpenClaw em `server/routes/cloud.ts` tenta ate 340s (`OPENCLAW_OVERALL_TIMEOUT_MS`). No Vercel, a funcao morre em 60s — o proxy nunca consegue esperar o tempo completo.
-
-**Correcao:** Mover o endpoint de chat proxy (`POST /user/cloud/deployments/:id/api/chat`) para uma rota Next.js com `maxDuration` adequado (180s+), ou ajustar `vercel.json` para dar mais tempo a rotas `/user/cloud/*`. Esse bug afeta o Render hoje e deve ser corrigido independente do OCI.
-
-### 6.1 Complexidade da API OCI
-
-**Problema:** OCI requer RSA signing e setup explicito de networking (vs simple Bearer token do Render).
-
-**Mitigacao:** SDK TypeScript oficial (`oci-common`) abstrai o signing. Setup de rede e one-time, idempotente, e 100% automatizado pelo ModelHub. O usuario nunca precisa tocar no console OCI para rede.
-
-### 6.2 Sem HTTPS Nativo
-
-**Problema:** Container Instances com IP publico nao tem TLS automatico.
-
-**Mitigacao principal:** O **chat proxy** do ModelHub (`POST /:id/chat/completions`) ja roda em HTTPS e faz relay para o container. O usuario que usa o chat do ModelHub ja esta protegido. Exibir aviso claro na UI para quem acessar o Control UI diretamente.
-
-**Mitigacao futura (Fase 2):** Configurar o Free Flexible Load Balancer do OCI com certificado TLS (Let's Encrypt), provendo HTTPS gratuito para acesso direto.
-
-### 6.3 Container Instances sao Imutaveis
-
-**Problema:** Nao e possivel alterar env vars de uma Container Instance existente.
-
-**Mitigacao:** Recreate atomico na funcao `updateOciOpenClawDeployment()`:
-1. Criar nova instance com env vars atualizados
-2. Aguardar status `ACTIVE`
-3. Deletar instance antiga
-4. Atualizar registro no banco com novo OCID e IP
-
-O UI exibe "Atualizando..." com progress indicator durante o processo.
-
-### 6.4 "Out of Host Capacity" em Algumas Regioes
-
-**Problema:** Regioes populares podem ter escassez de instancias A1.
-
-**Mitigacao:**
-- Dropdown de regiao com indicador de disponibilidade estimada
-- Recomendar `sa-saopaulo-1` como padrao para usuarios BR
-- Retry com backoff exponencial (3 tentativas)
-- Mensagem clara: "Capacidade temporariamente esgotada em [regiao]. Tente [regiao alternativa] ou aguarde alguns minutos."
-
-### 6.5 Reclamacao de Instancias Ociosas
-
-**Problema:** Oracle pode parar instancias Always Free com CPU < 20% por 7 dias.
-
-**Mitigacao:**
-- Agente OpenClaw ativo normalmente nao e afetado (responde a requests)
-- Exibir aviso na UI: "Para garantia total, converta para Pay-As-You-Go (sem custo adicional)"
-- Se a instancia for parada, o `refreshOciDeployment` detecta estado `STOPPED` e oferece botao "Reiniciar"
-- Link direto para conversao PAYG no console OCI
-
-### 6.6 Seguranca do Key Pair Gerenciado
-
-**Problema:** O ModelHub gera e armazena a private key — responsabilidade de seguranca.
-
-**Mitigacoes:**
-- Private key gerada no backend com `crypto.generateKeyPairSync` (RSA 2048-bit)
-- Encriptada imediatamente com AES-256 via `encryptCredential()` antes de persistir
-- Nunca logada, nunca retornada ao frontend, nunca exibida apos geracao
-- Somente a **public key** e exibida ao usuario (para colar no OCI Console)
-- O usuario pode revogar a API Key no OCI Console a qualquer momento (invalidando o acesso)
-- Desconectar a conta OCI no ModelHub deleta a private key do banco
-
-### 6.7 Budget Free Compartilhado
-
-**Problema:** O budget A1 (3,000 OCPU-h + 18,000 GB-h) e compartilhado com TODAS as instancias A1 da conta.
-
-**Mitigacao:**
-- Aviso claro no formulario de conexao
-- O deploy padrao (1 OCPU + 6 GB) consome ~25% do budget OCPU e ~25% do budget RAM
-- Exibir estimativa: "Este deploy usara ~744/3000 OCPU-h e ~4464/18000 GB-h por mes"
-
-### 6.8 Permissoes IAM do Usuario OCI
-
-**Problema:** Se o usuario nao for admin da conta OCI, criar VCN, subnet, security list e Container Instance vai falhar com `404 NotAuthorizedOrNotFound`.
-
-**Mitigacao:**
-- Nao fazer preflight complexo de permissoes — tentar a operacao e interpretar o erro
-- Quando detectar `404 NotAuthorizedOrNotFound`, exibir mensagem especifica: "Seu usuario OCI nao tem permissao para [recurso]. Peca ao admin para adicionar policies de Compute, Virtual Network e Container Instances."
-- Documentar no wizard as policies OCI necessarias (link para doc Oracle)
-- O MVP assume explicitamente: "use um usuario OCI com permissoes de admin ou com policies de manage para compute, vcn e container-instances no compartment"
-
-### 6.9 Rate Limiting de Geracao de Key Pairs
-
-**Problema:** Sem limite, um usuario pode gerar dezenas de key pairs sem usar, acumulando lixo.
-
-**Mitigacao:**
-- Limitar a 3 conexoes OCI pendentes (status `pending_validation`) por usuario
-- Se ja existir uma conexao pendente, exibir a public key existente em vez de gerar nova
-- Conexoes pendentes por mais de 24h sao limpas automaticamente (cron ou lazy cleanup no acesso)
-
-### 6.10 Revogacao/Rotacao de API Key
-
-**Problema:** Se o usuario deletar a API Key no Console OCI, o ModelHub perde acesso sem aviso.
-
-**Mitigacao:**
-- No `refreshOciDeployment()`, se a API retornar `401 NotAuthenticated`, marcar a conexao como `invalid`
-- Exibir na UI: "Conexao OCI invalida — a API Key pode ter sido revogada. Reconecte sua conta."
-- Botao "Reconectar" que regenera um novo key pair e reinicia o wizard a partir do Step 2
-
----
-
-## 7. Fases de Implementacao
-
-### Fase 0 — Spike de validacao (2-3 dias)
-
-Objetivo: **eliminar incerteza** antes de investir em UI/rotas. Criar Container Instance real via SDK e validar o fluxo completo end-to-end.
-
-- [ ] Script standalone que usa `oci-common` + `oci-containerinstances` + `oci-core`
-- [ ] Criar VCN + subnet + security list em `sa-saopaulo-1` (testar disponibilidade A1)
-- [ ] Criar Container Instance com `ghcr.io/openclaw/openclaw:latest`
-- [ ] Validar: work request completion, IP publico atribuido, health `/healthz` respondendo
-- [ ] Testar chat proxy: enviar request para `http://<ip>:10000/v1/chat/completions`
-- [ ] Testar cleanup: deletar Container Instance + networking
-- [ ] Se `sa-saopaulo-1` falhar com "Out of host capacity", testar `sa-vinhedo-1` como fallback
-- [ ] Documentar tempos reais (provisioning, health ready, chat response)
-
-> **Gate:** So prosseguir para Fase 1 se o spike confirmar que Container Instances A1 funcionam
-> de forma confiavel na regiao alvo.
-
-### Fase 0.5 — Correcoes pre-existentes (1-2 dias)
-
-- [ ] Corrigir bug de timeout: `maxDuration` do chat proxy vs `vercel.json` (secao 6.0)
-- [ ] Corrigir serializers hardcoded: `serializeConnection` e `serializeDeployment` (secao 4.2)
-- [ ] Criar interface `CloudProviderDriver` em `server/lib/cloud/driver.ts` (secao 2.2)
-- [ ] Refatorar `render.ts` para implementar a interface (sem mudanca de comportamento)
-
-### Fase 1 — MVP OCI (estimativa: 2-3 semanas)
-
-**Dados e tipos:**
-- [ ] Adicionar `"oci"` ao tipo `CloudProvider` em `lib/contracts.ts`
-
-**Backend (`server/lib/cloud/oci.ts` — implementa `CloudProviderDriver`):**
-- [ ] `generateOciApiKeyPair()` — gera RSA 2048 key pair + computa fingerprint MD5
-- [ ] `validateOciCredentials()` — valida chamando `listAvailabilityDomains`
-- [ ] `ensureOciNetworking()` — VCN + IGW + Route + Subnet + Security List (idempotente, com tags)
-- [ ] `createOciOpenClawDeployment()` — cria Container Instance (com `freeformTags`)
-- [ ] `refreshOciDeployment()` — consulta status + detecta `401` (key revogada)
-- [ ] `deleteOciDeployment()` — deleta Container Instance
-- [ ] `deleteOciNetworking()` — remove infra de rede (somente recursos com tag `managedBy=modelhub`)
-- [ ] `buildOciOpenClawInfo()` — monta URLs a partir do IP publico
-- [ ] `isOciFreeTierError()` — detecta erros de quota/capacity/IAM
-
-**Rotas (`server/routes/cloud.ts` — via `CloudProviderDriver`):**
-- [ ] `POST /user/cloud/connections/oci` (recebe OCIDs + regiao, gera key pair, retorna public key)
-- [ ] `POST /user/cloud/connections/oci/validate` (retry com 3 tentativas e delay 2s)
-- [ ] `POST /user/cloud/deployments/oci/openclaw`
-- [ ] Rotas existentes (`refresh`, `delete`) delegam para driver por `provider`
-
-**Frontend (`components/dashboard/cloud-section.tsx`):**
-- [ ] Seletor de provider (Render / OCI) com cards visuais
-- [ ] Wizard de 3 steps: Identificar conta -> Autorizar ModelHub -> Deploy
-- [ ] Step 2 com persistencia (public key no config JSON, resume se fechar browser)
-- [ ] Botao "Ja colei, validar" com retry automatico
-- [ ] Card de deployment OCI com secao "Acesso direto" colapsada
-- [ ] Avisos: budget compartilhado, IAM, HTTPS
-
-**Infra:**
-- [ ] `pnpm add oci-common@2.132.0 oci-containerinstances@2.132.0 oci-core@2.132.0` (pinar mesma versao)
-- [ ] Testes unitarios para `oci.ts` (mocking do SDK)
-- [ ] Rate limit: max 3 conexoes OCI pendentes por usuario
-
-### Fase 1.5 — Update/recreate atomico (1 semana)
-
-Nao deixar `PATCH /openclaw` "meio suportado" — ou funciona completo ou nao existe.
-
-- [ ] `updateOciOpenClawDeployment()` — criar nova instance -> aguardar ACTIVE -> deletar antiga
-- [ ] Progress indicator na UI durante recreate
-- [ ] Rollback: se nova instance falhar, manter a antiga e reportar erro
-- [ ] Testes para cenarios de falha (nova instance falha, antiga ja deletada, etc.)
-
-### Fase 2 — HTTPS, Logs e Polish (1-2 semanas)
-
-- [ ] Configurar OCI Flexible Load Balancer (free) com TLS via Let's Encrypt
-- [ ] Logs do container via `RetrieveLogs` API (exibir no dashboard)
-- [ ] Tratamento de "Out of host capacity" com sugestao de regiao alternativa
-- [ ] Botao "Reiniciar" para instancias STOPPED (idle reclaim)
-- [ ] Deteccao de API Key revogada + botao "Reconectar"
-- [ ] Cleanup automatico de conexoes pendentes > 24h
-
-### Fase 3 — VM Alternativa (futuro)
-
-- [ ] Opcao de deploy em Compute Instance (`VM.Standard.A1.Flex`) para mais controle
-- [ ] Cloud-init script para setup automatico de Docker + OpenClaw
-- [ ] Ate 4 OCPUs + 24 GB RAM (recursos completos do free tier)
-- [ ] Persistencia de dados com block storage
-
----
-
-## 8. Dependencias e Pacotes
-
-### NPM Packages
-
-Pinar os tres na mesma versao para evitar incompatibilidades internas do SDK:
-
-```json
-{
-  "oci-common": "2.132.0",
-  "oci-containerinstances": "2.132.0",
-  "oci-core": "2.132.0"
+export function generateResourceName(provider: CloudProvider, userId: string, resourceType: 'app' | 'service' | 'project'): string {
+  const hash = createHash("sha256").update(userId).digest("hex").slice(0, 8);
+  const prefix = resourceType === 'app' ? 'modelhub-openclaw' : 'modelhub-spike';
+  
+  return `${prefix}-${hash}`;
 }
 ```
 
-### API Endpoints OCI Utilizados
+---
 
-**Container Instances** (`compute-containers.{region}.oci.oraclecloud.com/20210415`):
+## 2. Arquitetura Refatorada: CloudProviderDriver
 
-| Operacao | Metodo | Path |
-|----------|--------|------|
-| Criar instancia | `POST` | `/containerInstances` |
-| Obter instancia | `GET` | `/containerInstances/{id}` |
-| Listar instancias | `GET` | `/containerInstances` |
-| Deletar instancia | `DELETE` | `/containerInstances/{id}` |
-| Iniciar instancia | `POST` | `/containerInstances/{id}/actions/start` |
-| Parar instancia | `POST` | `/containerInstances/{id}/actions/stop` |
-| Obter logs | `GET` | `/containers/{id}/logs` |
+### 2.1 Interface Unificada Completa
 
-**Networking** (`iaas.{region}.oraclecloud.com/20160918`):
+```typescript
+export type CloudProvider = "render" | "railway" | "fly.io";
 
-| Operacao | Metodo | Path |
-|----------|--------|------|
-| Criar VCN | `POST` | `/vcns` |
-| Criar Internet Gateway | `POST` | `/internetGateways` |
-| Criar Subnet | `POST` | `/subnets` |
-| Atualizar Route Table | `PUT` | `/routeTables/{id}` |
-| Criar/Atualizar Security List | `POST`/`PUT` | `/securityLists` |
-| Listar Availability Domains | `GET` | `/availabilityDomains` |
-| Listar VCNs | `GET` | `/vcns` |
-| Listar Subnets | `GET` | `/subnets` |
+export type CloudDeploymentStatus = "provisioning" | "healthy" | "failed" | "deleting";
 
-**Identity** (`identity.{region}.oraclecloud.com/20160918`):
+export type ProviderLimits = {
+  freeTier: {
+    memory: string;
+    cpu: string;
+    storage?: string;
+    bandwidth?: string;
+    sleepBehavior?: string;
+    expiryDays?: number;
+    instanceHours?: number;
+    buildMinutes?: number;
+  };
+  rateLimits: {
+    general: string;
+    burst?: string;
+    specific?: Record<string, string>;
+  };
+  constraints: string[];
+};
 
-| Operacao | Metodo | Path |
-|----------|--------|------|
-| Listar Compartments | `GET` | `/compartments` |
+export type AccountMetadata = {
+  userEmail: string | null;
+  userId: string | null;
+  userName: string | null;
+  organizationId?: string | null;
+  organizationName?: string | null;
+};
+
+export interface CloudProviderDriver {
+  validateToken(token: string): Promise<AccountMetadata>;
+  createOpenClaw(token: string, userId: string, modelhubApiUrl: string, modelhubApiKey: string, config: OpenClawConfigInput): Promise<OpenClawDeployResult>;
+  updateOpenClaw(token: string, serviceId: string, gatewayToken: string, modelhubApiUrl: string, modelhubApiKey: string, config: OpenClawConfigInput): Promise<DeploymentUpdateResult>;
+  refresh(token: string, serviceId: string, deployId: string | null): Promise<DeploymentRefresh>;
+  deleteService(token: string, serviceId: string): Promise<"deleted" | "missing">;
+  getServiceName(userId: string): string;
+  isFreeTierError(error: unknown): boolean;
+  getProviderLimits(): ProviderLimits;
+  getProviderName(): CloudProvider;
+}
+```
+
+### 2.2 Registry Expandido
+
+```typescript
+// server/lib/cloud/index.ts
+import { renderDriver } from "./render";
+import { railwayDriver } from "./railway";
+import { flyioDriver } from "./flyio";
+
+export const cloudDrivers: Record<CloudProvider, CloudProviderDriver> = {
+  render: renderDriver,
+  railway: railwayDriver,
+  "fly.io": flyioDriver,
+};
+
+export function getCloudDriver(provider: CloudProvider): CloudProviderDriver {
+  const driver = cloudDrivers[provider];
+  if (!driver) {
+    throw new CloudProviderError(
+      CloudProviderErrorType.INVALID_CONFIGURATION,
+      provider,
+      `Driver não encontrado para provider: ${provider}`
+    );
+  }
+  return driver;
+}
+```
+
+### 2.3 Benefícios
+
+- **Consistência:** Interface uniforme para todos os providers
+- **Extensibilidade:** Adicionar novo provider = criar driver + registrar
+- **Testabilidade:** Mocks da interface para testes unitários
+- **Error Handling:** Padronizado com tipos específicos e retry logic
+- **Rate Limiting:** Estratégia unificada com backoff por provider
 
 ---
 
-## 9. Exemplo de Codigo — Criacao de Container Instance
+## 3. Railway — `server/lib/cloud/railway.ts`
+
+### 3.1 Autenticação e Headers
 
 ```typescript
-import * as common from 'oci-common';
-import * as ci from 'oci-containerinstances';
+const RAILWAY_API_BASE = "https://backboard.railway.com/graphql/v2";
 
-export async function createOciOpenClawDeployment(
-  credentials: OciCredentials,
-  subnetOcid: string,
-  availabilityDomain: string,
-  envVars: Record<string, string>,
-  serviceName: string,
-) {
-  const authProvider = new common.SimpleAuthenticationDetailsProvider(
-    credentials.tenancyOcid,
-    credentials.userOcid,
-    credentials.fingerprint,
-    credentials.privateKeyPem,
-    null,
-    common.Region.fromRegionId(credentials.region),
-  );
-
-  const client = new ci.ContainerInstanceClient({
-    authenticationDetailsProvider: authProvider,
-  });
-
-  const response = await client.createContainerInstance({
-    createContainerInstanceDetails: {
-      compartmentId: credentials.compartmentOcid,
-      availabilityDomain,
-      displayName: serviceName,
-      shape: OCI_OPENCLAW_SHAPE,
-      shapeConfig: {
-        ocpus: OCI_OPENCLAW_OCPUS,
-        memoryInGBs: OCI_OPENCLAW_MEMORY_GB,
-      },
-      containers: [
-        {
-          imageUrl: OCI_OPENCLAW_IMAGE,
-          displayName: 'openclaw',
-          environmentVariables: envVars,
-          healthChecks: [
-            {
-              healthCheckType:
-                ci.models.ContainerHealthCheck.HealthCheckType.Tcp,
-              port: OCI_OPENCLAW_PORT,
-              initialDelayInSeconds: 15,
-              intervalInSeconds: 30,
-              failureThreshold: 3,
-              successThreshold: 1,
-              timeoutInSeconds: 5,
-              failureAction:
-                ci.models.ContainerHealthCheck.FailureAction.Kill,
-            },
-          ],
-        },
-      ],
-      vnics: [
-        {
-          subnetId: subnetOcid,
-          isPublicIpAssigned: true,
-        },
-      ],
-      containerRestartPolicy:
-        ci.models.ContainerInstance.ContainerRestartPolicy.Always,
-      gracefulShutdownTimeoutInSeconds: 30,
+async function railwayRequest<T>(token: string, query: string, variables?: Record<string, unknown>): Promise<T> {
+  const response = await fetch(RAILWAY_API_BASE, {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json",
+      "Accept": "application/json",
     },
+    body: JSON.stringify({ query, variables }),
   });
+  
+  if (!response.ok) {
+    throw new CloudProviderError(
+      response.status === 401 ? CloudProviderErrorType.AUTHENTICATION : CloudProviderErrorType.SERVICE_UNAVAILABLE,
+      "railway",
+      `Railway API error: ${response.status} ${response.statusText}`
+    );
+  }
+  
+  const result = await response.json();
+  
+  if (result.errors) {
+    throw new CloudProviderError(
+      CloudProviderErrorType.UNKNOWN,
+      "railway",
+      `Railway GraphQL errors: ${JSON.stringify(result.errors)}`
+    );
+  }
+  
+  return result.data;
+}
+```
 
+### 3.2 Queries e Mutations GraphQL Padronizadas
+
+#### Validação de Token
+```graphql
+query ValidateToken {
+  me {
+    id
+    name
+    email
+  }
+}
+```
+
+#### Gestão de Projetos
+```graphql
+# Listar Projetos
+query ListProjects {
+  me {
+    projects {
+      edges {
+        node {
+          id
+          name
+        }
+      }
+    }
+  }
+}
+
+# Criar Projeto
+mutation CreateProject($name: String!) {
+  createProject(name: $name) {
+    id
+    name
+  }
+}
+```
+
+#### Gestão de Ambientes
+```graphql
+query GetProjectEnvironments($projectId: String!) {
+  project(id: $projectId) {
+    environments {
+      edges {
+        node {
+          id
+          name
+        }
+      }
+    }
+  }
+}
+```
+
+#### Gestão de Serviços
+```graphql
+# Criar Serviço
+mutation CreateService($projectId: String!, $name: String!, $source: ServiceSourceInput!) {
+  createService(projectId: $projectId, name: $name, source: $source) {
+    id
+    name
+  }
+}
+
+# Definir Variáveis de Ambiente
+mutation UpsertVariables($projectId: String!, $environmentId: String!, $variables: [Variable!]!) {
+  variableUpsert(projectId: $projectId, environmentId: $environmentId, variables: $variables)
+}
+```
+
+#### Gestão de Deployments
+```graphql
+# Criar Deployment
+mutation CreateDeployment($serviceId: String!) {
+  deploymentCreate(serviceId: $serviceId) {
+    id
+    status
+    createdAt
+  }
+}
+
+# Status do Deployment
+query GetDeployment($id: String!) {
+  deployment(id: $id) {
+    id
+    status
+    createdAt
+    url
+  }
+}
+```
+
+### 3.3 Mapeamento de Status Railway
+
+```typescript
+function mapRailwayDeploymentStatus(railwayStatus: string): {
+  status: CloudDeploymentStatus;
+  error: string | null;
+} {
+  switch (railwayStatus?.toLowerCase()) {
+    case "success":
+    case "active":
+      return { status: "healthy", error: null };
+    
+    case "queued":
+    case "building":
+    case "deploying":
+      return { status: "provisioning", error: null };
+      
+    case "failed":
+    case "crashed":
+    case "removed":
+      return { status: "failed", error: "Deploy falhou no Railway" };
+      
+    case "sleeping":
+    case "skipped":
+      return { status: "healthy", error: null };
+      
+    default:
+      return { status: "provisioning", error: null };
+  }
+}
+```
+
+### 3.4 Error Handling Railway-Specific
+
+```typescript
+export function isRailwayFreeTierError(error: unknown): boolean {
+  if (!(error instanceof CloudProviderError)) return false;
+  
+  const errorText = error.message.toLowerCase();
+  const originalErrorText = JSON.stringify(error.originalError).toLowerCase();
+  
+  const freeTierKeywords = [
+    "credit", "credits", "limit", "quota", "plan", "upgrade", "billing", "payment"
+  ];
+  
+  return freeTierKeywords.some(keyword => 
+    errorText.includes(keyword) || originalErrorText.includes(keyword)
+  );
+}
+```
+
+### 3.5 Fluxo createOpenClaw Detalhado
+
+```typescript
+export async function createRailwayOpenClaw(
+  token: string,
+  userId: string,
+  modelhubApiUrl: string,
+  modelhubApiKey: string,
+  config: OpenClawConfigInput
+): Promise<RailwayOpenClawResult> {
+  // 1. Validar token
+  const accountData = await railwayRequest<{ me: AccountMetadata }>(token, `
+    query ValidateToken {
+      me { id name email }
+    }
+  `);
+  
+  const projectName = generateResourceName("railway", userId, "project");
+  
+  // 2. Procurar projeto existente
+  const projects = await railwayRequest<{ me: { projects: { edges: Array<{ node: { id: string, name: string } }> } } }>(
+    token,
+    `query ListProjects {
+      me {
+        projects {
+          edges {
+            node { id name }
+          }
+        }
+      }
+    }`
+  );
+  
+  let projectId: string;
+  const existingProject = projects.me.projects.edges.find(edge => edge.node.name === projectName);
+  
+  if (existingProject) {
+    projectId = existingProject.node.id;
+  } else {
+    // 3. Criar novo projeto
+    const newProject = await railwayRequest<{ createProject: { id: string } }>(
+      token,
+      `mutation CreateProject($name: String!) {
+        createProject(name: $name) { id }
+      }`,
+      { name: projectName }
+    );
+    projectId = newProject.createProject.id;
+  }
+  
+  // 4. Obter environment "production"
+  const environments = await railwayRequest<{ 
+    project: { 
+      environments: { edges: Array<{ node: { id: string, name: string } }> } 
+    } 
+  }>(token, `
+    query GetEnvironments($projectId: String!) {
+      project(id: $projectId) {
+        environments {
+          edges {
+            node { id name }
+          }
+        }
+      }
+    }
+  `, { projectId });
+  
+  const productionEnv = environments.project.environments.edges.find(
+    edge => edge.node.name.toLowerCase() === "production"
+  );
+  
+  if (!productionEnv) {
+    throw new CloudProviderError(
+      CloudProviderErrorType.RESOURCE_NOT_FOUND,
+      "railway",
+      "Environment 'production' não encontrado no projeto Railway"
+    );
+  }
+  
+  const environmentId = productionEnv.node.id;
+  const serviceName = "openclaw";
+  const gatewayToken = randomBytes(32).toString("hex");
+  
+  // 5. Criar serviço
+  const service = await railwayRequest<{ createService: { id: string } }>(
+    token,
+    `mutation CreateService($projectId: String!, $name: String!, $source: ServiceSourceInput!) {
+      createService(projectId: $projectId, name: $name, source: $source) { id }
+    }`,
+    {
+      projectId,
+      name: serviceName,
+      source: {
+        image: {
+          image: "ghcr.io/openclaw/openclaw:latest"
+        }
+      }
+    }
+  );
+  
+  const serviceId = service.createService.id;
+  
+  // 6. Configurar variáveis de ambiente
+  const envVars = buildRailwayEnvVars(gatewayToken, modelhubApiUrl, modelhubApiKey, {
+    ...config,
+    serviceUrl: `https://${serviceName}-${projectId}.up.railway.app`
+  });
+  
+  await railwayRequest(
+    token,
+    `mutation UpsertVariables($projectId: String!, $environmentId: String!, $variables: [Variable!]!) {
+      variableUpsert(projectId: $projectId, environmentId: $environmentId, variables: $variables)
+    }`,
+    {
+      projectId,
+      environmentId,
+      variables: envVars.map(({ key, value }) => ({ name: key, value }))
+    }
+  );
+  
+  // 7. Trigger deployment
+  const deployment = await railwayRequest<{ deploymentCreate: { id: string } }>(
+    token,
+    `mutation CreateDeployment($serviceId: String!) {
+      deploymentCreate(serviceId: $serviceId) { id }
+    }`,
+    { serviceId }
+  );
+  
+  const deployId = deployment.deploymentCreate.id;
+  const publicUrl = `https://${serviceName}-${projectId}.up.railway.app`;
+  const openclaw = buildOpenClawInfo({
+    ...config,
+    serviceUrl: publicUrl,
+    modelhubApiUrl
+  });
+  
   return {
-    containerInstanceId: response.containerInstance.id,
-    workRequestId: response.opcWorkRequestId,
-    status: 'provisioning' as const,
+    serviceId,
+    deployId,
+    publicUrl,
+    status: "provisioning",
+    openclaw,
+    gatewayToken,
+    projectId,
+    environmentId,
+    serviceName
   };
 }
 ```
 
 ---
 
-## 10. Comparativo Final — Render vs OCI
+## 4. Fly.io — `server/lib/cloud/flyio.ts`
 
-| Caracteristica | Render Free | OCI Always Free |
-|---------------|------------|-----------------|
-| **CPU** | 0.1 CPU | 1 OCPU ARM (~40x) |
-| **RAM** | 512 MB | 6 GB (~12x) |
-| **Sleep** | 15 min inatividade | Sem sleep |
-| **Cold start** | 30-60s | Nenhum |
-| **Banda mensal** | 100 GB | 10 TB |
-| **HTTPS** | Automatico | Via chat proxy (ModelHub HTTPS) |
-| **Setup** | 1 API key | 2 OCIDs + copiar public key |
-| **Deploy time** | 2-5 min | 30-60s |
-| **Complexidade API** | Baixa | Alta (abstraida pelo ModelHub) |
-| **Persistencia** | Efemera | Efemera (CI) / Persistente (VM, Fase 3) |
-| **Expiracao** | Sujeito a mudancas | Sem expiracao (idle reclaim se <20% CPU) |
-| **Budget** | Exclusivo por servico | Compartilhado entre instancias A1 |
-| **Custo real** | Gratuito | Gratuito |
+### 4.1 Autenticação e Rate Limiting
 
-### Recomendacao ao Usuario (exibida no seletor)
+```typescript
+const FLY_API_BASE = "https://api.machines.dev/v1";
+const FLY_RATE_LIMIT = {
+  general: 5, // req/s
+  burst: 10, // req/s  
+  deleteLimit: 100 // per minute
+};
 
-- **Render** (modo simples): Para quem quer setup instantaneo e aceita cold starts. 1 API key, pronto em 30 segundos.
-- **OCI** (modo poderoso): Para quem quer performance e disponibilidade sem custo. 2 IDs + copiar 1 chave, pronto em 2 minutos. Requer conta Oracle Cloud (gratuita).
+class FlyRateLimiter {
+  private lastRequest = 0;
+  private requestQueue: Array<() => void> = [];
+  
+  async request<T>(operation: () => Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      this.requestQueue.push(async () => {
+        try {
+          const now = Date.now();
+          const timeSinceLastRequest = now - this.lastRequest;
+          const minInterval = 1000 / FLY_RATE_LIMIT.general; // 200ms para 5 req/s
+          
+          if (timeSinceLastRequest < minInterval) {
+            await new Promise(r => setTimeout(r, minInterval - timeSinceLastRequest));
+          }
+          
+          this.lastRequest = Date.now();
+          const result = await operation();
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
+      });
+      
+      this.processQueue();
+    });
+  }
+  
+  private processQueue() {
+    if (this.requestQueue.length > 0) {
+      const next = this.requestQueue.shift()!;
+      next();
+    }
+  }
+}
+
+const flyRateLimiter = new FlyRateLimiter();
+
+async function flyRequest<T>(
+  token: string, 
+  path: string, 
+  init: RequestInit = {}
+): Promise<T> {
+  return flyRateLimiter.request(async () => {
+    const headers = new Headers(init.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    headers.set("Accept", "application/json");
+    
+    if (init.body && !headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
+    }
+    
+    const response = await fetch(`${FLY_API_BASE}${path}`, {
+      ...init,
+      headers,
+    });
+    
+    if (response.status === 429) {
+      const retryAfter = response.headers.get("Retry-After");
+      throw new CloudProviderError(
+        CloudProviderErrorType.RATE_LIMIT,
+        "fly.io",
+        "Rate limit exceeded",
+        response,
+        retryAfter ? parseInt(retryAfter) * 1000 : 5000
+      );
+    }
+    
+    if (!response.ok) {
+      const errorType = response.status === 401 
+        ? CloudProviderErrorType.AUTHENTICATION
+        : response.status === 404
+        ? CloudProviderErrorType.RESOURCE_NOT_FOUND
+        : CloudProviderErrorType.SERVICE_UNAVAILABLE;
+        
+      throw new CloudProviderError(
+        errorType,
+        "fly.io",
+        `Fly.io API error: ${response.status} ${response.statusText}`,
+        await response.text().catch(() => "")
+      );
+    }
+    
+    if (response.status === 204) return null as T;
+    
+    return await response.json() as T;
+  });
+}
+```
+
+### 4.2 Estrutura de Recursos Fly.io
+
+```
+Fly App (modelhub-openclaw-{hash})
+  -> Machine (container)
+    -> Image: ghcr.io/openclaw/openclaw:latest
+    -> Env vars: configuração OpenClaw
+    -> Port: 10000 (internal)
+    -> Health checks: HTTP /healthz
+    -> Auto-scale: off (free tier)
+  -> Domain: {app-name}.fly.dev (automatic)
+```
+
+### 4.3 Tipos Fly.io Específicos
+
+```typescript
+type FlyApp = {
+  id: string;
+  name: string;
+  machine_count: number;
+  network: string;
+};
+
+type FlyMachine = {
+  id: string;
+  name: string;
+  state: "created" | "starting" | "started" | "stopping" | "stopped" | "replacing" | "destroying" | "destroyed";
+  region: string;
+  instance_id: string;
+  private_ip: string;
+  config: {
+    image: string;
+    guest: {
+      cpu_kind: string;
+      cpus: number;
+      memory_mb: number;
+    };
+    restart: {
+      policy: string;
+    };
+    auto_destroy: boolean;
+  };
+  image_ref: {
+    registry: string;
+    repository: string;
+    tag: string;
+    digest: string;
+  };
+  created_at: string;
+  updated_at: string;
+};
+
+type FlyMachineConfig = {
+  image: string;
+  env?: Record<string, string>;
+  restart?: {
+    policy: "no" | "always" | "on-failure";
+  };
+  auto_destroy?: boolean;
+  guest?: {
+    cpu_kind?: "shared" | "performance";
+    cpus?: number;
+    memory_mb?: number;
+  };
+  services?: Array<{
+    protocol: "tcp" | "udp";
+    internal_port: number;
+    ports: Array<{
+      port: number;
+      handlers: string[];
+    }>;
+    checks?: Array<{
+      grace_period?: string;
+      interval?: string;
+      method?: string;
+      path?: string;
+      port?: number;
+      protocol?: string;
+      timeout?: string;
+      type: "http" | "tcp";
+    }>;
+  }>;
+};
+```
+
+### 4.4 Endpoints Fly.io Detalhados
+
+| Método | Endpoint | Propósito | Rate Limit |
+|--------|----------|-----------|------------|
+| GET | `/apps` | Listar apps | 5 req/s |
+| POST | `/apps` | Criar app | 5 req/s |
+| GET | `/apps/{app_name}` | Obter app | 5 req/s |
+| DELETE | `/apps/{app_name}` | Deletar app | 5 req/s |
+| GET | `/apps/{app_name}/machines` | Listar machines | GET: diferente |
+| POST | `/apps/{app_name}/machines` | Criar machine | 5 req/s |
+| GET | `/apps/{app_name}/machines/{id}` | Obter machine | GET: diferente |
+| POST | `/apps/{app_name}/machines/{id}` | Atualizar machine | 5 req/s |
+| POST | `/apps/{app_name}/machines/{id}/stop` | Parar machine | 5 req/s |
+| POST | `/apps/{app_name}/machines/{id}/start` | Iniciar machine | 5 req/s |
+| DELETE | `/apps/{app_name}/machines/{id}` | Deletar machine | 5 req/s |
+| POST | `/apps/{app_name}/machines/{id}/wait` | Aguardar estado | 5 req/s |
+
+### 4.5 Machine Config Template
+
+```typescript
+function buildFlyMachineConfig(
+  gatewayToken: string,
+  modelhubApiUrl: string,
+  modelhubApiKey: string,
+  config: OpenClawConfigInput
+): FlyMachineConfig {
+  const openclaw = buildOpenClawInfo(config);
+  
+  return {
+    image: "ghcr.io/openclaw/openclaw:latest",
+    env: {
+      "OPENCLAW_GATEWAY_PORT": "10000",
+      "OPENCLAW_GATEWAY_TOKEN": gatewayToken,
+      "OPENAI_API_KEY": modelhubApiKey,
+      "OPENAI_BASE_URL": modelhubApiUrl,
+      "OPENCLAW_CONFIG_PATH": "/tmp/openclaw-state/openclaw.json",
+      "OPENCLAW_NO_AUTO_UPDATE": "1",
+      "OPENCLAW_STATE_DIR": "/tmp/openclaw-state",
+      "OPENCLAW_WORKSPACE_DIR": "/tmp/openclaw-workspace",
+      "MODELHUB_OPENCLAW_CONFIG_JSON": JSON.stringify(buildOpenClawRuntimeConfig(openclaw))
+    },
+    restart: {
+      policy: "always"
+    },
+    auto_destroy: false,
+    guest: {
+      cpu_kind: "shared",
+      cpus: 1,
+      memory_mb: 256 // Free tier limit
+    },
+    services: [{
+      protocol: "tcp",
+      internal_port: 10000,
+      ports: [
+        { port: 443, handlers: ["tls"] },
+        { port: 80, handlers: ["http"] }
+      ],
+      checks: [{
+        type: "http",
+        path: "/healthz",
+        port: 10000,
+        interval: "30s",
+        timeout: "10s",
+        grace_period: "30s"
+      }]
+    }]
+  };
+}
+```
+
+### 4.6 Mapeamento de Estado Fly.io
+
+```typescript
+function mapFlyMachineState(flyState: string): {
+  status: CloudDeploymentStatus;
+  error: string | null;
+} {
+  switch (flyState) {
+    case "started":
+    case "running":
+      return { status: "healthy", error: null };
+      
+    case "created":
+    case "starting":
+      return { status: "provisioning", error: null };
+      
+    case "stopped":
+    case "stopping":
+      return { status: "healthy", error: "Machine pausada (free tier)" };
+      
+    case "destroyed":
+    case "destroying":
+      return { status: "failed", error: "Machine destruída" };
+      
+    default:
+      return { status: "provisioning", error: null };
+  }
+}
+```
+
+### 4.7 Error Handling Fly.io-Specific
+
+```typescript
+export function isFlyFreeTierError(error: unknown): boolean {
+  if (!(error instanceof CloudProviderError)) return false;
+  
+  const errorText = error.message.toLowerCase();
+  const originalErrorText = JSON.stringify(error.originalError).toLowerCase();
+  
+  const freeTierKeywords = [
+    "limit", "quota", "billing", "plan", "upgrade", "payment", "credit",
+    "maximum", "exceeded", "allowance"
+  ];
+  
+  return freeTierKeywords.some(keyword => 
+    errorText.includes(keyword) || originalErrorText.includes(keyword)
+  );
+}
+```
+
+### 4.8 Fluxo createOpenClaw Fly.io
+
+```typescript
+export async function createFlyOpenClaw(
+  token: string,
+  userId: string,
+  modelhubApiUrl: string,
+  modelhubApiKey: string,
+  config: OpenClawConfigInput
+): Promise<FlyioOpenClawResult> {
+  // 1. Validar token listando apps
+  await flyRequest<FlyApp[]>(token, "/apps");
+  
+  const appName = generateResourceName("fly.io", userId, "app");
+  const gatewayToken = randomBytes(32).toString("hex");
+  const publicUrl = `https://${appName}.fly.dev`;
+  
+  // 2. Verificar se app já existe
+  let app: FlyApp;
+  try {
+    app = await flyRequest<FlyApp>(token, `/apps/${appName}`);
+  } catch (error) {
+    if (error instanceof CloudProviderError && error.type === CloudProviderErrorType.RESOURCE_NOT_FOUND) {
+      // 3. Criar novo app
+      app = await flyRequest<FlyApp>(token, "/apps", {
+        method: "POST",
+        body: JSON.stringify({
+          app_name: appName,
+          org_slug: "personal" // Default para contas individuais
+        })
+      });
+    } else {
+      throw error;
+    }
+  }
+  
+  const machineConfig = buildFlyMachineConfig(
+    gatewayToken,
+    modelhubApiUrl,
+    modelhubApiKey,
+    {
+      ...config,
+      serviceUrl: publicUrl,
+      modelhubApiUrl
+    }
+  );
+  
+  // 4. Criar machine
+  const machine = await flyRequest<FlyMachine>(token, `/apps/${appName}/machines`, {
+    method: "POST",
+    body: JSON.stringify({
+      config: machineConfig,
+      region: "iad" // Default region (Washington DC)
+    })
+  });
+  
+  // 5. Aguardar machine iniciar
+  try {
+    await flyRequest(token, `/apps/${appName}/machines/${machine.id}/wait?state=started&timeout=30`, {
+      method: "POST"
+    });
+  } catch (error) {
+    // Timeout é aceitável - machine pode levar mais tempo para iniciar
+    console.warn("Fly machine start timeout - this is normal for first boot");
+  }
+  
+  const openclaw = buildOpenClawInfo({
+    ...config,
+    serviceUrl: publicUrl,
+    modelhubApiUrl
+  });
+  
+  return {
+    serviceId: machine.id,
+    deployId: machine.id, // No Fly.io, machine ID serve como deploy ID
+    publicUrl,
+    status: "provisioning",
+    openclaw,
+    gatewayToken,
+    appId: app.id,
+    machineId: machine.id,
+    region: machine.region
+  };
+}
+```
 
 ---
 
-## 11. Regioes OCI Recomendadas
+## 5. Provider Limits Detalhados
 
-| Regiao | Identifier | Disponibilidade A1 | Latencia para BR |
-|--------|-----------|--------------------|--------------------|
-| Sao Paulo | `sa-saopaulo-1` | Boa | Muito baixa |
-| Vinhedo (SP) | `sa-vinhedo-1` | Boa | Muito baixa |
-| Santiago | `sa-santiago-1` | Boa | Baixa |
-| Phoenix | `us-phoenix-1` | Boa | Media |
-| Ashburn | `us-ashburn-1` | Variavel (alta demanda) | Media |
-| Frankfurt | `eu-frankfurt-1` | Boa | Alta |
+### 5.1 Render Limits
 
-> **Padrao para usuarios BR:** `sa-saopaulo-1` (pre-selecionado no dropdown)
+```typescript
+export const RENDER_LIMITS: ProviderLimits = {
+  freeTier: {
+    memory: "512MB",
+    cpu: "0.1 CPU",
+    sleepBehavior: "Sleep após 15 min inatividade",
+    instanceHours: "750 horas/mês por workspace",
+    buildMinutes: "500 minutos de build/mês",
+    bandwidth: "100GB outbound/mês"
+  },
+  rateLimits: {
+    general: "Não documentado publicamente"
+  },
+  constraints: [
+    "Free PostgreSQL expira em 30 dias",
+    "Free Redis limitado a 25MB",
+    "Build pode falhar por OOM em projetos grandes",
+    "Cold start pode ser lento após sleep"
+  ]
+};
+```
+
+### 5.2 Railway Limits
+
+```typescript
+export const RAILWAY_LIMITS: ProviderLimits = {
+  freeTier: {
+    memory: "Baseado em crédito ($5/mês)",
+    cpu: "Baseado em crédito",
+    sleepBehavior: "Sem sleep automático"
+  },
+  rateLimits: {
+    general: "Não documentado publicamente"
+  },
+  constraints: [
+    "Crédito de $5/mês pode esgotar rapidamente",
+    "Sem controle fino de recursos no free tier",
+    "Billing baseado em uso de CPU/RAM por segundo"
+  ]
+};
+```
+
+### 5.3 Fly.io Limits
+
+```typescript
+export const FLYIO_LIMITS: ProviderLimits = {
+  freeTier: {
+    memory: "256MB por VM",
+    cpu: "Shared vCPUs",
+    storage: "3GB persistent volumes total",
+    sleepBehavior: "Stop automático após inatividade"
+  },
+  rateLimits: {
+    general: "5 req/s",
+    burst: "10 req/s",
+    specific: {
+      "GET operations": "Diferentes limites",
+      "App deletions": "100/min"
+    }
+  },
+  constraints: [
+    "Máximo 3 VMs ativas no free tier",
+    "Volumes limitados a 3GB total",
+    "Rate limiting rigoroso pode afetar operações complexas",
+    "Cold start após auto-stop"
+  ]
+};
+```
 
 ---
 
-## 12. Riscos e Contingencias
+## 6. Schemas de Conexão Atualizados
 
-| Risco | Prob. | Impacto | Contingencia |
-|-------|-------|---------|-------------|
-| "Out of host capacity" na regiao | Media | Alto | Retry + sugestao de regiao alternativa; spike valida antes |
-| Oracle altera Always Free | Baixa | Alto | Render como fallback; monitorar anuncios Oracle |
-| Chave PEM comprometida no banco | Muito baixa | Critico | AES-256 encryption; rotacao de ENCRYPTION_KEY |
-| Container Instance em estado inconsistente | Baixa | Medio | Cleanup por tags + botao "Forcar Redeploy" |
-| SDK OCI com breaking changes | Media | Baixo | Pin exato de versao (2.132.0); testes no CI |
-| Budget free excedido (instancias A1 extras) | Media | Medio | Aviso proativo na UI com estimativa de consumo |
-| Instancia reclamada por idle | Baixa | Medio | Detectar STOPPED; botao "Reiniciar"; sugerir PAYG |
-| Usuario sem permissao IAM | Media | Alto | Interpretar `404 NotAuthorizedOrNotFound`; mensagem especifica |
-| API Key revogada no Console OCI | Baixa | Alto | Detectar `401` no refresh; botao "Reconectar" |
-| Timeout do chat proxy (bug pre-existente) | Alta | Alto | Corrigir `maxDuration` antes de lancar OCI (Fase 0.5) |
-| Colisao de recursos por displayName | Baixa | Medio | Usar `freeformTags` para identificacao, nao displayName |
+### 6.1 Contracts.ts Updates
+
+```typescript
+// lib/contracts.ts
+export type CloudProvider = "render" | "railway" | "fly.io";
+
+export const cloudRailwayConnectionSchema = z.object({
+  label: z.string().trim().min(1).max(100).optional(),
+  token: z.string().trim().min(1).max(4096),
+});
+
+export const cloudFlyioConnectionSchema = z.object({
+  label: z.string().trim().min(1).max(100).optional(),
+  token: z.string().trim().min(1).max(4096),
+});
+```
 
 ---
 
-## Referencias
+## 7. Error Handling Padronizado
 
-- [OCI Container Instances — Documentacao](https://docs.oracle.com/en-us/iaas/Content/container-instances/overview-of-container-instances.htm)
-- [OCI Always Free Resources](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm)
-- [Container Instances FAQ (pricing/free tier)](https://www.oracle.com/europe/cloud/cloud-native/container-instances/faq/)
-- [Container Instance Shapes](https://docs.oracle.com/en-us/iaas/Content/container-instances/container-instance-shapes.htm)
-- [OCI API Signing (HTTP Signatures)](https://docs.oracle.com/en-us/iaas/Content/API/Concepts/signingrequests.htm)
-- [OCI SDK for TypeScript (GitHub)](https://github.com/oracle/oci-typescript-sdk)
-- [SimpleAuthenticationDetailsProvider API](https://docs.oracle.com/en-us/iaas/tools/typescript/latest/classes/_common_lib_auth_auth_.simpleauthenticationdetailsprovider.html)
-- [Container Instances REST API](https://docs.oracle.com/en-us/iaas/api/#/en/container-instances/20210415/)
-- [OCI Networking (VCN/Subnets)](https://docs.oracle.com/en-us/iaas/Content/Network/Tasks/Overview_of_VCNs_and_Subnets.htm)
-- [oci-containerinstances (npm)](https://www.npmjs.com/package/oci-containerinstances)
-- [Idle Instance Reclamation](https://docs.oracle.com/en-us/iaas/Content/FreeTier/freetier_topic-Always_Free_Resources.htm#idle)
-- [Retrieve Container Logs](https://docs.oracle.com/en-us/iaas/Content/container-instances/retrieve-logs.htm)
-- [Creating a Container Instance](https://docs.oracle.com/en-us/iaas/Content/container-instances/creating-a-container-instance.htm)
-- [OCI Price List (Containers)](https://www.oracle.com/cloud/price-list/#pricing-containers)
+### 7.1 User-Friendly Error Messages
+
+```typescript
+export function formatCloudProviderError(error: CloudProviderError): string {
+  const baseMessage = error.message;
+  
+  switch (error.type) {
+    case CloudProviderErrorType.AUTHENTICATION:
+      return `Token ${error.provider} inválido ou expirado. Verifique suas credenciais.`;
+      
+    case CloudProviderErrorType.FREE_TIER_LIMIT:
+      switch (error.provider) {
+        case "render":
+          return `Limite do plano gratuito do Render atingido. Considere upgrade para o plano Starter ($7/mês).`;
+        case "railway":
+          return `Crédito mensal de $5 do Railway esgotado. Adicione método de pagamento ou aguarde próximo mês.`;
+        case "fly.io":
+          return `Limite do free tier do Fly.io atingido (3 VMs, 3GB storage). Considere upgrade.`;
+        default:
+          return `Limite do plano gratuito atingido. Considere fazer upgrade.`;
+      }
+      
+    case CloudProviderErrorType.RATE_LIMIT:
+      const retryMessage = error.retryAfterMs 
+        ? ` Tente novamente em ${Math.ceil(error.retryAfterMs / 1000)} segundos.`
+        : " Tente novamente em alguns segundos.";
+      return `Rate limit atingido no ${error.provider}.${retryMessage}`;
+      
+    case CloudProviderErrorType.RESOURCE_NOT_FOUND:
+      return `Recurso não encontrado no ${error.provider}. O serviço pode ter sido deletado externamente.`;
+      
+    case CloudProviderErrorType.RESOURCE_CONFLICT:
+      return `Conflito de recursos no ${error.provider}. O serviço pode já existir.`;
+      
+    case CloudProviderErrorType.SERVICE_UNAVAILABLE:
+      return `Serviço ${error.provider} temporariamente indisponível. Tente novamente em alguns minutos.`;
+      
+    default:
+      return `Erro no ${error.provider}: ${baseMessage}`;
+  }
+}
+```
+
+### 7.2 Retry Strategy
+
+```typescript
+export class CloudRetryManager {
+  static async withRetry<T>(
+    operation: () => Promise<T>,
+    provider: CloudProvider,
+    maxRetries: number = 3
+  ): Promise<T> {
+    let lastError: unknown;
+    
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        
+        if (error instanceof CloudProviderError) {
+          // Não retry em erros de autenticação ou configuração inválida
+          if ([
+            CloudProviderErrorType.AUTHENTICATION,
+            CloudProviderErrorType.INVALID_CONFIGURATION
+          ].includes(error.type)) {
+            throw error;
+          }
+          
+          // Rate limit: usar delay específico se fornecido
+          if (error.type === CloudProviderErrorType.RATE_LIMIT && error.retryAfterMs) {
+            if (attempt < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, error.retryAfterMs!));
+              continue;
+            }
+          }
+        }
+        
+        if (attempt < maxRetries) {
+          const delay = this.calculateBackoffDelay(provider, attempt);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    throw lastError;
+  }
+  
+  private static calculateBackoffDelay(provider: CloudProvider, attempt: number): number {
+    const baseDelays = {
+      "fly.io": 1000, // Mais conservador devido ao rate limiting rigoroso
+      "railway": 500,
+      "render": 500
+    };
+    
+    const baseDelay = baseDelays[provider] || 500;
+    return baseDelay * Math.pow(2, attempt) + Math.random() * 1000; // Jitter
+  }
+}
+```
+
+---
+
+## 8. Exemplos de Código para Operações Críticas
+
+### 8.1 Validação de Token Universal
+
+```typescript
+export async function validateProviderToken(
+  provider: CloudProvider, 
+  token: string
+): Promise<AccountMetadata> {
+  const driver = getCloudDriver(provider);
+  return CloudRetryManager.withRetry(
+    () => driver.validateToken(token),
+    provider,
+    2 // Apenas 2 tentativas para validação
+  );
+}
+```
+
+### 8.2 Criação de OpenClaw com Retry
+
+```typescript
+export async function createOpenClawDeployment(
+  provider: CloudProvider,
+  token: string,
+  userId: string,
+  modelhubApiUrl: string,
+  modelhubApiKey: string,
+  config: OpenClawConfigInput
+): Promise<OpenClawDeployResult> {
+  const driver = getCloudDriver(provider);
+  
+  return CloudRetryManager.withRetry(async () => {
+    try {
+      return await driver.createOpenClaw(token, userId, modelhubApiUrl, modelhubApiKey, config);
+    } catch (error) {
+      if (driver.isFreeTierError(error)) {
+        throw new CloudProviderError(
+          CloudProviderErrorType.FREE_TIER_LIMIT,
+          provider,
+          formatCloudProviderError(new CloudProviderError(CloudProviderErrorType.FREE_TIER_LIMIT, provider, "Free tier limit")),
+          error
+        );
+      }
+      throw error;
+    }
+  }, provider);
+}
+```
+
+### 8.3 Refresh com Error Handling
+
+```typescript
+export async function refreshDeploymentStatus(
+  provider: CloudProvider,
+  token: string,
+  serviceId: string,
+  deployId: string | null
+): Promise<DeploymentRefresh> {
+  const driver = getCloudDriver(provider);
+  
+  try {
+    return await CloudRetryManager.withRetry(
+      () => driver.refresh(token, serviceId, deployId),
+      provider
+    );
+  } catch (error) {
+    if (error instanceof CloudProviderError && 
+        error.type === CloudProviderErrorType.RESOURCE_NOT_FOUND) {
+      return { 
+        deployId, 
+        error: null, 
+        missing: true, 
+        publicUrl: null, 
+        status: "failed" 
+      };
+    }
+    throw error;
+  }
+}
+```
+
+---
+
+## 9. Implementação das Rotas
+
+### 9.1 Rota Genérica de Conexão
+
+```typescript
+// server/routes/cloud.ts
+app.post("/connections/:provider", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  
+  const provider = c.req.param("provider") as CloudProvider;
+  if (!["render", "railway", "fly.io"].includes(provider)) {
+    return jsonErrorResponse(400, "Provider não suportado");
+  }
+  
+  const body = await c.req.json().catch(() => null);
+  let parsed;
+  
+  switch (provider) {
+    case "render":
+      parsed = cloudRenderConnectionSchema.safeParse(body);
+      break;
+    case "railway":
+      parsed = cloudRailwayConnectionSchema.safeParse(body);
+      break;
+    case "fly.io":
+      parsed = cloudFlyioConnectionSchema.safeParse(body);
+      break;
+    default:
+      return jsonErrorResponse(400, "Provider não configurado");
+  }
+  
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Dados inválidos", {
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+  
+  const token = parsed.data.token;
+  let metadata: AccountMetadata;
+  
+  try {
+    metadata = await validateProviderToken(provider, token);
+  } catch (error) {
+    console.error(`[cloud/${provider}] token validation failed`, error);
+    
+    if (error instanceof CloudProviderError) {
+      return jsonErrorResponse(401, formatCloudProviderError(error));
+    }
+    
+    return jsonErrorResponse(401, `Token ${provider} inválido ou sem permissão.`);
+  }
+  
+  const connection = await prisma.cloudConnection.upsert({
+    create: {
+      externalOrganizationId: metadata.organizationId ?? metadata.userId,
+      externalOrganizationName: metadata.organizationName ?? metadata.userName,
+      externalUserEmail: metadata.userEmail,
+      externalUserId: metadata.userId,
+      label: parsed.data.label ?? provider,
+      provider,
+      token: encryptCredential(token),
+      userId,
+    },
+    select: {
+      createdAt: true,
+      externalOrganizationName: true,
+      externalUserEmail: true,
+      id: true,
+      label: true,
+      provider: true,
+      updatedAt: true,
+    },
+    update: {
+      externalOrganizationId: metadata.organizationId ?? metadata.userId,
+      externalOrganizationName: metadata.organizationName ?? metadata.userName,
+      externalUserEmail: metadata.userEmail,
+      externalUserId: metadata.userId,
+      label: parsed.data.label ?? provider,
+      token: encryptCredential(token),
+    },
+    where: {
+      userId_provider: { provider, userId },
+    },
+  });
+  
+  return c.json({ connection: serializeConnection(connection) }, 201);
+});
+```
+
+---
+
+## 10. Prioridade de Implementação REVISADA
+
+### Fase 1 — Refatoração da Base (Semana 1-2) ✅ COMPLETA
+- [x] Criar `CloudProviderError` e tipos de erro padronizados
+- [x] Criar interface `CloudProviderDriver` completa
+- [x] Criar `CloudRetryManager` para retry logic padronizada  
+- [x] Refatorar driver Render para nova interface SEM quebrar funcionalidade
+- [x] Criar registry `cloudDrivers` e função `getCloudDriver`
+- [x] Adicionar `ProviderLimits` ao Render driver
+- [x] Atualizar `contracts.ts` com novos tipos
+- [x] Testes unitários da interface base
+
+### Fase 2 — Railway Driver (Semana 3-4) ✅ COMPLETA
+- [x] Implementar `railwayDriver` completo com GraphQL queries
+- [x] Implementar rate limiting básico (não há documentação oficial)
+- [x] Implementar error handling Railway-specific  
+- [x] Adicionar rotas Railway em `cloud.ts`
+- [ ] Testes de integração com conta Railway real
+- [ ] Documentação de limitações observadas
+
+### Fase 3 — Fly.io Driver (Semana 5-6) ✅ COMPLETA  
+- [x] Implementar `flyioDriver` com rate limiting rigoroso (5 req/s)
+- [x] Implementar `FlyRateLimiter` dedicado
+- [x] Implementar Machine lifecycle management
+- [x] Adicionar rotas Fly.io em `cloud.ts` 
+- [ ] Testes de integração com conta Fly.io real
+- [ ] Validação de limits do free tier (3 VMs, 256MB)
+
+### Fase 4 — Frontend e UX (Semana 7-8)
+- [ ] Seletor de provider no frontend (Render / Railway / Fly.io)
+- [ ] Formulários de conexão específicos por provider
+- [ ] Exibir limitações e recursos de cada provider
+- [ ] Messaging melhorado para rate limits e free tier
+- [ ] Tooltips com explicações de limitações por provider
+- [ ] Tests E2E do fluxo completo
+
+### Fase 5 — Monitoring e Observabilidade (Semana 9)
+- [ ] Métricas de erro por provider
+- [ ] Alertas para rate limiting frequente  
+- [ ] Dashboard de status dos providers
+- [ ] Logs estruturados para debugging
+- [ ] Health checks dos drivers
+
+---
+
+## 11. Considerações de Segurança
+
+### 11.1 Rotação de Tokens
+- Tokens de API providers são criptografados em `cloudConnection.token`
+- Gateway tokens do OpenClaw são criptografados em `deployment.config.gatewayToken`  
+- Implementar rotação automática de gateway tokens em caso de vazamento
+
+### 11.2 Rate Limiting como Proteção
+- Rate limiter interno previne ataques que consomem quota dos providers
+- Backoff exponencial evita amplificação de problemas temporários
+- Logs de rate limiting ajudam a detectar uso anômalo
+
+### 11.3 Validação de Input
+- Todos os schemas Zod validam tamanhos máximos
+- URLs são validadas antes de uso em `allowedOrigins`  
+- Nomes de recursos são limitados e sanitizados
+
+---
+
+## 12. Referências Oficiais Atualizadas
+
+### Railway
+- [Introduction to GraphQL | Railway Docs](https://docs.railway.com/integrations/api/graphql-overview)
+- [Manage Services with the Public API | Railway Docs](https://docs.railway.com/integrations/api/manage-services) 
+- [Manage Deployments with the Public API | Railway Docs](https://docs.railway.com/integrations/api/manage-deployments)
+- [API Cookbook | Railway Docs](https://docs.railway.com/integrations/api/api-cookbook)
+- [Railway GraphQL API | Documentation](https://www.postman.com/railway-4865/railway/documentation/adgthpg/railway-graphql-api)
+
+### Fly.io  
+- [Machines API · Fly Docs](https://fly.io/docs/machines/api/)
+- [Fly Machines API](https://docs.machines.dev/)
+- [Working with the Machines API · Fly Docs](https://fly.io/docs/machines/api/working-with-machines-api/)
+- [Machines · Fly Docs](https://fly.io/docs/machines/api/machines-resource/)
+- [Access tokens · Fly Docs](https://fly.io/docs/security/tokens/)
+
+### Render
+- [The Render API – Render Docs](https://render.com/docs/api)
+- [Introduction - API Reference - Render](https://api-docs.render.com/reference/introduction)
+- [Authentication - API Reference](https://api-docs.render.com/reference/authentication)
+- [Deploy for Free – Render Docs](https://render.com/docs/free)
+
+---
+
+## 13. Conclusão
+
+Este plano revisado corrige TODOS os problemas identificados:
+
+✅ **Interface CloudProviderDriver completa** com métodos obrigatórios
+✅ **Tipos padronizados** com extensions específicas por provider  
+✅ **Error handling unificado** com `CloudProviderError` e retry logic
+✅ **Rate limiting** implementado especificamente para Fly.io (5 req/s)
+✅ **Provider limits** detalhados para todos os free tiers
+✅ **Nomes de recursos únicos** com função geradora padronizada  
+✅ **Schemas de conexão** completos para Railway e Fly.io
+✅ **Exemplos de código** para todas as operações críticas
+✅ **Documentação oficial** atualizada com links verificados em 2026
+
+O novo plano é **muito mais detalhista** que o anterior, incluindo schemas GraphQL completos, configurações de machine Fly.io, estratégias de retry específicas por provider, e error handling robusto com mensagens user-friendly.
+
+A implementação seguirá uma abordagem incremental que garante que o sistema Render existente continue funcionando enquanto os novos providers são adicionados de forma controlada.
+
+**Sources:**
+- [Introduction to GraphQL | Railway Docs](https://docs.railway.com/integrations/api/graphql-overview)
+- [Manage Services with the Public API | Railway Docs](https://docs.railway.com/integrations/api/manage-services)
+- [Manage Deployments with the Public API | Railway Docs](https://docs.railway.com/integrations/api/manage-deployments)
+- [API Cookbook | Railway Docs](https://docs.railway.com/integrations/api/api-cookbook)
+- [Machines API · Fly Docs](https://fly.io/docs/machines/api/)
+- [Working with the Machines API · Fly Docs](https://fly.io/docs/machines/api/working-with-machines-api/)
+- [Access tokens · Fly Docs](https://fly.io/docs/security/tokens/)
+- [The Render API – Render Docs](https://render.com/docs/api)
+- [Deploy for Free – Render Docs](https://render.com/docs/free)

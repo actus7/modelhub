@@ -1,6 +1,20 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { CloudDeploymentStatus } from "@/lib/contracts";
+import type {
+  CloudProviderDriver,
+  CloudProvider,
+  ProviderLimits,
+  AccountMetadata,
+  OpenClawConfigInput,
+  OpenClawInfo,
+  OpenClawDeployResult,
+  DeploymentUpdateResult,
+  DeploymentRefresh,
+  RenderOpenClawResult,
+  CloudProviderError,
+  CloudProviderErrorType
+} from "./driver";
 
 const RENDER_API_BASE = "https://api.render.com/v1";
 export const RENDER_PROVIDER = "render" as const;
@@ -500,7 +514,7 @@ export function buildOpenClawInfo(input: OpenClawConfigInput): RenderOpenClawInf
   };
 }
 
-function buildOpenClawRuntimeConfig(openclaw: RenderOpenClawInfo) {
+export function buildOpenClawRuntimeConfig(openclaw: RenderOpenClawInfo) {
   const modelReference = `modelhub/${openclaw.model}`;
   return {
     agents: {
@@ -722,3 +736,222 @@ export async function deleteRenderService(token: string, serviceId: string): Pro
     throw error;
   }
 }
+
+// Provider limits for Render
+export const RENDER_LIMITS: ProviderLimits = {
+  freeTier: {
+    memory: "512MB",
+    cpu: "0.1 CPU",
+    sleepBehavior: "Sleep após 15 min inatividade",
+    instanceHours: 750,
+    buildMinutes: 500,
+    bandwidth: "100GB outbound/mês"
+  },
+  rateLimits: {
+    general: "Não documentado publicamente"
+  },
+  constraints: [
+    "Free PostgreSQL expira em 30 dias",
+    "Free Redis limitado a 25MB",
+    "Build pode falhar por OOM em projetos grandes",
+    "Cold start pode ser lento após sleep"
+  ]
+};
+
+// Adapter functions to convert between old and new types
+function convertRenderAccountToAccountMetadata(renderAccount: RenderAccountMetadata): AccountMetadata {
+  return {
+    userEmail: renderAccount.ownerEmail,
+    userId: renderAccount.ownerId,
+    userName: renderAccount.ownerName,
+    organizationId: renderAccount.ownerId,
+    organizationName: renderAccount.ownerName
+  };
+}
+
+function convertRenderOpenClawToOpenClawInfo(renderOpenclaw: RenderOpenClawInfo): OpenClawInfo {
+  return {
+    allowedOrigins: renderOpenclaw.allowedOrigins,
+    controlUiUrl: renderOpenclaw.controlUiUrl,
+    healthUrl: renderOpenclaw.healthUrl,
+    model: renderOpenclaw.model,
+    modelhubApiUrl: renderOpenclaw.modelhubApiUrl,
+    provider: renderOpenclaw.provider,
+    readyUrl: renderOpenclaw.readyUrl,
+    webSocketUrl: renderOpenclaw.webSocketUrl
+  };
+}
+
+function convertRenderDeploymentToOpenClawResult(renderDeployment: RenderOpenClawDeployment): RenderOpenClawResult {
+  return {
+    serviceId: renderDeployment.serviceId,
+    deployId: renderDeployment.deployId,
+    publicUrl: renderDeployment.publicUrl,
+    status: renderDeployment.status,
+    openclaw: convertRenderOpenClawToOpenClawInfo(renderDeployment.openclaw),
+    gatewayToken: renderDeployment.gatewayToken,
+    ownerId: renderDeployment.ownerId,
+    ownerName: renderDeployment.ownerName,
+    serviceName: renderDeployment.serviceName
+  };
+}
+
+function convertRenderRefreshToDeploymentRefresh(renderRefresh: RenderDeploymentRefresh): DeploymentRefresh {
+  return {
+    deployId: renderRefresh.deployId,
+    error: renderRefresh.error,
+    missing: renderRefresh.missing,
+    publicUrl: renderRefresh.publicUrl,
+    status: renderRefresh.status
+  };
+}
+
+// CloudProviderDriver implementation for Render
+export const renderDriver: CloudProviderDriver = {
+  async validateToken(token: string): Promise<AccountMetadata> {
+    try {
+      const renderAccount = await validateRenderToken(token);
+      return convertRenderAccountToAccountMetadata(renderAccount);
+    } catch (error) {
+      if (error instanceof RenderApiError) {
+        throw new CloudProviderError(
+          error.status === 401 || error.status === 403
+            ? CloudProviderErrorType.AUTHENTICATION
+            : CloudProviderErrorType.SERVICE_UNAVAILABLE,
+          "render",
+          error.message,
+          error
+        );
+      }
+      throw error;
+    }
+  },
+
+  async createOpenClaw(
+    token: string,
+    userId: string,
+    modelhubApiUrl: string,
+    modelhubApiKey: string,
+    config: OpenClawConfigInput
+  ): Promise<OpenClawDeployResult> {
+    try {
+      const renderDeployment = await createRenderOpenClawDeployment(
+        token,
+        userId,
+        modelhubApiUrl,
+        modelhubApiKey,
+        {
+          allowedOrigins: config.allowedOrigins,
+          model: config.model,
+          provider: config.provider
+        }
+      );
+      return convertRenderDeploymentToOpenClawResult(renderDeployment);
+    } catch (error) {
+      if (error instanceof RenderApiError) {
+        const errorType = isRenderFreeTierError(error)
+          ? CloudProviderErrorType.FREE_TIER_LIMIT
+          : error.status === 401 || error.status === 403
+          ? CloudProviderErrorType.AUTHENTICATION
+          : error.status === 404
+          ? CloudProviderErrorType.RESOURCE_NOT_FOUND
+          : error.status === 409
+          ? CloudProviderErrorType.RESOURCE_CONFLICT
+          : CloudProviderErrorType.SERVICE_UNAVAILABLE;
+
+        throw new CloudProviderError(errorType, "render", error.message, error);
+      }
+      throw error;
+    }
+  },
+
+  async updateOpenClaw(
+    token: string,
+    serviceId: string,
+    gatewayToken: string,
+    modelhubApiUrl: string,
+    modelhubApiKey: string,
+    config: OpenClawConfigInput
+  ): Promise<DeploymentUpdateResult> {
+    try {
+      const result = await updateRenderOpenClawDeployment(
+        token,
+        serviceId,
+        gatewayToken,
+        modelhubApiUrl,
+        modelhubApiKey,
+        config
+      );
+      return {
+        deployId: result.deployId,
+        openclaw: convertRenderOpenClawToOpenClawInfo(result.openclaw)
+      };
+    } catch (error) {
+      if (error instanceof RenderApiError) {
+        const errorType = error.status === 401 || error.status === 403
+          ? CloudProviderErrorType.AUTHENTICATION
+          : error.status === 404
+          ? CloudProviderErrorType.RESOURCE_NOT_FOUND
+          : CloudProviderErrorType.SERVICE_UNAVAILABLE;
+
+        throw new CloudProviderError(errorType, "render", error.message, error);
+      }
+      throw error;
+    }
+  },
+
+  async refresh(
+    token: string,
+    serviceId: string,
+    deployId: string | null
+  ): Promise<DeploymentRefresh> {
+    try {
+      const renderRefresh = await refreshRenderDeployment(token, serviceId, deployId);
+      return convertRenderRefreshToDeploymentRefresh(renderRefresh);
+    } catch (error) {
+      if (error instanceof RenderApiError) {
+        const errorType = error.status === 401 || error.status === 403
+          ? CloudProviderErrorType.AUTHENTICATION
+          : error.status === 404
+          ? CloudProviderErrorType.RESOURCE_NOT_FOUND
+          : CloudProviderErrorType.SERVICE_UNAVAILABLE;
+
+        throw new CloudProviderError(errorType, "render", error.message, error);
+      }
+      throw error;
+    }
+  },
+
+  async deleteService(token: string, serviceId: string): Promise<"deleted" | "missing"> {
+    try {
+      return await deleteRenderService(token, serviceId);
+    } catch (error) {
+      if (error instanceof RenderApiError) {
+        const errorType = error.status === 401 || error.status === 403
+          ? CloudProviderErrorType.AUTHENTICATION
+          : error.status === 404
+          ? CloudProviderErrorType.RESOURCE_NOT_FOUND
+          : CloudProviderErrorType.SERVICE_UNAVAILABLE;
+
+        throw new CloudProviderError(errorType, "render", error.message, error);
+      }
+      throw error;
+    }
+  },
+
+  getServiceName(userId: string): string {
+    return getRenderOpenClawServiceName(userId);
+  },
+
+  isFreeTierError(error: unknown): boolean {
+    return isRenderFreeTierError(error);
+  },
+
+  getProviderLimits(): ProviderLimits {
+    return RENDER_LIMITS;
+  },
+
+  getProviderName(): CloudProvider {
+    return "render";
+  }
+};

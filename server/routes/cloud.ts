@@ -5,6 +5,8 @@ import {
   cloudDeploymentStatusSchema,
   openClawDeploymentConfigSchema,
   cloudRenderConnectionSchema,
+  cloudRailwayConnectionSchema,
+  cloudFlyioConnectionSchema,
   type CloudConnectionSummary,
   type CloudDeploymentStatus,
   type CloudDeploymentSummary,
@@ -13,6 +15,14 @@ import {
 
 import { decryptCredential, encryptCredential, generateApiKey } from "../lib/crypto";
 import { prisma } from "../lib/db";
+import {
+  getCloudDriver,
+  isProviderSupported,
+  formatCloudProviderError,
+  type CloudProvider,
+  type CloudProviderError,
+  type AccountMetadata
+} from "../lib/cloud";
 import {
   createRenderOpenClawDeployment,
   createRenderSpikeDeployment,
@@ -104,7 +114,7 @@ function serializeConnection(connection: {
     externalUserEmail: connection.externalUserEmail,
     id: connection.id,
     label: connection.label,
-    provider: RENDER_PROVIDER,
+    provider: connection.provider as CloudProvider,
     updatedAt: serializeDate(connection.updatedAt),
   };
 }
@@ -153,7 +163,7 @@ function serializeDeployment(deployment: {
     instanceType: deployment.instanceType,
     name: deployment.name,
     port: deployment.port,
-    provider: RENDER_PROVIDER,
+    provider: deployment.provider as CloudProvider,
     publicUrl: deployment.publicUrl,
     region: deployment.region,
     status: normalizeStatus(deployment.status),
@@ -295,6 +305,93 @@ app.post("/connections/render", async (c) => {
         provider: RENDER_PROVIDER,
         userId,
       },
+    },
+  });
+
+  return c.json({ connection: serializeConnection(connection) }, 201);
+});
+
+// Generic route for new providers (Railway, Fly.io)
+app.post("/connections/:provider", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const provider = c.req.param("provider") as CloudProvider;
+  if (!isProviderSupported(provider)) {
+    return jsonErrorResponse(400, "Provider não suportado");
+  }
+
+  // Skip if it's render (handled by specific route above)
+  if (provider === "render") {
+    return jsonErrorResponse(400, "Use rota específica para Render");
+  }
+
+  const body = await c.req.json().catch(() => null);
+  let parsed;
+
+  switch (provider) {
+    case "railway":
+      parsed = cloudRailwayConnectionSchema.safeParse(body);
+      break;
+    case "fly.io":
+      parsed = cloudFlyioConnectionSchema.safeParse(body);
+      break;
+    default:
+      return jsonErrorResponse(400, "Provider não configurado");
+  }
+
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Dados inválidos", {
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+
+  const token = parsed.data.token;
+  let metadata: AccountMetadata;
+
+  try {
+    const driver = getCloudDriver(provider);
+    metadata = await driver.validateToken(token);
+  } catch (error) {
+    console.error(`[cloud/${provider}] token validation failed`, error);
+
+    if (error instanceof Error && "type" in error) {
+      return jsonErrorResponse(401, formatCloudProviderError(error as CloudProviderError));
+    }
+
+    return jsonErrorResponse(401, `Token ${provider} inválido ou sem permissão.`);
+  }
+
+  const connection = await prisma.cloudConnection.upsert({
+    create: {
+      externalOrganizationId: metadata.organizationId ?? metadata.userId,
+      externalOrganizationName: metadata.organizationName ?? metadata.userName,
+      externalUserEmail: metadata.userEmail,
+      externalUserId: metadata.userId,
+      label: parsed.data.label ?? provider,
+      provider,
+      token: encryptCredential(token),
+      userId,
+    },
+    select: {
+      createdAt: true,
+      externalOrganizationName: true,
+      externalUserEmail: true,
+      id: true,
+      label: true,
+      provider: true,
+      updatedAt: true,
+    },
+    update: {
+      externalOrganizationId: metadata.organizationId ?? metadata.userId,
+      externalOrganizationName: metadata.organizationName ?? metadata.userName,
+      externalUserEmail: metadata.userEmail,
+      externalUserId: metadata.userId,
+      label: parsed.data.label ?? provider,
+      token: encryptCredential(token),
+    },
+    where: {
+      userId_provider: { provider, userId },
     },
   });
 
