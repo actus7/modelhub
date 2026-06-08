@@ -14,9 +14,6 @@ type RailwayUser = {
   id: string;
   name?: string;
   email?: string;
-  workspaces?: {
-    edges: Array<{ node: { id: string; name: string } }>;
-  };
 };
 
 type RailwayProject = {
@@ -54,10 +51,11 @@ async function railwayRequest<T>(token: string, query: string, variables?: Recor
   });
 
   if (!response.ok) {
+    const body = await response.text().catch(() => "");
     throw new CloudProviderError(
       response.status === 401 ? CloudProviderErrorType.AUTHENTICATION : CloudProviderErrorType.SERVICE_UNAVAILABLE,
       "railway",
-      `Railway API error: ${response.status} ${response.statusText}`
+      `Railway API error: ${response.status} ${response.statusText} — ${body}`
     );
   }
 
@@ -87,14 +85,15 @@ const VALIDATE_TOKEN_QUERY = `
       id
       name
       email
-      workspaces {
-        edges {
-          node {
-            id
-            name
-          }
-        }
-      }
+    }
+  }
+`;
+
+const LIST_WORKSPACES_QUERY = `
+  query ListWorkspaces {
+    workspaces {
+      id
+      name
     }
   }
 `;
@@ -288,15 +287,19 @@ export async function createRailwayOpenClaw(
   modelhubApiKey: string,
   config: OpenClawConfigInput
 ): Promise<OpenClawDeployResult> {
-  // 1. Validate token and get workspaceId
-  const meData = await railwayRequest<{ me: RailwayUser }>(token, VALIDATE_TOKEN_QUERY);
-  const workspaceId = meData.me.workspaces?.edges[0]?.node.id;
-  if (!workspaceId) {
-    throw new CloudProviderError(
-      CloudProviderErrorType.INVALID_CONFIGURATION,
-      "railway",
-      "Nenhum workspace encontrado na conta Railway"
+  // 1. Validate token
+  await railwayRequest<{ me: RailwayUser }>(token, VALIDATE_TOKEN_QUERY);
+
+  // 2. Fetch workspaceId (required for accounts in organizations)
+  let workspaceId: string | undefined;
+  try {
+    const wsData = await railwayRequest<{ workspaces: Array<{ id: string; name: string }> }>(
+      token,
+      LIST_WORKSPACES_QUERY
     );
+    workspaceId = wsData.workspaces?.[0]?.id;
+  } catch {
+    // workspaceId is optional for personal accounts
   }
 
   const projectName = generateResourceName(userId);
