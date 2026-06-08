@@ -324,9 +324,7 @@ app.post("/connections/:provider", async (c) => {
   }
 
   const body = await c.req.json().catch(() => null);
-  let parsed;
-
-  parsed = cloudRailwayConnectionSchema.safeParse(body);
+  const parsed = cloudRailwayConnectionSchema.safeParse(body);
   if (!parsed) {
     return jsonErrorResponse(400, "Provider não configurado");
   }

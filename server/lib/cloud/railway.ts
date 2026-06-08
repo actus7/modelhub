@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import type { CloudDeploymentStatus } from "@/lib/contracts";
-import type { CloudProviderDriver, AccountMetadata, OpenClawConfigInput, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh } from "./driver";
+import type { CloudProviderDriver, AccountMetadata, OpenClawConfigInput, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh } from "./driver";
 import { CloudProviderError, CloudProviderErrorType, generateResourceName } from "./driver";
 import { buildOpenClawInfo, buildOpenClawRuntimeConfig } from "./render";
 
