@@ -1,19 +1,8 @@
 import { randomBytes } from "node:crypto";
 
-import type {
-  CloudProviderDriver,
-  CloudProvider,
-  ProviderLimits,
-  AccountMetadata,
-  OpenClawConfigInput,
-  OpenClawInfo,
-  OpenClawDeployResult,
-  DeploymentUpdateResult,
-  DeploymentRefresh,
-  RailwayOpenClawResult,
-  CloudProviderError,
-  CloudProviderErrorType
-} from "./driver";
+import type { CloudDeploymentStatus } from "@/lib/contracts";
+import type { CloudProviderDriver, CloudProvider, ProviderLimits, AccountMetadata, OpenClawConfigInput, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh, RailwayOpenClawResult } from "./driver";
+import { CloudProviderError, CloudProviderErrorType } from "./driver";
 import { generateResourceName } from "./driver";
 import { buildOpenClawInfo, buildOpenClawRuntimeConfig } from "./render";
 
@@ -215,7 +204,7 @@ export function isRailwayFreeTierError(error: unknown): boolean {
   if (!(error instanceof CloudProviderError)) return false;
 
   const errorText = error.message.toLowerCase();
-  const originalErrorText = JSON.stringify(error.originalError).toLowerCase();
+  const originalErrorText = (JSON.stringify(error.originalError) || "").toLowerCase();
 
   const freeTierKeywords = [
     "credit", "credits", "limit", "quota", "plan", "upgrade", "billing", "payment"
@@ -344,7 +333,8 @@ export async function createRailwayOpenClaw(
   const environmentId = productionEnv.node.id;
   const serviceName = "openclaw";
   const gatewayToken = randomBytes(32).toString("hex");
-  const publicUrl = `https://${serviceName}-${projectId}.up.railway.app`;
+  // Railway assigns the public URL only after the deployment is live; populated on first refresh.
+  const publicUrl = null;
 
   // 4. Create service
   const service = await railwayRequest<{ createService: RailwayService }>(
@@ -366,7 +356,7 @@ export async function createRailwayOpenClaw(
   // 5. Set environment variables
   const envVars = buildRailwayEnvVars(gatewayToken, modelhubApiUrl, modelhubApiKey, {
     ...config,
-    serviceUrl: publicUrl,
+    serviceUrl: publicUrl ?? "",
     modelhubApiUrl
   });
 
@@ -390,17 +380,21 @@ export async function createRailwayOpenClaw(
   const deployId = deployment.deploymentCreate.id;
   const openclaw = buildOpenClawInfo({
     ...config,
-    serviceUrl: publicUrl,
+    serviceUrl: publicUrl ?? "",
     modelhubApiUrl
   });
 
+  // Encode projectId and environmentId into serviceId so updateRailwayOpenClaw can
+  // call variableUpsert without requiring a separate DB lookup.
+  const compositeServiceId = `${serviceId}:${projectId}:${environmentId}`;
+
   return {
-    serviceId,
+    serviceId: compositeServiceId,
     deployId,
+    gatewayToken,
     publicUrl,
     status: "provisioning",
     openclaw,
-    gatewayToken,
     projectId,
     environmentId,
     serviceName
@@ -409,17 +403,26 @@ export async function createRailwayOpenClaw(
 
 export async function updateRailwayOpenClaw(
   token: string,
-  serviceId: string,
+  compositeServiceId: string,
   gatewayToken: string,
   modelhubApiUrl: string,
   modelhubApiKey: string,
   config: OpenClawConfigInput
 ): Promise<DeploymentUpdateResult> {
-  // For updates, we need to get project and environment info
-  // This is a simplified implementation - in practice you'd store these IDs
-  const openclaw = buildOpenClawInfo(config);
+  const [serviceId, projectId, environmentId] = compositeServiceId.split(":");
 
-  // Trigger new deployment (simplified)
+  if (projectId && environmentId) {
+    const envVars = buildRailwayEnvVars(gatewayToken, modelhubApiUrl, modelhubApiKey, {
+      ...config,
+      serviceUrl: config.serviceUrl ?? ""
+    });
+    await railwayRequest(token, UPSERT_VARIABLES_MUTATION, {
+      projectId,
+      environmentId,
+      variables: envVars.map(({ key, value }) => ({ name: key, value }))
+    });
+  }
+
   const deployment = await railwayRequest<{ deploymentCreate: RailwayDeployment }>(
     token,
     CREATE_DEPLOYMENT_MUTATION,
@@ -428,7 +431,7 @@ export async function updateRailwayOpenClaw(
 
   return {
     deployId: deployment.deploymentCreate.id,
-    openclaw
+    openclaw: buildOpenClawInfo(config)
   };
 }
 
@@ -477,7 +480,8 @@ export async function refreshRailwayDeployment(
   }
 }
 
-export async function deleteRailwayService(token: string, serviceId: string): Promise<"deleted" | "missing"> {
+export async function deleteRailwayService(token: string, compositeServiceId: string): Promise<"deleted" | "missing"> {
+  const [serviceId] = compositeServiceId.split(":");
   try {
     await railwayRequest(token, DELETE_SERVICE_MUTATION, { id: serviceId });
     return "deleted";

@@ -1,9 +1,5 @@
-import type {
-  CloudProvider,
-  CloudProviderDriver,
-  CloudProviderError,
-  CloudProviderErrorType
-} from "./driver";
+import type { CloudProvider, CloudProviderDriver } from "./driver";
+import { CloudProviderError, CloudProviderErrorType } from "./driver";
 import { renderDriver } from "./render";
 import { railwayDriver } from "./railway";
 import { flyioDriver } from "./flyio";

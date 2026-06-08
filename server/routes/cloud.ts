@@ -26,7 +26,6 @@ import {
 import {
   createRenderOpenClawDeployment,
   createRenderSpikeDeployment,
-  deleteRenderService,
   buildOpenClawInfo,
   isRenderFreeTierError,
   RENDER_OPENCLAW_PLAN,
@@ -38,8 +37,6 @@ import {
   RENDER_SPIKE_PORT,
   RENDER_SPIKE_REGION,
   RENDER_SPIKE_REPO,
-  refreshRenderDeployment,
-  updateRenderOpenClawDeployment,
   validateRenderToken,
 } from "../lib/cloud/render";
 import { jsonErrorResponse, toVercelStreamFromOpenAiSse } from "../lib/provider-core";
@@ -172,12 +169,12 @@ function serializeDeployment(deployment: {
   };
 }
 
-function decryptConnectionToken(connection: { token: string }): string | Response {
+function decryptConnectionToken(connection: { token: string; provider?: string }): string | Response {
   try {
     return decryptCredential(connection.token);
   } catch (error) {
-    console.error("[cloud/render] failed to decrypt token", error);
-    return jsonErrorResponse(500, "Não foi possível ler o token salvo. Reconecte o Render.");
+    console.error(`[cloud/${connection.provider ?? "unknown"}] failed to decrypt token`, error);
+    return jsonErrorResponse(500, "Não foi possível ler o token salvo. Reconecte o provedor.");
   }
 }
 
@@ -413,7 +410,7 @@ app.delete("/connections/:id", async (c) => {
     where: { connectionId, userId },
   });
   if (activeDeployments > 0) {
-    return jsonErrorResponse(400, "Remova os ambientes criados antes de desconectar o Render.");
+    return jsonErrorResponse(400, "Remova os ambientes criados antes de desconectar o provedor.");
   }
 
   await prisma.cloudConnection.delete({ where: { id: connectionId } });
@@ -560,6 +557,110 @@ app.post("/deployments/render/openclaw", async (c) => {
     deployment: serializeDeployment(deployment),
     gatewayToken: created.gatewayToken,
   }, 201);
+});
+
+// Generic OpenClaw create route for Railway and Fly.io
+app.post("/deployments/:provider/openclaw", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const provider = c.req.param("provider") as CloudProvider;
+  if (!isProviderSupported(provider) || provider === "render") {
+    return jsonErrorResponse(400, "Use a rota específica para Render.");
+  }
+
+  const body = await c.req.json().catch(() => null);
+  const parsed = openClawDeploymentConfigSchema.safeParse(body);
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Selecione um provider e modelo.", {
+      details: parsed.error.flatten().fieldErrors,
+    });
+  }
+  const { provider: selectedProvider, model: selectedModel } = parsed.data;
+
+  const connection = await prisma.cloudConnection.findFirst({
+    where: { provider, userId },
+  });
+  if (!connection) return jsonErrorResponse(400, `Conecte o ${provider} antes de criar um ambiente.`);
+
+  const activeDeploymentCount = await prisma.cloudDeployment.count({
+    where: {
+      provider,
+      status: { in: ["provisioning", "healthy", "deleting", "failed"] },
+      userId,
+    },
+  });
+  if (activeDeploymentCount > 0) {
+    return jsonErrorResponse(409, `Já existe um ambiente ${provider} ativo. Remova-o antes de criar outro.`);
+  }
+
+  const token = decryptConnectionToken(connection);
+  if (typeof token !== "string") return token;
+
+  const modelhubApiUrl = resolveModelhubApiUrl(c);
+  const allowedOrigins = parsed.data.allowedOrigins ?? [new URL(modelhubApiUrl).origin];
+  const modelhubApiKey = await getOrCreateModelhubApiKey(connection, userId);
+
+  const driver = getCloudDriver(provider);
+  let created;
+  try {
+    created = await driver.createOpenClaw(token, userId, modelhubApiUrl, modelhubApiKey, {
+      allowedOrigins,
+      model: selectedModel,
+      modelhubApiUrl,
+      provider: selectedProvider,
+      serviceUrl: "",
+    });
+  } catch (error) {
+    console.error(`[cloud/${provider}] failed to create OpenClaw deployment`, error);
+    if (driver.isFreeTierError(error)) {
+      return jsonErrorResponse(409, "Não foi possível criar no plano gratuito. Considere fazer upgrade.");
+    }
+    const detail = error instanceof Error ? error.message : "Erro desconhecido";
+    return jsonErrorResponse(502, `Falha ao criar OpenClaw no ${provider}: ${detail}`);
+  }
+
+  // Provider metadata for DB record
+  const providerDefaults: Record<string, { image: string; port: number; region: string; instanceType: string }> = {
+    railway: { image: "ghcr.io/openclaw/openclaw:latest", port: 10000, region: "us-east", instanceType: "hobby" },
+    "fly.io": { image: "ghcr.io/openclaw/openclaw:latest", port: 10000, region: "iad", instanceType: "fly-free" },
+  };
+  const { image, port, region, instanceType } = providerDefaults[provider] ?? {
+    image: "", port: 3000, region: "unknown", instanceType: "unknown",
+  };
+  const name = created.serviceId.split(/[/:]/, 1)[0];
+
+  const deployment = await prisma.cloudDeployment.create({
+    data: {
+      config: {
+        allowedOrigins: created.openclaw.allowedOrigins,
+        controlUiUrl: created.openclaw.controlUiUrl,
+        gatewayToken: encryptCredential(created.gatewayToken),
+        healthUrl: created.openclaw.healthUrl,
+        model: selectedModel,
+        modelhubApiUrl,
+        provider: selectedProvider,
+        readyUrl: created.openclaw.readyUrl,
+        webSocketUrl: created.openclaw.webSocketUrl,
+      },
+      connectionId: connection.id,
+      error: null,
+      externalAppName: name,
+      externalDeploymentId: created.deployId,
+      externalServiceId: created.serviceId,
+      image,
+      instanceType,
+      name,
+      port,
+      provider,
+      publicUrl: created.publicUrl,
+      region,
+      status: created.status,
+      userId,
+    },
+  });
+
+  return c.json({ deployment: serializeDeployment(deployment), gatewayToken: created.gatewayToken }, 201);
 });
 
 app.get("/deployments/:id/gateway-token", async (c) => {
@@ -780,8 +881,8 @@ app.patch("/deployments/:id/openclaw", async (c) => {
     return jsonErrorResponse(400, "Este ambiente nao possui configuracao OpenClaw gerenciada.");
   }
 
-  const renderToken = decryptConnectionToken(deployment.connection);
-  if (typeof renderToken !== "string") return renderToken;
+  const token = decryptConnectionToken(deployment.connection);
+  if (typeof token !== "string") return token;
 
   let gatewayToken: string;
   try {
@@ -793,15 +894,17 @@ app.patch("/deployments/:id/openclaw", async (c) => {
   const modelhubApiUrl = stringFromConfig(currentConfig, "modelhubApiUrl") ?? resolveModelhubApiUrl(c);
   const serviceUrl = deployment.publicUrl ?? stringFromConfig(currentConfig, "controlUiUrl");
   if (!serviceUrl) {
-    return jsonErrorResponse(409, "A URL pública do Render ainda não está disponível. Atualize o status e tente novamente.");
+    return jsonErrorResponse(409, "A URL pública do ambiente ainda não está disponível. Atualize o status e tente novamente.");
   }
 
   const modelhubApiKey = await getOrCreateModelhubApiKey(deployment.connection, userId);
+  const provider = deployment.provider as CloudProvider;
 
   let updatedOpenClaw;
   try {
-    updatedOpenClaw = await updateRenderOpenClawDeployment(
-      renderToken,
+    const driver = getCloudDriver(provider);
+    updatedOpenClaw = await driver.updateOpenClaw(
+      token,
       deployment.externalServiceId,
       gatewayToken,
       modelhubApiUrl,
@@ -815,9 +918,9 @@ app.patch("/deployments/:id/openclaw", async (c) => {
       },
     );
   } catch (error) {
-    console.error("[cloud/render] failed to update OpenClaw config", error);
+    console.error(`[cloud/${provider}] failed to update OpenClaw config`, error);
     const detail = error instanceof Error ? error.message : "Erro desconhecido";
-    return jsonErrorResponse(502, `Falha ao reconfigurar OpenClaw no Render: ${detail}`);
+    return jsonErrorResponse(502, `Falha ao reconfigurar OpenClaw: ${detail}`);
   }
 
   const updated = await prisma.cloudDeployment.update({
@@ -857,8 +960,11 @@ app.post("/deployments/:id/refresh", async (c) => {
   const token = decryptConnectionToken(deployment.connection);
   if (typeof token !== "string") return token;
 
+  const provider = deployment.provider as CloudProvider;
+
   try {
-    const refresh = await refreshRenderDeployment(token, deployment.externalServiceId, deployment.externalDeploymentId);
+    const driver = getCloudDriver(provider);
+    const refresh = await driver.refresh(token, deployment.externalServiceId, deployment.externalDeploymentId);
     if (refresh.missing) {
       await prisma.cloudDeployment.delete({ where: { id: deployment.id } });
       return c.json({ deleted: true, deployment: null });
@@ -875,7 +981,7 @@ app.post("/deployments/:id/refresh", async (c) => {
     });
     return c.json({ deleted: false, deployment: serializeDeployment(updated) });
   } catch (error) {
-    console.error("[cloud/render] failed to refresh deployment", error);
+    console.error(`[cloud/${provider}] failed to refresh deployment`, error);
     const updated = await prisma.cloudDeployment.update({
       data: {
         error: `Falha ao atualizar: ${error instanceof Error ? error.message : "Erro desconhecido"}`,
@@ -883,7 +989,7 @@ app.post("/deployments/:id/refresh", async (c) => {
       },
       where: { id: deployment.id },
     });
-    return jsonErrorResponse(502, `Falha ao atualizar status no Render: ${error instanceof Error ? error.message : "Erro desconhecido"}`, {
+    return jsonErrorResponse(502, `Falha ao atualizar status: ${error instanceof Error ? error.message : "Erro desconhecido"}`, {
       deployment: serializeDeployment(updated),
     });
   }
@@ -903,17 +1009,20 @@ app.delete("/deployments/:id", async (c) => {
   const token = decryptConnectionToken(deployment.connection);
   if (typeof token !== "string") return token;
 
+  const provider = deployment.provider as CloudProvider;
+
   await prisma.cloudDeployment.update({
     data: { error: null, status: "deleting" },
     where: { id: deployment.id },
   });
 
   try {
-    await deleteRenderService(token, deployment.externalServiceId);
+    const driver = getCloudDriver(provider);
+    await driver.deleteService(token, deployment.externalServiceId);
     await prisma.cloudDeployment.delete({ where: { id: deployment.id } });
     return c.json({ success: true });
   } catch (error) {
-    console.error("[cloud/render] failed to delete deployment", error);
+    console.error(`[cloud/${provider}] failed to delete deployment`, error);
     const updated = await prisma.cloudDeployment.update({
       data: {
         error: `Falha ao remover: ${error instanceof Error ? error.message : "Erro desconhecido"}`,
@@ -922,7 +1031,7 @@ app.delete("/deployments/:id", async (c) => {
       where: { id: deployment.id },
     });
     const detail = error instanceof Error ? error.message : "Erro desconhecido";
-    return jsonErrorResponse(502, `Falha ao remover ambiente no Render: ${detail}`, {
+    return jsonErrorResponse(502, `Falha ao remover ambiente: ${detail}`, {
       deployment: serializeDeployment(updated),
     });
   }

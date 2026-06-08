@@ -1,21 +1,12 @@
 import { randomBytes } from "node:crypto";
 
 import type { CloudDeploymentStatus } from "@/lib/contracts";
-import type {
-  CloudProviderDriver,
-  CloudProvider,
-  ProviderLimits,
-  AccountMetadata,
-  OpenClawConfigInput,
-  OpenClawInfo,
-  OpenClawDeployResult,
-  DeploymentUpdateResult,
-  DeploymentRefresh,
-  FlyioOpenClawResult,
+import type { CloudProviderDriver, CloudProvider, ProviderLimits, AccountMetadata, OpenClawConfigInput, OpenClawInfo, OpenClawDeployResult, DeploymentUpdateResult, DeploymentRefresh, FlyioOpenClawResult } from "./driver";
+import {
   CloudProviderError,
-  CloudProviderErrorType
+  CloudProviderErrorType,
+  generateResourceName
 } from "./driver";
-import { generateResourceName } from "./driver";
 import { buildOpenClawInfo, buildOpenClawRuntimeConfig } from "./render";
 
 const FLY_API_BASE = "https://api.machines.dev/v1";
@@ -129,7 +120,7 @@ class FlyRateLimiter {
   private processQueue() {
     if (this.requestQueue.length > 0) {
       const next = this.requestQueue.shift()!;
-      next();
+      Promise.resolve(next()).finally(() => { this.processQueue(); });
     }
   }
 }
@@ -220,7 +211,7 @@ export function isFlyFreeTierError(error: unknown): boolean {
   if (!(error instanceof CloudProviderError)) return false;
 
   const errorText = error.message.toLowerCase();
-  const originalErrorText = JSON.stringify(error.originalError).toLowerCase();
+  const originalErrorText = (JSON.stringify(error.originalError) || "").toLowerCase();
 
   const freeTierKeywords = [
     "limit", "quota", "billing", "plan", "upgrade", "payment", "credit",
@@ -390,13 +381,17 @@ export async function createFlyOpenClaw(
     modelhubApiUrl
   });
 
+  // Encode appName into serviceId so refresh/update/delete can resolve the correct path.
+  // Fly.io Machines API requires /apps/{app_name}/machines/{machine_id} for all operations.
+  const compositeServiceId = `${appName}/${machine.id}`;
+
   return {
-    serviceId: machine.id,
-    deployId: machine.id, // In Fly.io, machine ID serves as deploy ID
+    serviceId: compositeServiceId,
+    deployId: machine.id,
+    gatewayToken,
     publicUrl,
     status: "provisioning",
     openclaw,
-    gatewayToken,
     appId: app.id,
     machineId: machine.id,
     region: machine.region
@@ -405,47 +400,47 @@ export async function createFlyOpenClaw(
 
 export async function updateFlyOpenClaw(
   token: string,
-  serviceId: string, // This is the machine ID in Fly.io
+  compositeServiceId: string, // "appName/machineId"
   gatewayToken: string,
   modelhubApiUrl: string,
   modelhubApiKey: string,
   config: OpenClawConfigInput
 ): Promise<DeploymentUpdateResult> {
-  // Get machine to find app name
-  const machine = await flyRequest<FlyMachine>(token, `/apps/*/machines/${serviceId}`);
+  const slashIdx = compositeServiceId.indexOf("/");
+  const appName = compositeServiceId.slice(0, slashIdx);
+  const machineId = compositeServiceId.slice(slashIdx + 1);
 
   const machineConfig = buildFlyMachineConfig(gatewayToken, modelhubApiUrl, modelhubApiKey, config);
 
-  // Update machine configuration
-  const updatedMachine = await flyRequest<FlyMachine>(token, `/apps/*/machines/${serviceId}`, {
+  const updatedMachine = await flyRequest<FlyMachine>(token, `/apps/${appName}/machines/${machineId}`, {
     method: "POST",
-    body: JSON.stringify({
-      config: machineConfig
-    })
+    body: JSON.stringify({ config: machineConfig })
   });
-
-  const openclaw = buildOpenClawInfo(config);
 
   return {
     deployId: updatedMachine.id,
-    openclaw
+    openclaw: buildOpenClawInfo(config)
   };
 }
 
 export async function refreshFlyDeployment(
   token: string,
-  serviceId: string, // machine ID
+  compositeServiceId: string, // "appName/machineId"
   deployId: string | null
 ): Promise<DeploymentRefresh> {
+  const slashIdx = compositeServiceId.indexOf("/");
+  const appName = compositeServiceId.slice(0, slashIdx);
+  const machineId = compositeServiceId.slice(slashIdx + 1);
+
   try {
-    const machine = await flyRequest<FlyMachine>(token, `/apps/*/machines/${serviceId}`);
+    const machine = await flyRequest<FlyMachine>(token, `/apps/${appName}/machines/${machineId}`);
     const mapped = mapFlyMachineState(machine.state);
 
     return {
       deployId: machine.id,
       error: mapped.error,
       missing: false,
-      publicUrl: `https://${machine.name}.fly.dev`, // Simplified URL construction
+      publicUrl: `https://${appName}.fly.dev`,
       status: mapped.status
     };
   } catch (error) {
@@ -462,11 +457,13 @@ export async function refreshFlyDeployment(
   }
 }
 
-export async function deleteFlyService(token: string, serviceId: string): Promise<"deleted" | "missing"> {
+export async function deleteFlyService(token: string, compositeServiceId: string): Promise<"deleted" | "missing"> {
+  const slashIdx = compositeServiceId.indexOf("/");
+  const appName = compositeServiceId.slice(0, slashIdx);
+  const machineId = compositeServiceId.slice(slashIdx + 1);
+
   try {
-    await flyRequest(token, `/apps/*/machines/${serviceId}`, {
-      method: "DELETE"
-    });
+    await flyRequest(token, `/apps/${appName}/machines/${machineId}`, { method: "DELETE" });
     return "deleted";
   } catch (error) {
     if (error instanceof CloudProviderError && error.type === CloudProviderErrorType.RESOURCE_NOT_FOUND) {

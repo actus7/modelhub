@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { CloudDeploymentStatus } from "@/lib/contracts";
 
 export type CloudProvider = "render" | "railway" | "fly.io";
@@ -51,6 +53,7 @@ export type OpenClawInfo = {
 export type OpenClawDeployResult = {
   serviceId: string;
   deployId: string | null;
+  gatewayToken: string;
   publicUrl: string | null;
   status: CloudDeploymentStatus;
   openclaw: OpenClawInfo;
@@ -112,21 +115,18 @@ export interface CloudProviderDriver {
 
 // Provider-specific result extensions
 export type RenderOpenClawResult = OpenClawDeployResult & {
-  gatewayToken: string;
   ownerId: string;
   ownerName: string;
   serviceName: string;
 };
 
 export type RailwayOpenClawResult = OpenClawDeployResult & {
-  gatewayToken: string;
   projectId: string;
   environmentId: string;
   serviceName: string;
 };
 
 export type FlyioOpenClawResult = OpenClawDeployResult & {
-  gatewayToken: string;
   appId: string;
   machineId: string;
   region: string;
@@ -227,10 +227,7 @@ export function formatCloudProviderError(error: CloudProviderError): string {
   }
 }
 
-export function generateResourceName(provider: CloudProvider, userId: string, resourceType: 'app' | 'service' | 'project'): string {
-  const { createHash } = require("node:crypto");
+export function generateResourceName(_provider: CloudProvider, userId: string, _resourceType: 'app' | 'service' | 'project'): string {
   const hash = createHash("sha256").update(userId).digest("hex").slice(0, 8);
-  const prefix = resourceType === 'app' ? 'modelhub-openclaw' : 'modelhub-spike';
-
-  return `${prefix}-${hash}`;
+  return `modelhub-openclaw-${hash}`;
 }
