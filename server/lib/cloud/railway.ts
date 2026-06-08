@@ -104,8 +104,8 @@ const LIST_PROJECTS_QUERY = `
 `;
 
 const CREATE_PROJECT_MUTATION = `
-  mutation CreateProject($name: String!) {
-    createProject(name: $name) {
+  mutation CreateProject($input: ProjectCreateInput!) {
+    projectCreate(input: $input) {
       id
       name
     }
@@ -128,8 +128,8 @@ const GET_PROJECT_ENVIRONMENTS_QUERY = `
 `;
 
 const CREATE_SERVICE_MUTATION = `
-  mutation CreateService($projectId: String!, $name: String!, $source: ServiceSourceInput!) {
-    createService(projectId: $projectId, name: $name, source: $source) {
+  mutation CreateService($input: ServiceCreateInput!) {
+    serviceCreate(input: $input) {
       id
       name
     }
@@ -137,18 +137,14 @@ const CREATE_SERVICE_MUTATION = `
 `;
 
 const UPSERT_VARIABLES_MUTATION = `
-  mutation UpsertVariables($projectId: String!, $environmentId: String!, $variables: [Variable!]!) {
-    variableUpsert(projectId: $projectId, environmentId: $environmentId, variables: $variables)
+  mutation UpsertVariables($input: VariableCollectionUpsertInput!) {
+    variableCollectionUpsert(input: $input)
   }
 `;
 
-const CREATE_DEPLOYMENT_MUTATION = `
-  mutation CreateDeployment($serviceId: String!) {
-    deploymentCreate(serviceId: $serviceId) {
-      id
-      status
-      createdAt
-    }
+const TRIGGER_DEPLOY_MUTATION = `
+  mutation TriggerDeploy($input: EnvironmentTriggersDeployInput!) {
+    environmentTriggersDeploy(input: $input)
   }
 `;
 
@@ -163,9 +159,27 @@ const GET_DEPLOYMENT_QUERY = `
   }
 `;
 
+const LIST_SERVICE_DEPLOYMENTS_QUERY = `
+  query ListServiceDeployments($serviceId: String!, $environmentId: String!) {
+    deployments(
+      first: 1
+      input: { serviceId: $serviceId, environmentId: $environmentId }
+    ) {
+      edges {
+        node {
+          id
+          status
+          createdAt
+          url
+        }
+      }
+    }
+  }
+`;
+
 const DELETE_SERVICE_MUTATION = `
   mutation DeleteService($id: String!) {
-    deleteService(id: $id)
+    serviceDelete(id: $id)
   }
 `;
 
@@ -283,12 +297,12 @@ export async function createRailwayOpenClaw(
   if (existingProject) {
     projectId = existingProject.node.id;
   } else {
-    const newProject = await railwayRequest<{ createProject: RailwayProject }>(
+    const newProject = await railwayRequest<{ projectCreate: RailwayProject }>(
       token,
       CREATE_PROJECT_MUTATION,
-      { name: projectName }
+      { input: { name: projectName } }
     );
-    projectId = newProject.createProject.id;
+    projectId = newProject.projectCreate.id;
   }
 
   // 3. Get production environment
@@ -319,21 +333,19 @@ export async function createRailwayOpenClaw(
   const publicUrl = null;
 
   // 4. Create service
-  const service = await railwayRequest<{ createService: RailwayService }>(
+  const service = await railwayRequest<{ serviceCreate: RailwayService }>(
     token,
     CREATE_SERVICE_MUTATION,
     {
-      projectId,
-      name: serviceName,
-      source: {
-        image: {
-          image: RAILWAY_OPENCLAW_IMAGE
-        }
+      input: {
+        projectId,
+        name: serviceName,
+        source: { image: RAILWAY_OPENCLAW_IMAGE },
       }
     }
   );
 
-  const serviceId = service.createService.id;
+  const serviceId = service.serviceCreate.id;
 
   // 5. Set environment variables
   const envVars = buildRailwayEnvVars(gatewayToken, modelhubApiUrl, modelhubApiKey, {
@@ -342,24 +354,31 @@ export async function createRailwayOpenClaw(
     modelhubApiUrl
   });
 
+  const variables: Record<string, string> = {};
+  for (const { key, value } of envVars) {
+    variables[key] = value;
+  }
   await railwayRequest(
     token,
     UPSERT_VARIABLES_MUTATION,
     {
-      projectId,
-      environmentId,
-      variables: envVars.map(({ key, value }) => ({ name: key, value }))
+      input: {
+        projectId,
+        environmentId,
+        serviceId,
+        variables,
+      }
     }
   );
 
-  // 6. Create deployment
-  const deployment = await railwayRequest<{ deploymentCreate: RailwayDeployment }>(
+  // 6. Trigger deployment
+  await railwayRequest(
     token,
-    CREATE_DEPLOYMENT_MUTATION,
-    { serviceId }
+    TRIGGER_DEPLOY_MUTATION,
+    { input: { environmentId, serviceId } }
   );
 
-  const deployId = deployment.deploymentCreate.id;
+  const deployId = null;
   const openclaw = buildOpenClawInfo({
     ...config,
     serviceUrl: publicUrl ?? "",
@@ -395,65 +414,66 @@ export async function updateRailwayOpenClaw(
       ...config,
       serviceUrl: config.serviceUrl ?? ""
     });
+    const variables: Record<string, string> = {};
+    for (const { key, value } of envVars) {
+      variables[key] = value;
+    }
     await railwayRequest(token, UPSERT_VARIABLES_MUTATION, {
-      projectId,
-      environmentId,
-      variables: envVars.map(({ key, value }) => ({ name: key, value }))
+      input: { projectId, environmentId, serviceId, variables }
     });
   }
 
-  const deployment = await railwayRequest<{ deploymentCreate: RailwayDeployment }>(
+  await railwayRequest(
     token,
-    CREATE_DEPLOYMENT_MUTATION,
-    { serviceId }
+    TRIGGER_DEPLOY_MUTATION,
+    { input: { environmentId, serviceId } }
   );
 
   return {
-    deployId: deployment.deploymentCreate.id,
+    deployId: null,
     openclaw: buildOpenClawInfo(config)
   };
 }
 
 export async function refreshRailwayDeployment(
   token: string,
-  serviceId: string,
+  compositeServiceId: string,
   deployId: string | null
 ): Promise<DeploymentRefresh> {
-  if (!deployId) {
-    return {
-      deployId: null,
-      error: "No deployment ID provided",
-      missing: true,
-      publicUrl: null,
-      status: "failed"
-    };
-  }
+  const [serviceId, , environmentId] = compositeServiceId.split(":");
 
   try {
-    const deployment = await railwayRequest<{ deployment: RailwayDeployment }>(
-      token,
-      GET_DEPLOYMENT_QUERY,
-      { id: deployId }
-    );
+    let dep: RailwayDeployment;
 
-    const mapped = mapRailwayDeploymentStatus(deployment.deployment.status);
+    if (deployId) {
+      const data = await railwayRequest<{ deployment: RailwayDeployment }>(
+        token,
+        GET_DEPLOYMENT_QUERY,
+        { id: deployId }
+      );
+      dep = data.deployment;
+    } else {
+      const data = await railwayRequest<{
+        deployments: { edges: Array<{ node: RailwayDeployment }> };
+      }>(token, LIST_SERVICE_DEPLOYMENTS_QUERY, { serviceId, environmentId });
+      const node = data.deployments.edges[0]?.node;
+      if (!node) {
+        return { deployId: null, error: null, missing: false, publicUrl: null, status: "provisioning" };
+      }
+      dep = node;
+    }
 
+    const mapped = mapRailwayDeploymentStatus(dep.status);
     return {
-      deployId: deployment.deployment.id,
+      deployId: dep.id,
       error: mapped.error,
       missing: false,
-      publicUrl: deployment.deployment.url || null,
-      status: mapped.status
+      publicUrl: dep.url || null,
+      status: mapped.status,
     };
   } catch (error) {
     if (error instanceof CloudProviderError && error.type === CloudProviderErrorType.RESOURCE_NOT_FOUND) {
-      return {
-        deployId,
-        error: null,
-        missing: true,
-        publicUrl: null,
-        status: "failed"
-      };
+      return { deployId, error: null, missing: true, publicUrl: null, status: "failed" };
     }
     throw error;
   }
