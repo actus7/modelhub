@@ -129,6 +129,19 @@ const LIST_PROJECTS_QUERY = `
   }
 `;
 
+const LIST_WORKSPACE_PROJECTS_QUERY = `
+  query ListWorkspaceProjects($workspaceId: String!) {
+    workspaceProjects(workspaceId: $workspaceId) {
+      edges {
+        node {
+          id
+          name
+        }
+      }
+    }
+  }
+`;
+
 const CREATE_PROJECT_MUTATION = `
   mutation CreateProject($input: ProjectCreateInput!) {
     projectCreate(input: $input) {
@@ -336,18 +349,32 @@ export async function createRailwayOpenClaw(
   }>(token, LIST_PROJECTS_QUERY);
 
   let projectId: string;
-  const existingProject = projects.me.projects.edges.find(edge =>
-    edge.node.name === projectName &&
-    (!workspaceId || edge.node.workspaceId === workspaceId)
-  );
+  const existingProject = projects.me.projects.edges.find(edge => edge.node.name === projectName);
 
   if (existingProject) {
     projectId = existingProject.node.id;
+  } else if (workspaceId) {
+    // me.projects may not include workspace projects — search workspace directly
+    const wsProjects = await railwayRequest<{
+      workspaceProjects: { edges: Array<{ node: RailwayProject }> };
+    }>(token, LIST_WORKSPACE_PROJECTS_QUERY, { workspaceId }).catch(() => null);
+
+    const wsProject = wsProjects?.workspaceProjects?.edges.find(e => e.node.name === projectName);
+    if (wsProject) {
+      projectId = wsProject.node.id;
+    } else {
+      const newProject = await railwayRequest<{ projectCreate: RailwayProject }>(
+        token,
+        CREATE_PROJECT_MUTATION,
+        { input: { name: projectName, workspaceId } }
+      );
+      projectId = newProject.projectCreate.id;
+    }
   } else {
     const newProject = await railwayRequest<{ projectCreate: RailwayProject }>(
       token,
       CREATE_PROJECT_MUTATION,
-      { input: { name: projectName, workspaceId } }
+      { input: { name: projectName } }
     );
     projectId = newProject.projectCreate.id;
   }
