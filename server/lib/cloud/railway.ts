@@ -91,9 +91,11 @@ const VALIDATE_TOKEN_QUERY = `
 
 const LIST_WORKSPACES_QUERY = `
   query ListWorkspaces {
-    workspaces {
-      id
-      name
+    me {
+      workspaces {
+        id
+        name
+      }
     }
   }
 `;
@@ -293,11 +295,11 @@ export async function createRailwayOpenClaw(
   // 2. Fetch workspaceId (required for accounts in organizations)
   let workspaceId: string | undefined;
   try {
-    const wsData = await railwayRequest<{ workspaces: Array<{ id: string; name: string }> }>(
+    const wsData = await railwayRequest<{ me: { workspaces: Array<{ id: string; name: string }> } }>(
       token,
       LIST_WORKSPACES_QUERY
     );
-    workspaceId = wsData.workspaces?.[0]?.id;
+    workspaceId = wsData.me.workspaces?.[0]?.id;
   } catch {
     // workspaceId is optional for personal accounts
   }
