@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { CloudDeploymentStatus } from "@/lib/contracts";
 
-export type CloudProvider = "render" | "railway" | "fly.io";
+export type CloudProvider = "render" | "railway";
 
 export type AccountMetadata = {
   userEmail: string | null;
@@ -106,9 +106,7 @@ export function formatCloudProviderError(error: CloudProviderError): string {
           return `Limite do plano gratuito do Render atingido. Considere upgrade para o plano Starter ($7/mês).`;
         case "railway":
           return `Crédito mensal de $5 do Railway esgotado. Adicione método de pagamento ou aguarde próximo mês.`;
-        case "fly.io":
-          return `Limite do free tier do Fly.io atingido (3 VMs, 3GB storage). Considere upgrade.`;
-        default:
+default:
           return `Limite do plano gratuito atingido. Considere fazer upgrade.`;
       }
 

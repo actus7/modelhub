@@ -138,7 +138,7 @@ export const cloudDeploymentStatusSchema = z.enum([
   "deleting",
 ]);
 
-export type CloudProvider = "render" | "railway" | "fly.io";
+export type CloudProvider = "render" | "railway";
 export type CloudDeploymentStatus = z.infer<typeof cloudDeploymentStatusSchema>;
 
 export type CloudConnectionSummary = {
@@ -213,11 +213,6 @@ export const cloudRenderConnectionSchema = z.object({
 });
 
 export const cloudRailwayConnectionSchema = z.object({
-  label: z.string().trim().min(1).max(100).optional(),
-  token: z.string().trim().min(1).max(4096),
-});
-
-export const cloudFlyioConnectionSchema = z.object({
   label: z.string().trim().min(1).max(100).optional(),
   token: z.string().trim().min(1).max(4096),
 });

@@ -72,13 +72,6 @@ const CLOUD_PROVIDERS = [
     placeholder: "Token Railway...",
     description: "$5 de crédito/mês grátis",
   },
-  {
-    id: "fly.io" as CloudProvider,
-    label: "Fly.io",
-    tokenUrl: "https://fly.io/user/personal_access_tokens",
-    placeholder: "fo1_...",
-    description: "3 VMs grátis, 256MB cada",
-  },
 ] as const;
 
 type CloudProviderMeta = (typeof CLOUD_PROVIDERS)[number];
@@ -123,10 +116,6 @@ function deploymentDashboardUrl(deployment: CloudDeploymentSummary): string | nu
   if (deployment.provider === "railway") {
     const projectId = sid.split(":")[1];
     return projectId ? `https://railway.app/project/${projectId}` : null;
-  }
-  if (deployment.provider === "fly.io") {
-    const appName = sid.split("/")[0];
-    return appName ? `https://fly.io/apps/${appName}` : null;
   }
   return null;
 }

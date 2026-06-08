@@ -6,7 +6,6 @@ import {
   openClawDeploymentConfigSchema,
   cloudRenderConnectionSchema,
   cloudRailwayConnectionSchema,
-  cloudFlyioConnectionSchema,
   type CloudConnectionSummary,
   type CloudDeploymentStatus,
   type CloudDeploymentSummary,
@@ -308,7 +307,7 @@ app.post("/connections/render", async (c) => {
   return c.json({ connection: serializeConnection(connection) }, 201);
 });
 
-// Generic route for new providers (Railway, Fly.io)
+// Generic route for new providers (Railway)
 app.post("/connections/:provider", async (c) => {
   const userId = requireAuth(c);
   if (typeof userId !== "string") return userId;
@@ -326,15 +325,9 @@ app.post("/connections/:provider", async (c) => {
   const body = await c.req.json().catch(() => null);
   let parsed;
 
-  switch (provider) {
-    case "railway":
-      parsed = cloudRailwayConnectionSchema.safeParse(body);
-      break;
-    case "fly.io":
-      parsed = cloudFlyioConnectionSchema.safeParse(body);
-      break;
-    default:
-      return jsonErrorResponse(400, "Provider não configurado");
+  parsed = cloudRailwayConnectionSchema.safeParse(body);
+  if (!parsed) {
+    return jsonErrorResponse(400, "Provider não configurado");
   }
 
   if (!parsed.success) {
@@ -623,7 +616,6 @@ app.post("/deployments/:provider/openclaw", async (c) => {
   // Provider metadata for DB record
   const providerDefaults: Record<string, { image: string; port: number; region: string; instanceType: string }> = {
     railway: { image: "ghcr.io/openclaw/openclaw:latest", port: 10000, region: "us-east", instanceType: "hobby" },
-    "fly.io": { image: "ghcr.io/openclaw/openclaw:latest", port: 10000, region: "iad", instanceType: "fly-free" },
   };
   const { image, port, region, instanceType } = providerDefaults[provider] ?? {
     image: "", port: 3000, region: "unknown", instanceType: "unknown",

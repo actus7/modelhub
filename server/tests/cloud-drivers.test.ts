@@ -10,19 +10,19 @@ import {
 } from "../lib/cloud";
 
 describe("Cloud Provider Drivers", () => {
-  const supportedProviders: CloudProvider[] = ["render", "railway", "fly.io"];
+  const supportedProviders: CloudProvider[] = ["render", "railway"];
 
   describe("Registry", () => {
     it("should return all supported providers", () => {
       const providers = getSupportedProviders();
       expect(providers).toEqual(expect.arrayContaining(supportedProviders));
-      expect(providers.length).toBeGreaterThanOrEqual(3);
+      expect(providers.length).toBeGreaterThanOrEqual(2);
     });
 
     it("should correctly identify supported providers", () => {
       expect(isProviderSupported("render")).toBe(true);
       expect(isProviderSupported("railway")).toBe(true);
-      expect(isProviderSupported("fly.io")).toBe(true);
+      expect(isProviderSupported("fly.io")).toBe(false);
       expect(isProviderSupported("unsupported")).toBe(false);
     });
 
@@ -90,9 +90,7 @@ describe("Cloud Provider Drivers", () => {
       const railwayName2 = getCloudDriver("railway").getServiceName(testUserId);
       expect(railwayName1).toBe(railwayName2);
 
-      const flyioName1 = getCloudDriver("fly.io").getServiceName(testUserId);
-      const flyioName2 = getCloudDriver("fly.io").getServiceName(testUserId);
-      expect(flyioName1).toBe(flyioName2);
+
     });
 
     it("should generate different service names for different users", () => {

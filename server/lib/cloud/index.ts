@@ -2,13 +2,10 @@ import type { CloudProvider, CloudProviderDriver } from "./driver";
 import { CloudProviderError, CloudProviderErrorType } from "./driver";
 import { renderDriver } from "./render";
 import { railwayDriver } from "./railway";
-import { flyioDriver } from "./flyio";
-
 // Registry of all available cloud provider drivers
 export const cloudDrivers: Record<CloudProvider, CloudProviderDriver> = {
   render: renderDriver,
   railway: railwayDriver,
-  "fly.io": flyioDriver,
 };
 
 /**
