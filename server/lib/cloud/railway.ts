@@ -31,6 +31,7 @@ type RailwayUser = {
 type RailwayProject = {
   id: string;
   name: string;
+  workspaceId?: string;
 };
 
 type RailwayEnvironment = {
@@ -120,6 +121,7 @@ const LIST_PROJECTS_QUERY = `
           node {
             id
             name
+            workspaceId
           }
         }
       }
@@ -334,7 +336,10 @@ export async function createRailwayOpenClaw(
   }>(token, LIST_PROJECTS_QUERY);
 
   let projectId: string;
-  const existingProject = projects.me.projects.edges.find(edge => edge.node.name === projectName);
+  const existingProject = projects.me.projects.edges.find(edge =>
+    edge.node.name === projectName &&
+    (!workspaceId || edge.node.workspaceId === workspaceId)
+  );
 
   if (existingProject) {
     projectId = existingProject.node.id;
