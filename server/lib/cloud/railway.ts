@@ -6,7 +6,7 @@ import { CloudProviderError, CloudProviderErrorType } from "./driver";
 import { generateResourceName } from "./driver";
 import { buildOpenClawInfo, buildOpenClawRuntimeConfig } from "./render";
 
-const RAILWAY_API_BASE = "https://backboard.railway.com/graphql/v2";
+const RAILWAY_API_BASE = "https://backboard.railway.app/graphql/v2";
 export const RAILWAY_OPENCLAW_IMAGE = "ghcr.io/openclaw/openclaw:latest";
 export const RAILWAY_OPENCLAW_PORT = 10000;
 
@@ -63,10 +63,10 @@ async function railwayRequest<T>(token: string, query: string, variables?: Recor
 
   if (result.errors) {
     const errorMessage = `Railway GraphQL errors: ${JSON.stringify(result.errors)}`;
-    const isAuth = result.errors.some((err: any) =>
-      err.message?.toLowerCase().includes('unauthorized') ||
-      err.message?.toLowerCase().includes('authentication')
-    );
+    const isAuth = result.errors.some((err: any) => {
+      const msg = (err.message ?? "").toLowerCase();
+      return msg.includes('unauthorized') || msg.includes('not authorized') || msg.includes('authentication') || msg.includes('forbidden');
+    });
 
     throw new CloudProviderError(
       isAuth ? CloudProviderErrorType.AUTHENTICATION : CloudProviderErrorType.UNKNOWN,
