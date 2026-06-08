@@ -44,14 +44,46 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
-import type { CloudConnectionSummary, CloudDeploymentStatus, CloudDeploymentSummary, UiProvider } from "@/lib/contracts";
+import type {
+  CloudConnectionSummary,
+  CloudDeploymentStatus,
+  CloudDeploymentSummary,
+  CloudProvider,
+  UiProvider,
+} from "@/lib/contracts";
 import { apiJson, apiJsonRequest } from "@/lib/api";
 import { useAppState } from "@/components/app-state-provider";
 import { providerHasRequiredCredentials, providerUsesStoredCredentials } from "@/lib/provider-credentials";
 
-const RENDER_TOKEN_URL = "https://dashboard.render.com/u/settings#api-keys";
+// ── Cloud provider metadata ───────────────────────────────────────────────────
 
-// ── Types ────────────────────────────────────────────────────────────────────
+const CLOUD_PROVIDERS = [
+  {
+    id: "render" as CloudProvider,
+    label: "Render",
+    tokenUrl: "https://dashboard.render.com/u/settings#api-keys",
+    placeholder: "rnd_...",
+    description: "Free tier com 750h/mês",
+  },
+  {
+    id: "railway" as CloudProvider,
+    label: "Railway",
+    tokenUrl: "https://railway.app/account/tokens",
+    placeholder: "Token Railway...",
+    description: "$5 de crédito/mês grátis",
+  },
+  {
+    id: "fly.io" as CloudProvider,
+    label: "Fly.io",
+    tokenUrl: "https://fly.io/user/personal_access_tokens",
+    placeholder: "fo1_...",
+    description: "3 VMs grátis, 256MB cada",
+  },
+] as const;
+
+type CloudProviderMeta = (typeof CLOUD_PROVIDERS)[number];
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type ProviderEntry = Readonly<{ provider: UiProvider; isConfigured: boolean; needsCredentials: boolean }>;
 type CloudRefreshResponse = Readonly<{ deleted: boolean; deployment: CloudDeploymentSummary | null }>;
@@ -59,7 +91,7 @@ type TokenDialogState = Readonly<{ deploymentId: string; token: string | null; l
 type ModelItem = Readonly<{ id: string; name: string }>;
 type OpenClawConfigPayload = Readonly<{ allowedOrigins: string[]; model: string; provider: string }>;
 
-// ── Pure helpers ─────────────────────────────────────────────────────────────
+// ── Pure helpers ──────────────────────────────────────────────────────────────
 
 function formatDate(value: string | Date | null | undefined) {
   if (!value) return "-";
@@ -71,7 +103,10 @@ function formatDate(value: string | Date | null | undefined) {
 
 function statusLabel(status: CloudDeploymentStatus) {
   const labels: Record<CloudDeploymentStatus, string> = {
-    deleting: "Removendo", failed: "Falhou", healthy: "Pronto", provisioning: "Provisionando",
+    deleting: "Removendo",
+    failed: "Falhou",
+    healthy: "Pronto",
+    provisioning: "Provisionando",
   };
   return labels[status] ?? "Provisionando";
 }
@@ -82,8 +117,22 @@ function statusVariant(status: CloudDeploymentStatus) {
   return "secondary" as const;
 }
 
-function renderDashboardUrl(serviceId: string) {
-  return `https://dashboard.render.com/web/${serviceId}`;
+function deploymentDashboardUrl(deployment: CloudDeploymentSummary): string | null {
+  const sid = deployment.externalServiceId;
+  if (deployment.provider === "render") return `https://dashboard.render.com/web/${sid}`;
+  if (deployment.provider === "railway") {
+    const projectId = sid.split(":")[1];
+    return projectId ? `https://railway.app/project/${projectId}` : null;
+  }
+  if (deployment.provider === "fly.io") {
+    const appName = sid.split("/")[0];
+    return appName ? `https://fly.io/apps/${appName}` : null;
+  }
+  return null;
+}
+
+function cloudProviderLabel(provider: CloudProvider): string {
+  return CLOUD_PROVIDERS.find((cp) => cp.id === provider)?.label ?? provider;
 }
 
 function compareProviderEntries(a: ProviderEntry, b: ProviderEntry): number {
@@ -106,7 +155,12 @@ function InfoRow({ label, value, href }: Readonly<{ label: string; value: string
       <span className="text-xs font-medium text-muted-foreground">{label}</span>
       <div className="flex min-w-0 items-center gap-2">
         {href ? (
-          <a className="min-w-0 truncate text-sm underline-offset-4 hover:underline" href={href} target="_blank" rel="noopener noreferrer">
+          <a
+            className="min-w-0 truncate text-sm underline-offset-4 hover:underline"
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
             {value}
           </a>
         ) : (
@@ -120,7 +174,7 @@ function InfoRow({ label, value, href }: Readonly<{ label: string; value: string
   );
 }
 
-// ── Async IO (outside component to reduce cognitive complexity) ──────────────
+// ── Async IO ──────────────────────────────────────────────────────────────────
 
 async function fetchCloudData() {
   const [cp, dp] = await Promise.all([
@@ -137,18 +191,151 @@ async function fetchModelsForProvider(providerId: string): Promise<ModelItem[]> 
     .map((m) => ({ id: m.id, name: m.id.includes("/") ? m.id.split("/").slice(1).join("/") : m.id }));
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── CloudProviderRow ──────────────────────────────────────────────────────────
+
+function CloudProviderRow({
+  meta,
+  connection,
+  isConnecting,
+  token,
+  busyAction,
+  hasDeployments,
+  onStartConnect,
+  onCancelConnect,
+  onTokenChange,
+  onConnect,
+  onDisconnect,
+}: Readonly<{
+  meta: CloudProviderMeta;
+  connection: CloudConnectionSummary | undefined;
+  isConnecting: boolean;
+  token: string;
+  busyAction: string | null;
+  hasDeployments: boolean;
+  onStartConnect: () => void;
+  onCancelConnect: () => void;
+  onTokenChange: (v: string) => void;
+  onConnect: () => void;
+  onDisconnect: (conn: CloudConnectionSummary) => void;
+}>) {
+  const connectBusy = busyAction === `connect:${meta.id}`;
+  const disconnectBusy = connection && busyAction === `disconnect:${connection.id}`;
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 rounded-lg border border-border/60 p-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium">{meta.label}</span>
+            {connection ? (
+              <Badge variant="outline" className="gap-1 text-xs">
+                <CheckCircle2Icon className="size-3" />
+                Conectado
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="text-xs">
+                Desconectado
+              </Badge>
+            )}
+          </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {connection
+              ? (connection.externalOrganizationName ?? connection.externalUserEmail ?? meta.description)
+              : meta.description}
+          </p>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {connection ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={!!disconnectBusy || hasDeployments}
+              title={hasDeployments ? "Remova os ambientes antes de desconectar" : undefined}
+              onClick={() => onDisconnect(connection)}
+            >
+              {disconnectBusy ? (
+                <Loader2Icon className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <UnplugIcon data-icon="inline-start" />
+              )}
+              Desconectar
+            </Button>
+          ) : (
+            <Button size="sm" variant="outline" onClick={onStartConnect}>
+              <PlugZapIcon data-icon="inline-start" />
+              Conectar
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {isConnecting && (
+        <div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/30 p-3">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium">API Token do {meta.label}</span>
+            <Button size="sm" variant="ghost" onClick={onCancelConnect}>
+              Cancelar
+            </Button>
+          </div>
+          <Input
+            type="password"
+            autoComplete="off"
+            autoFocus
+            placeholder={meta.placeholder}
+            value={token}
+            onChange={(e) => onTokenChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") onConnect();
+            }}
+          />
+          <div className="flex gap-2">
+            <Button size="sm" disabled={connectBusy || !token.trim()} onClick={onConnect}>
+              {connectBusy ? (
+                <Loader2Icon className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <PlugZapIcon data-icon="inline-start" />
+              )}
+              Conectar
+            </Button>
+            <Button asChild size="sm" variant="ghost">
+              <a href={meta.tokenUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLinkIcon data-icon="inline-start" />
+                Gerar token
+              </a>
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── DeployForm ────────────────────────────────────────────────────────────────
 
 function DeployForm({
-  usableProviders, selectedProvider, selectedModel, availableModels,
-  loadingModels, deployBusy, onProviderChange, onModelChange, onDeploy, onConfigureCredentials,
+  connectedCloudProviders,
+  selectedCloudProvider,
+  usableProviders,
+  selectedProvider,
+  selectedModel,
+  availableModels,
+  loadingModels,
+  deployBusy,
+  onCloudProviderChange,
+  onProviderChange,
+  onModelChange,
+  onDeploy,
+  onConfigureCredentials,
 }: Readonly<{
+  connectedCloudProviders: CloudProviderMeta[];
+  selectedCloudProvider: string;
   usableProviders: ProviderEntry[];
   selectedProvider: string;
   selectedModel: string;
   availableModels: ModelItem[];
   loadingModels: boolean;
   deployBusy: boolean;
+  onCloudProviderChange: (id: string) => void;
   onProviderChange: (id: string) => void;
   onModelChange: (id: string) => void;
   onDeploy: () => void;
@@ -157,28 +344,53 @@ function DeployForm({
   return (
     <FieldGroup>
       <Field>
-        <FieldLabel>Provider</FieldLabel>
+        <FieldLabel>Onde hospedar</FieldLabel>
+        <Select value={selectedCloudProvider} onValueChange={onCloudProviderChange}>
+          <SelectTrigger>
+            <SelectValue placeholder="Selecione o provedor cloud..." />
+          </SelectTrigger>
+          <SelectContent>
+            {connectedCloudProviders.map((cp) => (
+              <SelectItem key={cp.id} value={cp.id}>
+                <span className="flex items-center gap-2">
+                  <span className="size-2 shrink-0 rounded-full bg-green-500" />
+                  {cp.label}
+                </span>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <FieldDescription>Provedor cloud onde o OpenClaw será hospedado.</FieldDescription>
+      </Field>
+      <Field>
+        <FieldLabel>Provider do agente</FieldLabel>
         <Select value={selectedProvider} onValueChange={onProviderChange}>
-          <SelectTrigger><SelectValue placeholder="Selecione um provider..." /></SelectTrigger>
+          <SelectTrigger>
+            <SelectValue placeholder="Selecione um provider de IA..." />
+          </SelectTrigger>
           <SelectContent>
             {usableProviders.map(({ provider, isConfigured, needsCredentials }) => (
               <SelectItem key={provider.id} value={provider.id}>
                 <span className="flex items-center gap-2">
-                  {isConfigured
-                    ? <span className="size-2 shrink-0 rounded-full bg-green-500" />
-                    : <CircleIcon className="size-2 shrink-0 text-muted-foreground" />}
+                  {isConfigured ? (
+                    <span className="size-2 shrink-0 rounded-full bg-green-500" />
+                  ) : (
+                    <CircleIcon className="size-2 shrink-0 text-muted-foreground" />
+                  )}
                   {provider.label}
-                  {!isConfigured && needsCredentials
-                    ? <span className="text-xs text-muted-foreground">(sem credencial)</span>
-                    : null}
+                  {!isConfigured && needsCredentials ? (
+                    <span className="text-xs text-muted-foreground">(sem credencial)</span>
+                  ) : null}
                 </span>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
         <FieldDescription>
-          Providers em verde estao configurados e prontos.{" "}
-          <button type="button" className="underline" onClick={onConfigureCredentials}>Configurar credenciais</button>
+          Provider de IA que o agente usará.{" "}
+          <button type="button" className="underline" onClick={onConfigureCredentials}>
+            Configurar credenciais
+          </button>
         </FieldDescription>
       </Field>
       <Field>
@@ -188,21 +400,39 @@ function DeployForm({
             <SelectValue placeholder={loadingModels ? "Carregando..." : "Selecione um modelo..."} />
           </SelectTrigger>
           <SelectContent>
-            {availableModels.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
+            {availableModels.map((m) => (
+              <SelectItem key={m.id} value={m.id}>
+                {m.name}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
-        <FieldDescription>Modelo padrao que o OpenClaw usara para responder.</FieldDescription>
+        <FieldDescription>Modelo que o OpenClaw usará por padrão.</FieldDescription>
       </Field>
-      <Button disabled={deployBusy || !selectedProvider || !selectedModel} onClick={onDeploy} className="self-start">
-        {deployBusy ? <Loader2Icon className="animate-spin" data-icon="inline-start" /> : <PlugZapIcon data-icon="inline-start" />}
+      <Button
+        disabled={deployBusy || !selectedCloudProvider || !selectedProvider || !selectedModel}
+        onClick={onDeploy}
+        className="self-start"
+      >
+        {deployBusy ? (
+          <Loader2Icon className="animate-spin" data-icon="inline-start" />
+        ) : (
+          <PlugZapIcon data-icon="inline-start" />
+        )}
         Deploy OpenClaw
       </Button>
     </FieldGroup>
   );
 }
 
+// ── OpenClawConfigPanel ───────────────────────────────────────────────────────
+
 function OpenClawConfigPanel({
-  deployment, usableProviders, saving, onConfigureCredentials, onSave,
+  deployment,
+  usableProviders,
+  saving,
+  onConfigureCredentials,
+  onSave,
 }: Readonly<{
   deployment: CloudDeploymentSummary;
   usableProviders: ProviderEntry[];
@@ -224,7 +454,10 @@ function OpenClawConfigPanel({
   }, [openclaw]);
 
   useEffect(() => {
-    if (!provider) { setModels([]); return; }
+    if (!provider) {
+      setModels([]);
+      return;
+    }
     setLoadingModels(true);
     fetchModelsForProvider(provider)
       .then(setModels)
@@ -273,7 +506,8 @@ function OpenClawConfigPanel({
         <div className="flex flex-wrap gap-2">
           {openclaw.allowedOrigins.map((origin) => (
             <Badge key={origin} variant="secondary" className="max-w-full truncate">
-              <GlobeIcon />{origin}
+              <GlobeIcon />
+              {origin}
             </Badge>
           ))}
         </div>
@@ -285,11 +519,14 @@ function OpenClawConfigPanel({
         <Field>
           <FieldLabel>Provider do agente</FieldLabel>
           <Select value={provider} onValueChange={handleProviderChange}>
-            <SelectTrigger><SelectValue placeholder="Selecione um provider..." /></SelectTrigger>
+            <SelectTrigger>
+              <SelectValue placeholder="Selecione um provider..." />
+            </SelectTrigger>
             <SelectContent>
               {usableProviders.map(({ provider: item, isConfigured, needsCredentials }) => (
                 <SelectItem key={item.id} value={item.id}>
-                  {item.label}{!isConfigured && needsCredentials ? " (sem credencial)" : ""}
+                  {item.label}
+                  {!isConfigured && needsCredentials ? " (sem credencial)" : ""}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -302,7 +539,11 @@ function OpenClawConfigPanel({
               <SelectValue placeholder={loadingModels ? "Carregando..." : "Selecione um modelo..."} />
             </SelectTrigger>
             <SelectContent>
-              {modelOptions.map((item) => <SelectItem key={item.id} value={item.id}>{item.name}</SelectItem>)}
+              {modelOptions.map((item) => (
+                <SelectItem key={item.id} value={item.id}>
+                  {item.name}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </Field>
@@ -314,23 +555,41 @@ function OpenClawConfigPanel({
             placeholder="https://modelhub-openclaw-xxxx.onrender.com"
             rows={3}
           />
-          <FieldDescription>Use uma origem por linha. Inclua a URL publica do OpenClaw e a origem do ModelHub.</FieldDescription>
+          <FieldDescription>
+            Uma origem por linha. Inclua a URL pública do OpenClaw e a origem do ModelHub.
+          </FieldDescription>
         </Field>
         <Button
           className="self-start"
           disabled={saving || !provider || !model}
-          onClick={() => onSave(deployment.id, { allowedOrigins: splitOrigins(originsText), model, provider })}
+          onClick={() =>
+            onSave(deployment.id, { allowedOrigins: splitOrigins(originsText), model, provider })
+          }
         >
-          {saving ? <Loader2Icon className="animate-spin" data-icon="inline-start" /> : <SaveIcon data-icon="inline-start" />}
-          Aplicar configuracao
+          {saving ? (
+            <Loader2Icon className="animate-spin" data-icon="inline-start" />
+          ) : (
+            <SaveIcon data-icon="inline-start" />
+          )}
+          Aplicar configuração
         </Button>
       </FieldGroup>
     </div>
   );
 }
 
+// ── DeploymentCard ────────────────────────────────────────────────────────────
+
 function DeploymentCard({
-  deployment, busyAction, usableProviders, onConfigureCredentials, onRevealToken, onRefresh, onDelete, onUpdateOpenClaw, onChat,
+  deployment,
+  busyAction,
+  usableProviders,
+  onConfigureCredentials,
+  onRevealToken,
+  onRefresh,
+  onDelete,
+  onUpdateOpenClaw,
+  onChat,
 }: Readonly<{
   deployment: CloudDeploymentSummary;
   busyAction: string | null;
@@ -344,6 +603,8 @@ function DeploymentCard({
 }>) {
   const isDeleting = deployment.status === "deleting";
   const isReady = deployment.status === "healthy";
+  const dashboardUrl = deploymentDashboardUrl(deployment);
+
   return (
     <Card className="border-border/60">
       <CardContent className="flex flex-col gap-4 p-4">
@@ -352,10 +613,15 @@ function DeploymentCard({
             <div className="flex flex-wrap items-center gap-2">
               <p className="font-medium">{deployment.name}</p>
               <Badge variant={statusVariant(deployment.status)}>{statusLabel(deployment.status)}</Badge>
+              <Badge variant="secondary" className="text-xs">
+                {cloudProviderLabel(deployment.provider)}
+              </Badge>
             </div>
             <div className="mt-1 flex flex-col gap-1 text-xs text-muted-foreground">
               <span>{deployment.image}</span>
-              <span>{deployment.region} / {deployment.instanceType} / porta {deployment.port}</span>
+              <span>
+                {deployment.region} / {deployment.instanceType} / porta {deployment.port}
+              </span>
               <span>ID: {deployment.externalServiceId}</span>
               <span>Criado em {formatDate(deployment.createdAt)}</span>
             </div>
@@ -364,33 +630,53 @@ function DeploymentCard({
             {deployment.publicUrl ? (
               <Button asChild size="sm" variant="outline">
                 <a href={deployment.publicUrl} target="_blank" rel="noopener noreferrer">
-                  <ExternalLinkIcon data-icon="inline-start" />Abrir
+                  <ExternalLinkIcon data-icon="inline-start" />
+                  Abrir
                 </a>
               </Button>
             ) : null}
             {isReady ? (
               <Button size="sm" variant="default" onClick={() => onChat(deployment.id)}>
-                <MessageSquareTextIcon data-icon="inline-start" />Conversar
+                <MessageSquareTextIcon data-icon="inline-start" />
+                Conversar
               </Button>
             ) : null}
-            <Button asChild size="sm" variant="outline">
-              <a href={renderDashboardUrl(deployment.externalServiceId)} target="_blank" rel="noopener noreferrer">
-                <ExternalLinkIcon data-icon="inline-start" />Dashboard
-              </a>
-            </Button>
+            {dashboardUrl ? (
+              <Button asChild size="sm" variant="outline">
+                <a href={dashboardUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLinkIcon data-icon="inline-start" />
+                  Dashboard
+                </a>
+              </Button>
+            ) : null}
             <Button size="sm" variant="ghost" onClick={onRevealToken}>
-              <KeyRoundIcon data-icon="inline-start" />Token
+              <KeyRoundIcon data-icon="inline-start" />
+              Token
             </Button>
-            <Button disabled={busyAction === `refresh:${deployment.id}` || isDeleting} onClick={onRefresh} size="sm" variant="ghost">
-              {busyAction === `refresh:${deployment.id}`
-                ? <Loader2Icon className="animate-spin" data-icon="inline-start" />
-                : <RefreshCwIcon data-icon="inline-start" />}
+            <Button
+              disabled={busyAction === `refresh:${deployment.id}` || isDeleting}
+              onClick={onRefresh}
+              size="sm"
+              variant="ghost"
+            >
+              {busyAction === `refresh:${deployment.id}` ? (
+                <Loader2Icon className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <RefreshCwIcon data-icon="inline-start" />
+              )}
               Atualizar
             </Button>
-            <Button disabled={busyAction === `delete:${deployment.id}` || isDeleting} onClick={onDelete} size="sm" variant="ghost">
-              {busyAction === `delete:${deployment.id}`
-                ? <Loader2Icon className="animate-spin" data-icon="inline-start" />
-                : <Trash2Icon data-icon="inline-start" />}
+            <Button
+              disabled={busyAction === `delete:${deployment.id}` || isDeleting}
+              onClick={onDelete}
+              size="sm"
+              variant="ghost"
+            >
+              {busyAction === `delete:${deployment.id}` ? (
+                <Loader2Icon className="animate-spin" data-icon="inline-start" />
+              ) : (
+                <Trash2Icon data-icon="inline-start" />
+              )}
               Remover
             </Button>
           </div>
@@ -413,8 +699,13 @@ function DeploymentCard({
   );
 }
 
+// ── TokenDialog ───────────────────────────────────────────────────────────────
+
 function TokenDialog({
-  state, copied, onCopy, onClose,
+  state,
+  copied,
+  onCopy,
+  onClose,
 }: Readonly<{
   state: TokenDialogState | null;
   copied: boolean;
@@ -426,16 +717,18 @@ function TokenDialog({
       <AlertDialogContent size="sm">
         <AlertDialogHeader>
           <AlertDialogTitle className="flex items-center gap-2">
-            <KeyRoundIcon className="size-4" />Gateway Token
+            <KeyRoundIcon className="size-4" />
+            Gateway Token
           </AlertDialogTitle>
           <AlertDialogDescription>
-            Bearer token para autenticar requisicoes ao OpenClaw. Guarde em local seguro.
+            Bearer token para autenticar requisições ao OpenClaw. Guarde em local seguro.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="px-1">
           {state?.loading ? (
             <div className="flex items-center gap-2 py-4 text-sm text-muted-foreground">
-              <Loader2Icon className="size-4 animate-spin" />Carregando...
+              <Loader2Icon className="size-4 animate-spin" />
+              Carregando...
             </div>
           ) : (
             <div className="flex items-start gap-2">
@@ -443,12 +736,16 @@ function TokenDialog({
                 {state?.token ?? ""}
               </code>
               <Button
-                size="sm" variant="outline" className="shrink-0"
-                onClick={() => state?.token ? onCopy(state.token) : undefined}
+                size="sm"
+                variant="outline"
+                className="shrink-0"
+                onClick={() => (state?.token ? onCopy(state.token) : undefined)}
               >
-                {copied
-                  ? <ClipboardCheckIcon className="size-4 text-green-500" />
-                  : <ClipboardIcon className="size-4" />}
+                {copied ? (
+                  <ClipboardCheckIcon className="size-4 text-green-500" />
+                ) : (
+                  <ClipboardIcon className="size-4" />
+                )}
               </Button>
             </div>
           )}
@@ -470,36 +767,53 @@ export function CloudDashboardSection() {
   const [connections, setConnections] = useState<CloudConnectionSummary[]>([]);
   const [deployments, setDeployments] = useState<CloudDeploymentSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState("");
+
+  // connection management
+  const [connectingProvider, setConnectingProvider] = useState<CloudProvider | null>(null);
+  const [providerToken, setProviderToken] = useState("");
+
+  // deploy form
+  const [selectedCloudProvider, setSelectedCloudProvider] = useState("");
   const [selectedProvider, setSelectedProvider] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [availableModels, setAvailableModels] = useState<ModelItem[]>([]);
   const [loadingModels, setLoadingModels] = useState(false);
+
+  // misc
   const [revealedGatewayToken, setRevealedGatewayToken] = useState<string | null>(null);
   const [tokenDialog, setTokenDialog] = useState<TokenDialogState | null>(null);
   const [copied, setCopied] = useState(false);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<CloudDeploymentSummary | null>(null);
 
-  const usableProviders = useMemo<ProviderEntry[]>(
-    () => providers
-      .filter((p) => p.hasModels && p.runtime?.kind === "server")
-      .map((p) => ({
-        isConfigured: providerHasRequiredCredentials(p, credentials),
-        needsCredentials: providerUsesStoredCredentials(p),
-        provider: p,
-      }))
-      .sort(compareProviderEntries),
-    [providers, credentials],
-  );
+  // ── Derived ────────────────────────────────────────────────────────────────
 
-  const renderConnection = useMemo(
-    () => connections.find((c) => c.provider === "render") ?? null,
+  const cloudConnectionMap = useMemo(
+    () =>
+      Object.fromEntries(connections.map((c) => [c.provider, c])) as Partial<
+        Record<CloudProvider, CloudConnectionSummary>
+      >,
     [connections],
   );
 
-  // Stable string key so the polling effect only re-subscribes when the set of
-  // polled ids actually changes (not on every deployments array reference change).
+  const connectedCloudProviders = useMemo(
+    () => CLOUD_PROVIDERS.filter((cp) => !!cloudConnectionMap[cp.id]),
+    [cloudConnectionMap],
+  );
+
+  const usableProviders = useMemo<ProviderEntry[]>(
+    () =>
+      providers
+        .filter((p) => p.hasModels && p.runtime?.kind === "server")
+        .map((p) => ({
+          isConfigured: providerHasRequiredCredentials(p, credentials),
+          needsCredentials: providerUsesStoredCredentials(p),
+          provider: p,
+        }))
+        .sort(compareProviderEntries),
+    [providers, credentials],
+  );
+
   const pollingIdsStr = useMemo(
     () =>
       deployments
@@ -509,6 +823,10 @@ export function CloudDashboardSection() {
     [deployments],
   );
 
+  const canDeploy = deployments.length === 0;
+
+  // ── Data loading ───────────────────────────────────────────────────────────
+
   const loadCloud = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -516,34 +834,44 @@ export function CloudDashboardSection() {
       setConnections(data.connections);
       setDeployments(data.deployments);
     } catch (error) {
-      if (!silent) toast.error(error instanceof Error ? error.message : "Falha ao carregar OpenClaw.");
+      if (!silent) toast.error(error instanceof Error ? error.message : "Falha ao carregar dados cloud.");
     } finally {
       if (!silent) setLoading(false);
     }
   }, []);
 
-  const refreshDeployment = useCallback(async (deploymentId: string, silent = false) => {
-    if (!silent) setBusyAction(`refresh:${deploymentId}`);
-    try {
-      const payload = await apiJsonRequest<CloudRefreshResponse>(`/user/cloud/deployments/${deploymentId}/refresh`, "POST");
-      if (payload.deleted) {
-        setDeployments((curr) => curr.filter((d) => d.id !== deploymentId));
-        if (!silent) toast.info("O ambiente ja foi removido no Render.");
-        return;
+  const refreshDeployment = useCallback(
+    async (deploymentId: string, silent = false) => {
+      if (!silent) setBusyAction(`refresh:${deploymentId}`);
+      try {
+        const payload = await apiJsonRequest<CloudRefreshResponse>(
+          `/user/cloud/deployments/${deploymentId}/refresh`,
+          "POST",
+        );
+        if (payload.deleted) {
+          setDeployments((curr) => curr.filter((d) => d.id !== deploymentId));
+          if (!silent) toast.info("O ambiente já foi removido no provedor.");
+          return;
+        }
+        if (payload.deployment) {
+          setDeployments((curr) =>
+            curr.map((d) => (d.id === deploymentId ? payload.deployment! : d)),
+          );
+        }
+        if (!silent) toast.success("Status atualizado.");
+      } catch (error) {
+        if (!silent) toast.error(error instanceof Error ? error.message : "Falha ao atualizar status.");
+        await loadCloud(true);
+      } finally {
+        if (!silent) setBusyAction(null);
       }
-      if (payload.deployment) {
-        setDeployments((curr) => curr.map((d) => (d.id === deploymentId ? payload.deployment! : d)));
-      }
-      if (!silent) toast.success("Status atualizado.");
-    } catch (error) {
-      if (!silent) toast.error(error instanceof Error ? error.message : "Falha ao atualizar status.");
-      await loadCloud(true);
-    } finally {
-      if (!silent) setBusyAction(null);
-    }
-  }, [loadCloud]);
+    },
+    [loadCloud],
+  );
 
-  useEffect(() => { void loadCloud(); }, [loadCloud]);
+  useEffect(() => {
+    void loadCloud();
+  }, [loadCloud]);
 
   useEffect(() => {
     const ids = pollingIdsStr.split(",").filter(Boolean);
@@ -555,7 +883,11 @@ export function CloudDashboardSection() {
   }, [pollingIdsStr, refreshDeployment]);
 
   useEffect(() => {
-    if (!selectedProvider) { setAvailableModels([]); setSelectedModel(""); return; }
+    if (!selectedProvider) {
+      setAvailableModels([]);
+      setSelectedModel("");
+      return;
+    }
     setLoadingModels(true);
     setAvailableModels([]);
     setSelectedModel("");
@@ -565,7 +897,9 @@ export function CloudDashboardSection() {
       .finally(() => setLoadingModels(false));
   }, [selectedProvider]);
 
-  function handleProviderChange(providerId: string) {
+  // ── Handlers ───────────────────────────────────────────────────────────────
+
+  function handleAiProviderChange(providerId: string) {
     const entry = usableProviders.find((e) => e.provider.id === providerId);
     if (!entry?.isConfigured && entry?.needsCredentials) {
       toast.info(`${entry.provider.label} precisa de credenciais.`, {
@@ -576,60 +910,68 @@ export function CloudDashboardSection() {
     setSelectedProvider(providerId);
   }
 
-  async function handleConnect() {
-    if (!token.trim()) { toast.error("Cole o token do Render antes de conectar."); return; }
-    setBusyAction("connect");
+  async function handleConnect(provider: CloudProvider) {
+    if (!providerToken.trim()) {
+      toast.error("Cole o token antes de conectar.");
+      return;
+    }
+    setBusyAction(`connect:${provider}`);
     try {
-      const { connection } = await apiJsonRequest<{ connection: CloudConnectionSummary }>("/user/cloud/connections/render", "POST", { token });
+      const endpoint =
+        provider === "render"
+          ? "/user/cloud/connections/render"
+          : `/user/cloud/connections/${provider}`;
+      const { connection } = await apiJsonRequest<{ connection: CloudConnectionSummary }>(
+        endpoint,
+        "POST",
+        { token: providerToken },
+      );
       setConnections((curr) => [connection, ...curr.filter((c) => c.id !== connection.id)]);
-      setToken("");
-      toast.success("Render conectado.");
+      setConnectingProvider(null);
+      setProviderToken("");
+      toast.success(`${cloudProviderLabel(provider)} conectado.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao conectar Render.");
+      toast.error(error instanceof Error ? error.message : `Falha ao conectar ${cloudProviderLabel(provider)}.`);
     } finally {
       setBusyAction(null);
     }
   }
 
-  async function handleDisconnect() {
-    if (!renderConnection) return;
-    setBusyAction("disconnect");
+  async function handleDisconnect(connection: CloudConnectionSummary) {
+    setBusyAction(`disconnect:${connection.id}`);
     try {
-      await apiJsonRequest(`/user/cloud/connections/${renderConnection.id}`, "DELETE");
-      setConnections((curr) => curr.filter((c) => c.id !== renderConnection.id));
-      toast.success("Render desconectado.");
+      await apiJsonRequest(`/user/cloud/connections/${connection.id}`, "DELETE");
+      setConnections((curr) => curr.filter((c) => c.id !== connection.id));
+      toast.success(`${cloudProviderLabel(connection.provider)} desconectado.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao desconectar Render.");
+      toast.error(
+        error instanceof Error ? error.message : `Falha ao desconectar ${cloudProviderLabel(connection.provider)}.`,
+      );
     } finally {
       setBusyAction(null);
     }
   }
 
   async function handleDeployOpenClaw() {
-    if (!selectedProvider || !selectedModel) { toast.error("Selecione o provider e o modelo."); return; }
+    if (!selectedCloudProvider || !selectedProvider || !selectedModel) {
+      toast.error("Selecione o provedor cloud, o provider de IA e o modelo.");
+      return;
+    }
     setBusyAction("deploy-openclaw");
     try {
-      const { deployment, gatewayToken } = await apiJsonRequest<{ deployment: CloudDeploymentSummary; gatewayToken: string }>(
-        "/user/cloud/deployments/render/openclaw", "POST", { model: selectedModel, provider: selectedProvider },
-      );
+      const endpoint =
+        selectedCloudProvider === "render"
+          ? "/user/cloud/deployments/render/openclaw"
+          : `/user/cloud/deployments/${selectedCloudProvider}/openclaw`;
+      const { deployment, gatewayToken } = await apiJsonRequest<{
+        deployment: CloudDeploymentSummary;
+        gatewayToken: string;
+      }>(endpoint, "POST", { model: selectedModel, provider: selectedProvider });
       setDeployments((curr) => [deployment, ...curr]);
       setRevealedGatewayToken(gatewayToken);
-      toast.success("OpenClaw criado no Render.");
+      toast.success(`OpenClaw criado no ${cloudProviderLabel(selectedCloudProvider as CloudProvider)}.`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao criar OpenClaw.");
-    } finally {
-      setBusyAction(null);
-    }
-  }
-
-  async function handleDeploy() {
-    setBusyAction("deploy");
-    try {
-      const { deployment } = await apiJsonRequest<{ deployment: CloudDeploymentSummary }>("/user/cloud/deployments/render", "POST");
-      setDeployments((curr) => [deployment, ...curr]);
-      toast.success("Ambiente de teste criado no Render.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao criar ambiente.");
     } finally {
       setBusyAction(null);
     }
@@ -638,7 +980,9 @@ export function CloudDashboardSection() {
   async function handleDeleteDeployment(deployment: CloudDeploymentSummary) {
     setPendingDelete(null);
     setBusyAction(`delete:${deployment.id}`);
-    setDeployments((curr) => curr.map((d) => (d.id === deployment.id ? { ...d, status: "deleting" } : d)));
+    setDeployments((curr) =>
+      curr.map((d) => (d.id === deployment.id ? { ...d, status: "deleting" as const } : d)),
+    );
     try {
       await apiJsonRequest(`/user/cloud/deployments/${deployment.id}`, "DELETE");
       setDeployments((curr) => curr.filter((d) => d.id !== deployment.id));
@@ -660,7 +1004,7 @@ export function CloudDashboardSection() {
         payload,
       );
       setDeployments((curr) => curr.map((item) => (item.id === deploymentId ? deployment : item)));
-      toast.success("Configuracao OpenClaw aplicada. O Render esta redeployando.");
+      toast.success("Configuração aplicada. O ambiente está redeployando.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao atualizar OpenClaw.");
     } finally {
@@ -672,7 +1016,9 @@ export function CloudDashboardSection() {
     setTokenDialog({ deploymentId, loading: true, token: null });
     setCopied(false);
     try {
-      const { gatewayToken } = await apiJson<{ gatewayToken: string }>(`/user/cloud/deployments/${deploymentId}/gateway-token`);
+      const { gatewayToken } = await apiJson<{ gatewayToken: string }>(
+        `/user/cloud/deployments/${deploymentId}/gateway-token`,
+      );
       setTokenDialog({ deploymentId, loading: false, token: gatewayToken });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Falha ao carregar token.");
@@ -686,122 +1032,125 @@ export function CloudDashboardSection() {
     globalThis.setTimeout(() => setCopied(false), 2000);
   }
 
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   if (loading) {
     return (
       <Card className="border-border/60">
         <CardContent className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-          <Loader2Icon className="size-4 animate-spin" aria-hidden />Carregando OpenClaw...
+          <Loader2Icon className="size-4 animate-spin" aria-hidden />
+          Carregando OpenClaw...
         </CardContent>
       </Card>
     );
   }
 
-  const canDeploy = deployments.length === 0;
+  const anyConnected = connectedCloudProviders.length > 0;
 
   return (
     <>
       <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+        {/* ── Left: connections + deploy form ── */}
         <Card className="border-border/60">
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <div className="flex flex-col gap-1">
-                <CardTitle className="flex items-center gap-2"><CloudIcon />OpenClaw</CardTitle>
-                <CardDescription>Conecte sua conta Render e provisione o OpenClaw com um click.</CardDescription>
+                <CardTitle className="flex items-center gap-2">
+                  <CloudIcon />
+                  OpenClaw
+                </CardTitle>
+                <CardDescription>
+                  Conecte um provedor cloud e provisione o OpenClaw com um clique.
+                </CardDescription>
               </div>
-              {renderConnection
-                ? <Badge variant="outline" className="gap-1.5"><CheckCircle2Icon />Conectado</Badge>
-                : <Badge variant="secondary">Desconectado</Badge>}
+              <Badge variant={anyConnected ? "outline" : "secondary"} className={anyConnected ? "gap-1.5" : ""}>
+                {anyConnected ? (
+                  <>
+                    <CheckCircle2Icon />
+                    {connectedCloudProviders.length === 1
+                      ? connectedCloudProviders[0].label
+                      : `${connectedCloudProviders.length} conectados`}
+                  </>
+                ) : (
+                  "Desconectado"
+                )}
+              </Badge>
             </div>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">
-            {renderConnection ? (
+            {/* Cloud provider connections */}
+            <div className="flex flex-col gap-2">
+              {CLOUD_PROVIDERS.map((meta) => (
+                <CloudProviderRow
+                  key={meta.id}
+                  meta={meta}
+                  connection={cloudConnectionMap[meta.id]}
+                  isConnecting={connectingProvider === meta.id}
+                  token={connectingProvider === meta.id ? providerToken : ""}
+                  busyAction={busyAction}
+                  hasDeployments={deployments.some((d) => d.provider === meta.id)}
+                  onStartConnect={() => {
+                    setConnectingProvider(meta.id);
+                    setProviderToken("");
+                  }}
+                  onCancelConnect={() => {
+                    setConnectingProvider(null);
+                    setProviderToken("");
+                  }}
+                  onTokenChange={setProviderToken}
+                  onConnect={() => void handleConnect(meta.id)}
+                  onDisconnect={handleDisconnect}
+                />
+              ))}
+            </div>
+
+            {/* Deploy form — only shown when at least one cloud is connected and no active deployment */}
+            {anyConnected && canDeploy ? (
               <>
-                <div className="rounded-lg border border-border/60 p-3 text-sm">
-                  <p className="font-medium">{renderConnection.label}</p>
-                  <p className="text-muted-foreground">
-                    {renderConnection.externalOrganizationName ?? "Workspace Render"}
-                    {renderConnection.externalUserEmail ? ` (${renderConnection.externalUserEmail})` : null}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Atualizado em {formatDate(renderConnection.updatedAt)}</p>
-                </div>
+                <Separator />
                 {revealedGatewayToken ? (
                   <Alert>
                     <AlertTitle>Gateway Token do OpenClaw (salve agora)</AlertTitle>
                     <AlertDescription>
-                      <code className="mt-1 block break-all rounded bg-muted p-2 text-xs">{revealedGatewayToken}</code>
-                      <p className="mt-2 text-xs">Use o botao Token no card do ambiente para recuperar a qualquer momento.</p>
+                      <code className="mt-1 block break-all rounded bg-muted p-2 text-xs">
+                        {revealedGatewayToken}
+                      </code>
+                      <p className="mt-2 text-xs">
+                        Use o botão Token no card do ambiente para recuperar a qualquer momento.
+                      </p>
                     </AlertDescription>
                   </Alert>
                 ) : null}
-                {canDeploy ? (
-                  <DeployForm
-                    usableProviders={usableProviders}
-                    selectedProvider={selectedProvider}
-                    selectedModel={selectedModel}
-                    availableModels={availableModels}
-                    loadingModels={loadingModels}
-                    deployBusy={busyAction === "deploy-openclaw"}
-                    onProviderChange={handleProviderChange}
-                    onModelChange={setSelectedModel}
-                    onDeploy={() => void handleDeployOpenClaw()}
-                    onConfigureCredentials={() => router.push("/dashboard/credentials")}
-                  />
-                ) : null}
-                <div className="flex flex-wrap gap-2">
-                  <Button disabled={busyAction === "deploy" || !canDeploy} onClick={() => void handleDeploy()} size="sm" variant="outline">
-                    {busyAction === "deploy" ? <Loader2Icon className="animate-spin" data-icon="inline-start" /> : <ServerIcon data-icon="inline-start" />}
-                    Ambiente de teste
-                  </Button>
-                  <Button asChild variant="outline">
-                    <a href="https://dashboard.render.com" target="_blank" rel="noopener noreferrer">
-                      <ExternalLinkIcon data-icon="inline-start" />Abrir Render
-                    </a>
-                  </Button>
-                  <Button disabled={busyAction === "disconnect" || deployments.length > 0} onClick={() => void handleDisconnect()} variant="ghost">
-                    {busyAction === "disconnect" ? <Loader2Icon className="animate-spin" data-icon="inline-start" /> : <UnplugIcon data-icon="inline-start" />}
-                    Desconectar
-                  </Button>
-                </div>
-                {deployments.length > 0
-                  ? <p className="text-xs text-muted-foreground">Remova os ambientes antes de desconectar o Render.</p>
-                  : null}
+                <DeployForm
+                  connectedCloudProviders={connectedCloudProviders}
+                  selectedCloudProvider={selectedCloudProvider}
+                  usableProviders={usableProviders}
+                  selectedProvider={selectedProvider}
+                  selectedModel={selectedModel}
+                  availableModels={availableModels}
+                  loadingModels={loadingModels}
+                  deployBusy={busyAction === "deploy-openclaw"}
+                  onCloudProviderChange={setSelectedCloudProvider}
+                  onProviderChange={handleAiProviderChange}
+                  onModelChange={setSelectedModel}
+                  onDeploy={() => void handleDeployOpenClaw()}
+                  onConfigureCredentials={() => router.push("/dashboard/credentials")}
+                />
               </>
-            ) : (
-              <>
-                <Alert>
-                  <CloudIcon />
-                  <AlertTitle>API Key do Render</AlertTitle>
-                  <AlertDescription>Acesse Account Settings no Render, gere uma API Key, cole aqui. Nenhum cartao de credito necessario.</AlertDescription>
-                </Alert>
-                <FieldGroup>
-                  <Field>
-                    <FieldLabel htmlFor="render-token">API Key Render</FieldLabel>
-                    <Input id="render-token" type="password" autoComplete="off" placeholder="Cole a API Key do Render" value={token} onChange={(e) => setToken(e.target.value)} />
-                    <FieldDescription>A API key e salva criptografada e nunca exibida novamente.</FieldDescription>
-                  </Field>
-                </FieldGroup>
-                <div className="flex flex-wrap gap-2">
-                  <Button disabled={busyAction === "connect"} onClick={() => void handleConnect()}>
-                    {busyAction === "connect" ? <Loader2Icon className="animate-spin" data-icon="inline-start" /> : <PlugZapIcon data-icon="inline-start" />}
-                    Conectar Render
-                  </Button>
-                  <Button asChild variant="outline">
-                    <a href={RENDER_TOKEN_URL} target="_blank" rel="noopener noreferrer">
-                      <ExternalLinkIcon data-icon="inline-start" />Criar API Key
-                    </a>
-                  </Button>
-                </div>
-              </>
-            )}
+            ) : null}
           </CardContent>
         </Card>
 
+        {/* ── Right: deployments list ── */}
         <Card className="border-border/60">
           <CardHeader>
             <div className="flex items-start justify-between gap-3">
               <div className="flex flex-col gap-1">
                 <CardTitle>Seus ambientes</CardTitle>
-                <CardDescription>Agentes OpenClaw provisionados na sua conta Render. Ambientes gratuitos podem levar ate 1 minuto para acordar.</CardDescription>
+                <CardDescription>
+                  Agentes OpenClaw provisionados na nuvem. Ambientes gratuitos podem levar até 1
+                  minuto para acordar.
+                </CardDescription>
               </div>
               <Badge variant="secondary">{deployments.length}</Badge>
             </div>
@@ -810,9 +1159,14 @@ export function CloudDashboardSection() {
             {deployments.length === 0 ? (
               <Empty className="border-border/60">
                 <EmptyHeader>
-                  <EmptyMedia variant="icon"><ServerIcon /></EmptyMedia>
+                  <EmptyMedia variant="icon">
+                    <ServerIcon />
+                  </EmptyMedia>
                   <EmptyTitle>Nenhum ambiente criado</EmptyTitle>
-                  <EmptyDescription>Selecione um provider, escolha o modelo e clique em Deploy OpenClaw para criar seu agente.</EmptyDescription>
+                  <EmptyDescription>
+                    Conecte um provedor cloud, selecione o provider de IA e o modelo, e clique em
+                    Deploy OpenClaw.
+                  </EmptyDescription>
                 </EmptyHeader>
               </Empty>
             ) : (
@@ -827,7 +1181,9 @@ export function CloudDashboardSection() {
                     onRevealToken={() => void handleRevealToken(deployment.id)}
                     onRefresh={() => void refreshDeployment(deployment.id)}
                     onDelete={() => setPendingDelete(deployment)}
-                    onUpdateOpenClaw={(deploymentId, payload) => void handleUpdateOpenClaw(deploymentId, payload)}
+                    onUpdateOpenClaw={(deploymentId, payload) =>
+                      void handleUpdateOpenClaw(deploymentId, payload)
+                    }
                     onChat={(deploymentId) => router.push(`/chat?openclaw=${deploymentId}`)}
                   />
                 ))}
@@ -837,15 +1193,26 @@ export function CloudDashboardSection() {
         </Card>
       </div>
 
-      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Remover ambiente OpenClaw?</AlertDialogTitle>
-            <AlertDialogDescription>O servico sera removido da sua conta Render. Esta acao e irreversivel e interrompe a URL publica do ambiente.</AlertDialogDescription>
+            <AlertDialogDescription>
+              O serviço será removido do provedor cloud. Esta ação é irreversível e interrompe a URL
+              pública do ambiente.
+            </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => pendingDelete ? void handleDeleteDeployment(pendingDelete) : undefined}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => (pendingDelete ? void handleDeleteDeployment(pendingDelete) : undefined)}
+            >
               Remover
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -856,7 +1223,10 @@ export function CloudDashboardSection() {
         state={tokenDialog}
         copied={copied}
         onCopy={(value) => void handleCopyToken(value)}
-        onClose={() => { setTokenDialog(null); setCopied(false); }}
+        onClose={() => {
+          setTokenDialog(null);
+          setCopied(false);
+        }}
       />
     </>
   );

@@ -138,7 +138,7 @@ export const cloudDeploymentStatusSchema = z.enum([
   "deleting",
 ]);
 
-type CloudProvider = "render" | "railway" | "fly.io";
+export type CloudProvider = "render" | "railway" | "fly.io";
 export type CloudDeploymentStatus = z.infer<typeof cloudDeploymentStatusSchema>;
 
 export type CloudConnectionSummary = {
