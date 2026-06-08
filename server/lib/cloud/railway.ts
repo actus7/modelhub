@@ -218,6 +218,27 @@ const LIST_SERVICE_DEPLOYMENTS_QUERY = `
   }
 `;
 
+// Service URL query — Railway often stores the public URL on the service instance,
+// not on the deployment object. We use this as fallback during refresh.
+const GET_SERVICE_URL_QUERY = `
+  query GetServiceUrl($id: String!) {
+    service(id: $id) {
+      id
+      serviceInstances {
+        edges {
+          node {
+            domains {
+              serviceDomains {
+                domain
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+`;
+
 const DELETE_SERVICE_MUTATION = `
   mutation DeleteService($id: String!) {
     serviceDelete(id: $id)
@@ -559,11 +580,40 @@ export async function refreshRailwayDeployment(
     }
 
     const mapped = mapRailwayDeploymentStatus(dep.status);
+
+    // Railway deployment.url is often null even for healthy services.
+    // Fall back to the service instance domain when available.
+    let publicUrl: string | null = dep.url || null;
+    if (!publicUrl && mapped.status === "healthy") {
+      try {
+        const svc = await railwayRequest<{
+          service: {
+            serviceInstances: {
+              edges: Array<{
+                node: {
+                  domains?: {
+                    serviceDomains?: Array<{ domain: string }>;
+                  };
+                };
+              }>;
+            };
+          };
+        }>(token, GET_SERVICE_URL_QUERY, { id: serviceId });
+
+        const domain = svc?.service?.serviceInstances?.edges?.[0]?.node?.domains?.serviceDomains?.[0]?.domain;
+        if (domain) {
+          publicUrl = `https://${domain}`;
+        }
+      } catch {
+        // Non-critical: URL is best-effort
+      }
+    }
+
     return {
       deployId: dep.id,
       error: mapped.error,
       missing: false,
-      publicUrl: dep.url || null,
+      publicUrl,
       status: mapped.status,
     };
   } catch (error) {
