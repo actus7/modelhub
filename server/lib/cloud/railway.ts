@@ -399,7 +399,7 @@ export async function createRailwayOpenClaw(
   await railwayRequest(
     token,
     TRIGGER_DEPLOY_MUTATION,
-    { input: { environmentId, serviceId } }
+    { input: { environmentId, projectId, serviceId } }
   );
 
   const deployId = null;
@@ -450,7 +450,7 @@ export async function updateRailwayOpenClaw(
   await railwayRequest(
     token,
     TRIGGER_DEPLOY_MUTATION,
-    { input: { environmentId, serviceId } }
+    { input: { environmentId, projectId, serviceId } }
   );
 
   return {
