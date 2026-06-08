@@ -628,7 +628,7 @@ app.post("/deployments/:provider/openclaw", async (c) => {
   const { image, port, region, instanceType } = providerDefaults[provider] ?? {
     image: "", port: 3000, region: "unknown", instanceType: "unknown",
   };
-  const name = created.serviceId.split(/[/:]/, 1)[0];
+  const name = driver.getServiceName(userId);
 
   const deployment = await prisma.cloudDeployment.create({
     data: {

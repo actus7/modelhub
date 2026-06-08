@@ -56,6 +56,7 @@ async function railwayRequest<T>(token: string, query: string, variables?: Recor
       "Accept": "application/json",
     },
     body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(15000),
   });
 
   if (!response.ok) {
@@ -263,7 +264,15 @@ export function isRailwayFreeTierError(error: unknown): boolean {
   if (!(error instanceof CloudProviderError)) return false;
 
   const errorText = error.message.toLowerCase();
-  const originalErrorText = (JSON.stringify(error.originalError) || "").toLowerCase();
+  let originalErrorText = "";
+  if (error.originalError) {
+    try {
+      originalErrorText = JSON.stringify(error.originalError);
+    } catch {
+      originalErrorText = String(error.originalError);
+    }
+  }
+  originalErrorText = originalErrorText.toLowerCase();
 
   const freeTierKeywords = [
     "credit", "credits", "limit", "quota", "plan", "upgrade", "billing", "payment"
@@ -350,7 +359,7 @@ export async function createRailwayOpenClaw(
   }>(token, LIST_PROJECTS_QUERY);
 
   let projectId: string;
-  const existingProject = projects.me.projects.edges.find(edge => edge.node.name === projectName);
+  const existingProject = projects?.me?.projects?.edges?.find(edge => edge?.node?.name === projectName);
 
   if (existingProject) {
     projectId = existingProject.node.id;
@@ -389,8 +398,8 @@ export async function createRailwayOpenClaw(
     }
   }>(token, GET_PROJECT_ENVIRONMENTS_QUERY, { projectId });
 
-  const productionEnv = environments.project.environments.edges.find(
-    edge => edge.node.name.toLowerCase() === "production"
+  const productionEnv = environments?.project?.environments?.edges?.find(
+    edge => edge?.node?.name?.toLowerCase() === "production"
   );
 
   if (!productionEnv) {
