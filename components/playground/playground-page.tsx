@@ -230,10 +230,22 @@ export function PlaygroundPage() {
     setCol(colId, { loadingModels: true, models: [], modelId: "" });
     apiJson<{ models: ProviderModel[] }>(`${provider.base}/api/models`)
       .then((p) => {
-        setCol(colId, { models: p.models ?? [], modelId: p.models[0]?.id ?? "", loadingModels: false });
+        setColumns((prev) =>
+          prev.map((c) =>
+            c.id === colId && c.providerId === provider.id
+              ? { ...c, models: p.models ?? [], modelId: p.models[0]?.id ?? "", loadingModels: false }
+              : c,
+          ),
+        );
       })
       .catch(() => {
-        setCol(colId, { models: [], modelId: "", loadingModels: false });
+        setColumns((prev) =>
+          prev.map((c) =>
+            c.id === colId && c.providerId === provider.id
+              ? { ...c, models: [], modelId: "", loadingModels: false }
+              : c,
+          ),
+        );
       });
   }
 

@@ -110,7 +110,14 @@ function extractLastUserText(messages: Array<{ role: string; content: unknown }>
   if (typeof lastUser.content === 'string') return lastUser.content
   if (Array.isArray(lastUser.content)) {
     return lastUser.content
-      .filter((p): p is { type: string; text: string } => typeof p === 'object' && p !== null && p.type === 'text')
+      .filter((p): p is { type: string; text: string } =>
+        typeof p === 'object' &&
+        p !== null &&
+        'type' in p &&
+        'text' in p &&
+        (p as Record<string, unknown>).type === 'text' &&
+        typeof (p as Record<string, unknown>).text === 'string',
+      )
       .map((p) => p.text)
       .join('\n')
   }

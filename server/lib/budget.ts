@@ -1,7 +1,7 @@
 import { prisma } from './db'
 
 // Cache em memória de 60s para evitar DB hit por request
-const budgetCache = new Map<string, { limitUsd: number | null; blocksRequests: boolean; expiresAt: number }>()
+const budgetCache = new Map<string, { limitUsd: number | null; blocksRequests: boolean; periodType: string; expiresAt: number }>()
 const BUDGET_CACHE_TTL_MS = 60_000
 
 export async function checkBudget(
@@ -10,25 +10,27 @@ export async function checkBudget(
   const cached = budgetCache.get(userId)
   let limitUsd: number | null = null
   let blocksRequests = false
+  let periodType = 'monthly'
 
   if (cached && cached.expiresAt > Date.now()) {
     limitUsd = cached.limitUsd
     blocksRequests = cached.blocksRequests
+    periodType = cached.periodType
   } else {
     const budget = await prisma.userBudget.findUnique({ where: { userId } })
     if (!budget || !budget.limitUsd) {
-      budgetCache.set(userId, { limitUsd: null, blocksRequests: false, expiresAt: Date.now() + BUDGET_CACHE_TTL_MS })
+      budgetCache.set(userId, { limitUsd: null, blocksRequests: false, periodType: 'monthly', expiresAt: Date.now() + BUDGET_CACHE_TTL_MS })
       return { allowed: true, periodSpendUsd: 0, limitUsd: null }
     }
     limitUsd = budget.limitUsd
     blocksRequests = budget.blocksRequests
-    budgetCache.set(userId, { limitUsd, blocksRequests, expiresAt: Date.now() + BUDGET_CACHE_TTL_MS })
+    periodType = budget.periodType ?? 'monthly'
+    budgetCache.set(userId, { limitUsd, blocksRequests, periodType, expiresAt: Date.now() + BUDGET_CACHE_TTL_MS })
   }
 
   if (!limitUsd) return { allowed: true, periodSpendUsd: 0, limitUsd: null }
 
-  const budget = await prisma.userBudget.findUnique({ where: { userId } })
-  const periodStart = getPeriodStart(budget?.periodType ?? 'monthly')
+  const periodStart = getPeriodStart(periodType)
 
   const agg = await prisma.usageLog.aggregate({
     where: { userId, createdAt: { gte: periodStart }, costUsd: { not: null } },

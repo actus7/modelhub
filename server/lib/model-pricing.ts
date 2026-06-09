@@ -167,8 +167,9 @@ export function getModelPrice(providerId: string, modelId: string): ModelPrice |
   // Tentativa exata
   if (providerPricing[modelId]) return providerPricing[modelId]
 
-  // Tentativa por prefixo: e.g. "claude-3-5-sonnet-20241022" → "claude-3-5-sonnet"
-  for (const key of Object.keys(providerPricing)) {
+  // Tentativa por prefixo — chaves mais longas têm prioridade para evitar "o1" engolir "o1-mini"
+  const sortedKeys = Object.keys(providerPricing).sort((a, b) => b.length - a.length)
+  for (const key of sortedKeys) {
     if (modelId.startsWith(key) || key.startsWith(modelId)) {
       return providerPricing[key]
     }

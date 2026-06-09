@@ -407,20 +407,27 @@ app.patch("/budget", async (c) => {
   try { body = await c.req.json() } catch { return c.json({ error: "Invalid JSON" }, 400) }
 
   const data = body as Record<string, unknown>;
+  const limitUsd = data.limitUsd !== undefined && data.limitUsd !== null ? Number(data.limitUsd) : null;
+  const alertThreshold = data.alertThreshold !== undefined ? Number(data.alertThreshold) : undefined;
+
+  if ((limitUsd !== null && isNaN(limitUsd)) || (alertThreshold !== undefined && isNaN(alertThreshold))) {
+    return c.json({ error: "Invalid numeric values for limitUsd or alertThreshold" }, 400);
+  }
+
   const budget = await prisma.userBudget.upsert({
     where: { userId },
     create: {
       userId,
       periodType: (data.periodType as string) ?? "monthly",
-      limitUsd: data.limitUsd != null ? Number(data.limitUsd) : null,
-      alertThreshold: data.alertThreshold != null ? Number(data.alertThreshold) : 0.8,
+      limitUsd,
+      alertThreshold: alertThreshold ?? 0.8,
       blocksRequests: data.blocksRequests != null ? Boolean(data.blocksRequests) : false,
       baselineModelId: (data.baselineModelId as string | null) ?? null,
     },
     update: {
       periodType: data.periodType !== undefined ? (data.periodType as string) : undefined,
-      limitUsd: data.limitUsd !== undefined ? (data.limitUsd != null ? Number(data.limitUsd) : null) : undefined,
-      alertThreshold: data.alertThreshold !== undefined ? Number(data.alertThreshold) : undefined,
+      limitUsd: data.limitUsd !== undefined ? limitUsd : undefined,
+      alertThreshold,
       blocksRequests: data.blocksRequests !== undefined ? Boolean(data.blocksRequests) : undefined,
       baselineModelId: data.baselineModelId !== undefined ? (data.baselineModelId as string | null) : undefined,
     },

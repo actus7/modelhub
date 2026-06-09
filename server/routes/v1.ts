@@ -27,6 +27,7 @@ function parseProviderAndModel(unifiedModelId: string): { providerId: string; mo
 async function resolveAutoRouting(
   c: { req: { header: (name: string) => string | undefined } },
   body: Record<string, unknown>,
+  forcedTierOverride?: RoutingTier,
 ): Promise<{ routing: RoutingResult; providerId: string; modelId: string } | null> {
   // Extrair userId do token de autenticação
   const authHeader = c.req.header('Authorization')
@@ -44,11 +45,11 @@ async function resolveAutoRouting(
     ? (body.tools as Array<{ function?: { name?: string } }>).map((t) => t.function?.name ?? '').filter(Boolean)
     : []
 
-  // Extrair tier forçado via header ou prefixo do modelo ("complex:auto")
+  // Extrair tier forçado via parâmetro direto (prefixo "complex:auto") ou header
   const headerTier = c.req.header('x-modelhub-tier')
-  const forcedTier = VALID_TIERS.includes(headerTier as RoutingTier)
+  const forcedTier = forcedTierOverride ?? (VALID_TIERS.includes(headerTier as RoutingTier)
     ? (headerTier as RoutingTier)
-    : undefined
+    : undefined)
 
   const result = await resolveRouting({
     userId: apiKey.userId,
@@ -124,8 +125,8 @@ app.post('/v1/chat/completions', async (c) => {
   // Suporte a model="auto" — resolve via configuração de roteamento do usuário
   if (rawModel === 'auto' || rawModel.endsWith(':auto')) {
     const tierPrefix = rawModel.endsWith(':auto') ? rawModel.replace(':auto', '') : undefined
-    const autoBody = tierPrefix ? { ...body, _forcedTier: tierPrefix } : body
-    const resolved = await resolveAutoRouting(c, autoBody)
+    const forcedTier = VALID_TIERS.includes(tierPrefix as RoutingTier) ? (tierPrefix as RoutingTier) : undefined
+    const resolved = await resolveAutoRouting(c, body, forcedTier)
     if (!resolved) {
       return jsonErrorResponse(400, 'Routing config not found. Configure your routing at /dashboard/routing or use explicit provider/model format.')
     }

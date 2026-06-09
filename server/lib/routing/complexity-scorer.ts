@@ -18,7 +18,14 @@ function extractText(content: unknown): string {
   if (typeof content === 'string') return content
   if (Array.isArray(content)) {
     return content
-      .filter((p): p is { type: string; text: string } => typeof p === 'object' && p !== null && p.type === 'text')
+      .filter((p): p is { type: string; text: string } =>
+        typeof p === 'object' &&
+        p !== null &&
+        'type' in p &&
+        'text' in p &&
+        (p as Record<string, unknown>).type === 'text' &&
+        typeof (p as Record<string, unknown>).text === 'string',
+      )
       .map((p) => p.text)
       .join('\n')
   }
@@ -103,9 +110,10 @@ export function scoreComplexity(
   if (MATH_PATTERNS.some((p) => p.test(lastText))) { score += 15; signals.push('math_notation') }
 
   // 5. Keywords de raciocínio multi-etapa
-  const multiStepMatch = MULTI_STEP_KEYWORDS.some((kw) =>
-    lastText.toLowerCase().includes(kw.replace(/\.\*/g, '')),
-  )
+  const multiStepMatch = MULTI_STEP_KEYWORDS.some((kw) => {
+    if (kw.includes('.*')) return new RegExp(kw, 'i').test(lastText)
+    return lastText.toLowerCase().includes(kw)
+  })
   if (multiStepMatch) { score += 12; signals.push('multi_step') }
 
   // 6. Keywords de análise/avaliação
