@@ -22,6 +22,7 @@ const eslintConfig = defineConfig([
     "packages/*/dist/**",
     "packages/*/coverage/**",
     "dist/**",
+    "manifest-main/**",
   ]),
 ]);
 

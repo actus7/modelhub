@@ -128,6 +128,7 @@ export function RoutingSection() {
   const [taskRoutingEnabled, setTaskRoutingEnabled] = useState(false);
   const [tiers, setTiers] = useState<Record<string, TierAssignment>>({});
   const [taskOverrides, setTaskOverrides] = useState<Record<string, TierAssignment>>({});
+  const [suggesting, setSuggesting] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -180,6 +181,23 @@ export function RoutingSection() {
       toast.error(e instanceof Error ? e.message : "Falha ao salvar routing.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleSuggestTiers() {
+    setSuggesting(true);
+    try {
+      const data = await apiJson<{ tiers: Record<string, TierAssignment> }>("/user/routing-config/suggest");
+      if (!data.tiers || Object.keys(data.tiers).length === 0) {
+        toast.error("Nenhum modelo disponível para sugerir. Conecte provedores primeiro.");
+        return;
+      }
+      setTiers((prev) => ({ ...prev, ...data.tiers }));
+      toast.success("Modelos sugeridos preenchidos. Revise e salve.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao sugerir modelos.");
+    } finally {
+      setSuggesting(false);
     }
   }
 
@@ -255,10 +273,24 @@ export function RoutingSection() {
       {complexityEnabled && (
         <Card className="border-border/60">
           <CardHeader>
-            <CardTitle>Modelos por tier de complexidade</CardTitle>
-            <CardDescription>
-              Defina qual modelo usar para cada nível. Tiers sem modelo configurado usam o default do provider.
-            </CardDescription>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-1.5">
+                <CardTitle>Modelos por tier de complexidade</CardTitle>
+                <CardDescription>
+                  Defina qual modelo usar para cada nível. Tiers sem modelo configurado usam o default do provider.
+                </CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={suggesting}
+                onClick={() => void handleSuggestTiers()}
+              >
+                {suggesting && <Loader2Icon className="mr-2 size-3 animate-spin" />}
+                Sugerir automaticamente
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">

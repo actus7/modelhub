@@ -13,7 +13,13 @@ import groqFetch, { models as groqModels } from "./groq";
 
 import huggingFaceFetch, { models as huggingfaceModels } from "./huggingface";
 import mistralFetch, { models as mistralModels } from "./mistral";
+import moonshotFetch, { models as moonshotModels } from "./moonshot";
 import nvidiaNimFetch, { models as nvidianimModels } from "./nvidianim";
+import openaiFetch, { models as openaiModels } from "./openai";
+import qwenFetch, { models as qwenModels } from "./qwen";
+import xaiFetch, { models as xaiModels } from "./xai";
+import zaiFetch, { models as zaiModels } from "./zai";
+import zaiCodingFetch, { models as zaiCodingModels } from "./zaicoding";
 import openCodeZenFetch, { models as opencodezenModels } from "./opencodezen";
 import opengatewayFetch, { models as opengatewayModels } from "./opengateway";
 import openrouterFetch, { models as openrouterModels } from "./openrouter";
@@ -124,6 +130,36 @@ export const providerRegistry: Record<string, ProviderEntry> = {
     handler: ollamaFetch,
     models: ollamaModels,
     fetchModels: fetchOllamaModels,
+  },
+  openai: {
+    handler: openaiFetch,
+    models: openaiModels,
+    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.openai.com/v1/models', apiKeyEnv: 'OPENAI_API_KEY', providerName: 'OpenAI', filter: (m) => /^(gpt-|o\d|chatgpt)/i.test(m.id) }),
+  },
+  xai: {
+    handler: xaiFetch,
+    models: xaiModels,
+    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.x.ai/v1/models', apiKeyEnv: 'XAI_API_KEY', providerName: 'xAI' }),
+  },
+  moonshot: {
+    handler: moonshotFetch,
+    models: moonshotModels,
+    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.moonshot.ai/v1/models', apiKeyEnv: 'MOONSHOT_API_KEY', providerName: 'Moonshot' }),
+  },
+  qwen: {
+    handler: qwenFetch,
+    models: qwenModels,
+    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models', apiKeyEnv: 'DASHSCOPE_API_KEY', providerName: 'Qwen' }),
+  },
+  zai: {
+    handler: zaiFetch,
+    models: zaiModels,
+    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.z.ai/api/paas/v4/models', apiKeyEnv: 'ZAI_API_KEY', providerName: 'Z.ai' }),
+  },
+  zaicoding: {
+    handler: zaiCodingFetch,
+    models: zaiCodingModels,
+    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.z.ai/api/paas/v4/models', apiKeyEnv: 'ZAI_CODING_API_KEY', providerName: 'Z.ai GLM Coding Plan' }),
   },
 };
 

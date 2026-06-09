@@ -302,6 +302,16 @@ app.get("/routing-config", async (c) => {
   });
 });
 
+// GET /user/routing-config/suggest — sugere modelos por tier (qualidade/preço)
+app.get("/routing-config/suggest", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const { suggestTierAssignments } = await import("../lib/routing/tier-suggest");
+  const tiers = await suggestTierAssignments();
+  return c.json({ tiers });
+});
+
 // PUT/PATCH /user/routing-config
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const routingConfigUpdateHandler = async (c: any) => {

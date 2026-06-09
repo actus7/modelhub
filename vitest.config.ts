@@ -15,6 +15,7 @@ export default defineConfig({
       "**/dist/**",
       "**/node_modules/**",
       "apps/**",
+      "**/manifest-main/**",
     ],
     coverage: {
       provider: "v8",
