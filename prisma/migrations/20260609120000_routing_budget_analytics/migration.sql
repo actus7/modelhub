@@ -1,16 +1,21 @@
+-- Idempotente: este schema pode já existir em bancos onde foi aplicado via
+-- `prisma db push` antes de a migração existir. Usamos IF NOT EXISTS / guardas
+-- para que `migrate deploy` funcione tanto em bancos novos quanto nos que já
+-- têm os objetos (evita SQLSTATE 42701 / 42P07).
+
 -- AlterTable
-ALTER TABLE "UsageLog" ADD COLUMN     "baselineCostUsd" DOUBLE PRECISION,
-ADD COLUMN     "baselineModelId" TEXT,
-ADD COLUMN     "costUsd" DOUBLE PRECISION,
-ADD COLUMN     "durationMs" INTEGER,
-ADD COLUMN     "inputTokens" INTEGER,
-ADD COLUMN     "outputTokens" INTEGER,
-ADD COLUMN     "routingReason" TEXT,
-ADD COLUMN     "routingTier" TEXT,
-ADD COLUMN     "taskCategory" TEXT;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "baselineCostUsd" DOUBLE PRECISION;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "baselineModelId" TEXT;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "costUsd" DOUBLE PRECISION;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "durationMs" INTEGER;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "inputTokens" INTEGER;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "outputTokens" INTEGER;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "routingReason" TEXT;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "routingTier" TEXT;
+ALTER TABLE "UsageLog" ADD COLUMN IF NOT EXISTS "taskCategory" TEXT;
 
 -- CreateTable
-CREATE TABLE "RoutingConfig" (
+CREATE TABLE IF NOT EXISTS "RoutingConfig" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "complexityEnabled" BOOLEAN NOT NULL DEFAULT false,
@@ -24,7 +29,7 @@ CREATE TABLE "RoutingConfig" (
 );
 
 -- CreateTable
-CREATE TABLE "UserBudget" (
+CREATE TABLE IF NOT EXISTS "UserBudget" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "periodType" TEXT NOT NULL DEFAULT 'monthly',
@@ -39,13 +44,21 @@ CREATE TABLE "UserBudget" (
 );
 
 -- CreateIndex
-CREATE UNIQUE INDEX "RoutingConfig_userId_key" ON "RoutingConfig"("userId");
+CREATE UNIQUE INDEX IF NOT EXISTS "RoutingConfig_userId_key" ON "RoutingConfig"("userId");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "UserBudget_userId_key" ON "UserBudget"("userId");
+CREATE UNIQUE INDEX IF NOT EXISTS "UserBudget_userId_key" ON "UserBudget"("userId");
+
+-- AddForeignKey (guardado: ADD CONSTRAINT não suporta IF NOT EXISTS)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'RoutingConfig_userId_fkey') THEN
+    ALTER TABLE "RoutingConfig" ADD CONSTRAINT "RoutingConfig_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "RoutingConfig" ADD CONSTRAINT "RoutingConfig_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "UserBudget" ADD CONSTRAINT "UserBudget_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'UserBudget_userId_fkey') THEN
+    ALTER TABLE "UserBudget" ADD CONSTRAINT "UserBudget_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;

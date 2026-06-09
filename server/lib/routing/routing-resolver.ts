@@ -50,8 +50,10 @@ function collectCandidates(config: RoutingConfigData): RoutingCandidate[] {
 }
 
 function withFallbacks(result: Omit<RoutingResult, 'fallbacks'>, config: RoutingConfigData): RoutingResult {
-  const primaryKey = `${result.providerId}/${result.modelId}`
-  const fallbacks = collectCandidates(config).filter((c) => `${c.providerId}/${c.modelId}` !== primaryKey)
+  const primaryKey = `${result.providerId.toLowerCase()}/${result.modelId.toLowerCase()}`
+  const fallbacks = collectCandidates(config).filter(
+    (c) => `${c.providerId.toLowerCase()}/${c.modelId.toLowerCase()}` !== primaryKey,
+  )
   return { ...result, fallbacks }
 }
 

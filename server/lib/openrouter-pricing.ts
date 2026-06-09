@@ -114,14 +114,20 @@ export function getOpenRouterPrice(providerId: string, modelId: string): ModelPr
   const direct = cache.get(key(providerId, modelId))
   if (direct) return direct
 
-  // Tentativa por prefixo (modelos versionados): chaves mais longas primeiro.
+  // Tentativa por prefixo (modelos versionados): coleta todos os matches e
+  // prioriza a chave mais longa para evitar que um prefixo curto (gpt-4)
+  // "engula" um modelo mais específico (gpt-4-turbo).
   const wanted = key(providerId, modelId)
+  const prefix = `${providerId.toLowerCase()}/`
+  const matches: Array<{ k: string; price: ModelPrice }> = []
   for (const [k, price] of cache) {
-    if (k.startsWith(`${providerId.toLowerCase()}/`) && (wanted.startsWith(k) || k.startsWith(wanted))) {
-      return price
+    if (k.startsWith(prefix) && (wanted.startsWith(k) || k.startsWith(wanted))) {
+      matches.push({ k, price })
     }
   }
-  return null
+  if (matches.length === 0) return null
+  matches.sort((a, b) => b.k.length - a.k.length)
+  return matches[0].price
 }
 
 /** Limpa o cache — usado em testes. */

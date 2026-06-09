@@ -113,6 +113,9 @@ async function dispatchToProvider(
 
   const internalHeaders = new Headers(c.req.raw.headers)
   internalHeaders.set('content-type', 'application/json')
+  // O corpo é reserializado (JSON.stringify(proxyBody)); remove o content-length
+  // original para o construtor do Request recalcular o tamanho correto.
+  internalHeaders.delete('content-length')
 
   if (routingMeta) {
     internalHeaders.set('x-modelhub-routing-tier', routingMeta.tier)
