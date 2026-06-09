@@ -3,7 +3,7 @@ import { chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels }
 
 export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'deepseek-chat', name: 'DeepSeek V3' },
-  { capabilities: { documents: true, images: false, tools: true }, id: 'deepseek-reasoner', name: 'DeepSeek R1' },
+  { capabilities: { documents: true, images: false, tools: false, reasoning: true }, id: 'deepseek-reasoner', name: 'DeepSeek R1' },
 ]
 
 const DEEPSEEK_CHAT_URL = process.env.DEEPSEEK_CHAT_URL || 'https://api.deepseek.com/v1/chat/completions'

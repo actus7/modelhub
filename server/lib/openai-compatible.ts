@@ -142,6 +142,7 @@ function buildDefaultBody(
     model: input.modelId,
     messages: openAiMessages,
     stream: true,
+    stream_options: { include_usage: true },
   }
 
   for (const field of PASSTHROUGH_FIELDS) {

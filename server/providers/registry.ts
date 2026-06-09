@@ -1,4 +1,5 @@
 import cerebrasFetch, { models as cerebrasModels } from "./cerebras";
+import ollamaFetch, { models as ollamaModels, fetchOllamaModels } from "./ollama";
 import cloudflareWorkersAiFetch, { models as cloudflareworkersaiModels, fetchCloudflareModels } from "./cloudflareworkersai";
 import codestralFetch, { models as codestralModels } from "./codestral";
 import cohereFetch, { models as cohereModels, fetchCohereModels } from "./cohere";
@@ -118,6 +119,11 @@ export const providerRegistry: Record<string, ProviderEntry> = {
     handler: vercelGatewayFetch,
     models: vercelgatewayModels,
     fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://ai-gateway.vercel.sh/v1/models', apiKeyEnv: 'VERCEL_AI_GATEWAY_API_KEY', providerName: 'Vercel AI Gateway' }),
+  },
+  ollama: {
+    handler: ollamaFetch,
+    models: ollamaModels,
+    fetchModels: fetchOllamaModels,
   },
 };
 

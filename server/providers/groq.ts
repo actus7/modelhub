@@ -2,8 +2,8 @@ import { createProviderApp } from '../lib/provider-core'
 import { chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
 
 export const models = [
-  { capabilities: { documents: true, images: false, tools: true }, id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)' },
-  { capabilities: { documents: true, images: false, tools: true }, id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B (Groq)' },
+  { capabilities: { documents: true, images: false, tools: true, fast: true }, id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B (Groq)' },
+  { capabilities: { documents: true, images: false, tools: true, fast: true }, id: 'openai/gpt-oss-20b', name: 'GPT OSS 20B (Groq)' },
 ]
 
 const app = createProviderApp({

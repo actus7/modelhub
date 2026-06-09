@@ -1276,7 +1276,15 @@ export function ChatPage() {
                 <SelectGroup>
                   {models.map((model) => (
                     <SelectItem key={model.id} value={model.id}>
-                      {model.name}
+                      <span className="flex items-center gap-1.5">
+                        {model.name}
+                        {model.capabilities.reasoning && (
+                          <Badge variant="secondary" className="h-4 px-1 py-0 text-[9px] leading-none">Raciocínio</Badge>
+                        )}
+                        {model.capabilities.fast && (
+                          <Badge variant="outline" className="h-4 px-1 py-0 text-[9px] leading-none text-green-600 border-green-500/40">Rápido</Badge>
+                        )}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectGroup>

@@ -3,8 +3,12 @@ import { Hono } from 'hono'
 import { isProviderEnabled } from '../lib/catalog'
 import { jsonErrorResponse, vercelStreamToOpenAiSse } from '../lib/provider-core'
 import { withProviderMetadata } from '../lib/observability'
-import { protectedCors, securityHeaders } from '../lib/security'
+import { getActiveApiKey, protectedCors, securityHeaders } from '../lib/security'
 import { providerRegistry, getProviderModels, isProviderAvailableViaExternalApi } from '../providers/registry'
+import { resolveRouting, type RoutingResult } from '../lib/routing/routing-resolver'
+import type { RoutingTier } from '../lib/routing/complexity-scorer'
+
+const VALID_TIERS: RoutingTier[] = ['simple', 'standard', 'complex', 'reasoning']
 
 function parseProviderAndModel(unifiedModelId: string): { providerId: string; modelId: string } | null {
   const slashIndex = unifiedModelId.indexOf('/')
@@ -18,6 +22,48 @@ function parseProviderAndModel(unifiedModelId: string): { providerId: string; mo
   }
 
   return null
+}
+
+async function resolveAutoRouting(
+  c: { req: { header: (name: string) => string | undefined } },
+  body: Record<string, unknown>,
+): Promise<{ routing: RoutingResult; providerId: string; modelId: string } | null> {
+  // Extrair userId do token de autenticação
+  const authHeader = c.req.header('Authorization')
+  const token = authHeader?.replace(/^Bearer\s+/i, '').trim()
+  if (!token) return null
+
+  const apiKey = await getActiveApiKey(token)
+  if (!apiKey) return null
+
+  const messages = Array.isArray(body.messages)
+    ? (body.messages as Array<{ role: string; content: unknown }>)
+    : []
+
+  const tools = Array.isArray(body.tools)
+    ? (body.tools as Array<{ function?: { name?: string } }>).map((t) => t.function?.name ?? '').filter(Boolean)
+    : []
+
+  // Extrair tier forçado via header ou prefixo do modelo ("complex:auto")
+  const headerTier = c.req.header('x-modelhub-tier')
+  const forcedTier = VALID_TIERS.includes(headerTier as RoutingTier)
+    ? (headerTier as RoutingTier)
+    : undefined
+
+  const result = await resolveRouting({
+    userId: apiKey.userId,
+    messages,
+    forcedTier,
+    toolNames: tools,
+  })
+
+  if (!result) return null
+
+  return {
+    routing: result,
+    providerId: result.providerId,
+    modelId: result.modelId,
+  }
 }
 
 const app = new Hono()
@@ -65,17 +111,41 @@ app.post('/v1/chat/completions', async (c) => {
     return jsonErrorResponse(400, 'Invalid JSON request body')
   }
 
-  const model = body.model
-  if (typeof model !== 'string' || !model) {
-    return jsonErrorResponse(400, 'Missing or invalid "model" field. Use the format: provider/model-id')
+  const rawModel = body.model
+  if (typeof rawModel !== 'string' || !rawModel) {
+    return jsonErrorResponse(400, 'Missing or invalid "model" field. Use the format: provider/model-id or "auto"')
   }
 
-  const parsed = parseProviderAndModel(model)
-  if (!parsed) {
-    return jsonErrorResponse(400, `Unable to resolve provider from model "${model}". Use the format: provider/model-id (e.g. groq/llama-3.3-70b-versatile)`)
+  let providerId: string
+  let modelId: string
+  let effectiveModel = rawModel
+  let routingMeta: { tier: string; reason: string; taskCategory: string | null } | null = null
+
+  // Suporte a model="auto" — resolve via configuração de roteamento do usuário
+  if (rawModel === 'auto' || rawModel.endsWith(':auto')) {
+    const tierPrefix = rawModel.endsWith(':auto') ? rawModel.replace(':auto', '') : undefined
+    const autoBody = tierPrefix ? { ...body, _forcedTier: tierPrefix } : body
+    const resolved = await resolveAutoRouting(c, autoBody)
+    if (!resolved) {
+      return jsonErrorResponse(400, 'Routing config not found. Configure your routing at /dashboard/routing or use explicit provider/model format.')
+    }
+    providerId = resolved.providerId
+    modelId = resolved.modelId
+    effectiveModel = `${providerId}/${modelId}`
+    routingMeta = {
+      tier: resolved.routing.tier,
+      reason: resolved.routing.reason,
+      taskCategory: resolved.routing.taskCategory,
+    }
+  } else {
+    const parsed = parseProviderAndModel(rawModel)
+    if (!parsed) {
+      return jsonErrorResponse(400, `Unable to resolve provider from model "${rawModel}". Use the format: provider/model-id (e.g. groq/llama-3.3-70b-versatile) or "auto"`)
+    }
+    providerId = parsed.providerId
+    modelId = parsed.modelId
   }
 
-  const { providerId, modelId } = parsed
   if (!isProviderEnabled(providerId)) {
     return jsonErrorResponse(404, `Provider "${providerId}" is not available`)
   }
@@ -107,6 +177,15 @@ app.post('/v1/chat/completions', async (c) => {
   const internalHeaders = new Headers(c.req.raw.headers)
   internalHeaders.set('content-type', 'application/json')
 
+  // Passar metadados de roteamento via headers internos para logging no provider handler
+  if (routingMeta) {
+    internalHeaders.set('x-modelhub-routing-tier', routingMeta.tier)
+    internalHeaders.set('x-modelhub-routing-reason', routingMeta.reason)
+    if (routingMeta.taskCategory) {
+      internalHeaders.set('x-modelhub-task-category', routingMeta.taskCategory)
+    }
+  }
+
   const internalRequest = new Request(internalUrl.toString(), {
     method: 'POST',
     headers: internalHeaders,
@@ -117,7 +196,7 @@ app.post('/v1/chat/completions', async (c) => {
   const tagged = withProviderMetadata(response, providerId)
 
   // Providers return Vercel AI SDK format — convert to OpenAI SSE for external clients
-  return vercelStreamToOpenAiSse(tagged, model)
+  return vercelStreamToOpenAiSse(tagged, effectiveModel)
 })
 
 export default app.fetch

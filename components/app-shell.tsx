@@ -8,6 +8,7 @@ import {
   CircleHelpIcon,
   CloudIcon,
   FileTextIcon,
+  FlaskConicalIcon,
   LayoutDashboardIcon,
   Loader2Icon,
   LogOutIcon,
@@ -221,6 +222,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Link href="/cloud">
                       <CloudIcon />
                       <span>OpenClaw</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild isActive={pathname.startsWith("/playground")} tooltip="Playground">
+                    <Link href="/playground">
+                      <FlaskConicalIcon />
+                      <span>Playground</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

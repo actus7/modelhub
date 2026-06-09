@@ -27,7 +27,9 @@ import {
 import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 import { toast } from "sonner";
 
+import { AnalyticsSection } from "@/components/dashboard/analytics-section";
 import { ApiQuickStartCard } from "@/components/dashboard/api-quick-start-card";
+import { RoutingSection } from "@/components/dashboard/routing-section";
 import { useAppState } from "@/components/app-state-provider";
 import {
   AlertDialog,
@@ -63,7 +65,7 @@ import { apiJson, apiJsonRequest } from "@/lib/api";
 import { saveProviderCredentials } from "@/lib/save-provider-credentials";
 import { providerHasRequiredCredentials, providerUsesStoredCredentials } from "@/lib/provider-credentials";
 
-export type DashboardSection = "overview" | "keys" | "credentials" | "logs";
+export type DashboardSection = "overview" | "keys" | "credentials" | "logs" | "analytics" | "routing" | "budget";
 
 function sectionNeedsDashboardData(section: DashboardSection) {
   return section === "overview" || section === "keys" || section === "logs";
@@ -299,6 +301,8 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
     { count: shouldLoadDashboardData ? apiKeys.length : undefined, href: "/dashboard/api-keys", id: "keys", label: "API Keys" },
     { count: credentials.length, href: "/dashboard/credentials", id: "credentials", label: "Credenciais" },
     { count: shouldLoadDashboardData ? logs.length : undefined, href: "/dashboard/logs", id: "logs", label: "Logs de uso" },
+    { href: "/dashboard/analytics", id: "analytics", label: "Analytics" },
+    { href: "/dashboard/routing", id: "routing", label: "Roteamento" },
   ];
 
   return (
@@ -902,6 +906,10 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
           ) : null}
         </Card>
       ) : null}
+
+      {section === "analytics" || section === "budget" ? <AnalyticsSection /> : null}
+
+      {section === "routing" ? <RoutingSection /> : null}
 
       <Dialog open={!!usageLogDetail} onOpenChange={(open) => { if (!open) setUsageLogDetail(null); }}>
         <DialogContent className="max-h-[min(90vh,40rem)] w-[calc(100vw-2rem)] max-w-2xl gap-4 overflow-hidden sm:max-w-2xl">

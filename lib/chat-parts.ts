@@ -10,6 +10,8 @@ export type ProviderModelCapabilities = {
   documents: boolean;
   images: boolean;
   tools?: boolean;
+  reasoning?: boolean;
+  fast?: boolean;
 };
 
 type AttachmentReferencePart = {
