@@ -357,13 +357,13 @@ export function AnalyticsSection() {
               </Field>
               <Field>
                 <FieldLabel>Modelo baseline</FieldLabel>
-                <Select value={baselineModelId} onValueChange={setBaselineModelId}>
+                <Select value={baselineModelId || "__none__"} onValueChange={(v) => setBaselineModelId(v === "__none__" ? "" : v)}>
                   <SelectTrigger>
                     <SelectValue placeholder="Nenhum" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      <SelectItem value="">Nenhum</SelectItem>
+                      <SelectItem value="__none__">Nenhum</SelectItem>
                       {BASELINE_MODELS.map((m) => (
                         <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                       ))}

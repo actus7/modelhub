@@ -5,8 +5,7 @@
 import "../env";
 import { ensureRuntimeEnvValidated } from "../env";
 
-import { PrismaPg } from "@prisma/adapter-pg";
-import { Pool } from "pg";
+import { PrismaNeonHttp } from "@prisma/adapter-neon";
 
 import { PrismaClient } from "../../generated/prisma/client.ts";
 
@@ -32,15 +31,7 @@ function createPrismaClient(): PrismaClientInstance {
     throw new Error("DATABASE_URL não definido");
   }
 
-  // Append uselibpqcompat=true to suppress the pg-connection-string SSL mode warning.
-  // Neon recommends sslmode=require; without uselibpqcompat, node-postgres treats
-  // "require" as "verify-full" which is fine but produces a loud deprecation warning.
-  const patchedDatabaseUrl = new URL(databaseUrl);
-  patchedDatabaseUrl.searchParams.set("uselibpqcompat", "true");
-  const patchedUrl = patchedDatabaseUrl.toString();
-
-  const pool = new Pool({ connectionString: patchedUrl, ssl: true });
-  const adapter = new PrismaPg(pool);
+  const adapter = new PrismaNeonHttp(databaseUrl);
   return new PrismaClient({ adapter });
 }
 
