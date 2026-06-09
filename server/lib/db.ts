@@ -31,7 +31,7 @@ function createPrismaClient(): PrismaClientInstance {
     throw new Error("DATABASE_URL não definido");
   }
 
-  const adapter = new PrismaNeonHttp(databaseUrl);
+  const adapter = new PrismaNeonHttp(databaseUrl, {});
   return new PrismaClient({ adapter });
 }
 

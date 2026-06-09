@@ -48,7 +48,7 @@ describe("Google AI Studio provider", () => {
 
     expect(fetched).toEqual([
       {
-        capabilities: { documents: true, images: true, tools: true },
+        capabilities: { documents: true, images: true, tools: true, fast: true },
         id: "gemini-2.5-flash",
         name: "Gemini 2.5 Flash (Google AI Studio)",
       },
