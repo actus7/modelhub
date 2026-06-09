@@ -15,6 +15,12 @@ export interface RoutingConfigData {
   taskOverrides: Partial<Record<TaskCategory, TierConfig>>
 }
 
+export interface RoutingCandidate {
+  providerId: string
+  modelId: string
+  tier: RoutingTier | 'default'
+}
+
 export interface RoutingResult {
   providerId: string
   modelId: string
@@ -22,6 +28,31 @@ export interface RoutingResult {
   reason: 'header_override' | 'task_specific' | 'scored' | 'momentum_bias' | 'config_default'
   taskCategory: TaskCategory | null
   complexityScore?: number
+  /// Modelos alternativos (outros tiers configurados) tentados em ordem se o primário falhar.
+  fallbacks: RoutingCandidate[]
+}
+
+// Coleta os modelos configurados nos tiers como pool de fallback, ordenados do
+// mais capaz (reasoning) ao mais simples, deduplicados por provider/modelo.
+function collectCandidates(config: RoutingConfigData): RoutingCandidate[] {
+  const order: Array<RoutingTier | 'default'> = ['reasoning', 'complex', 'standard', 'simple', 'default']
+  const seen = new Set<string>()
+  const out: RoutingCandidate[] = []
+  for (const tier of order) {
+    const cfg = config.tiers[tier]
+    if (!cfg || !cfg.providerId || !cfg.modelId) continue
+    const key = `${cfg.providerId}/${cfg.modelId}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ providerId: cfg.providerId, modelId: cfg.modelId, tier })
+  }
+  return out
+}
+
+function withFallbacks(result: Omit<RoutingResult, 'fallbacks'>, config: RoutingConfigData): RoutingResult {
+  const primaryKey = `${result.providerId}/${result.modelId}`
+  const fallbacks = collectCandidates(config).filter((c) => `${c.providerId}/${c.modelId}` !== primaryKey)
+  return { ...result, fallbacks }
 }
 
 // Cache simples de configuração por userId (60s TTL) para evitar DB hits por request
@@ -74,13 +105,13 @@ export async function resolveRouting(input: {
     const tierConfig = config.tiers[forcedTier] ?? config.tiers['default']
     if (tierConfig) {
       recordTierAssignment(userId, forcedTier)
-      return {
+      return withFallbacks({
         providerId: tierConfig.providerId,
         modelId: tierConfig.modelId,
         tier: forcedTier,
         reason: 'header_override',
         taskCategory: null,
-      }
+      }, config)
     }
   }
 
@@ -90,13 +121,13 @@ export async function resolveRouting(input: {
     if (taskResult && taskResult.confidence >= 0.4) {
       const taskConfig = config.taskOverrides[taskResult.category]
       if (taskConfig) {
-        return {
+        return withFallbacks({
           providerId: taskConfig.providerId,
           modelId: taskConfig.modelId,
           tier: 'default',
           reason: 'task_specific',
           taskCategory: taskResult.category,
-        }
+        }, config)
       }
     }
   }
@@ -124,27 +155,27 @@ export async function resolveRouting(input: {
     const tierConfig = config.tiers[resolvedTier] ?? config.tiers['default']
     if (tierConfig) {
       recordTierAssignment(userId, resolvedTier)
-      return {
+      return withFallbacks({
         providerId: tierConfig.providerId,
         modelId: tierConfig.modelId,
         tier: resolvedTier,
         reason,
         taskCategory: null,
         complexityScore: scored.rawScore,
-      }
+      }, config)
     }
   }
 
   // 4. Default tier
   const defaultConfig = config.tiers['default']
   if (defaultConfig) {
-    return {
+    return withFallbacks({
       providerId: defaultConfig.providerId,
       modelId: defaultConfig.modelId,
       tier: 'default',
       reason: 'config_default',
       taskCategory: null,
-    }
+    }, config)
   }
 
   return null

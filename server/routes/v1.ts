@@ -5,8 +5,9 @@ import { jsonErrorResponse, vercelStreamToOpenAiSse } from '../lib/provider-core
 import { withProviderMetadata } from '../lib/observability'
 import { getActiveApiKey, protectedCors, securityHeaders } from '../lib/security'
 import { providerRegistry, getProviderModels, isProviderAvailableViaExternalApi } from '../providers/registry'
-import { resolveRouting, type RoutingResult } from '../lib/routing/routing-resolver'
+import { resolveRouting, type RoutingResult, type RoutingCandidate } from '../lib/routing/routing-resolver'
 import type { RoutingTier } from '../lib/routing/complexity-scorer'
+import { shouldTriggerFallback, isInCooldown, recordCooldown } from '../lib/routing/fallback'
 
 const VALID_TIERS: RoutingTier[] = ['simple', 'standard', 'complex', 'reasoning']
 
@@ -67,6 +68,137 @@ async function resolveAutoRouting(
   }
 }
 
+interface RoutingMeta {
+  tier: string
+  reason: string
+  taskCategory: string | null
+}
+
+// Valida se um provider pode receber forward via /v1/chat/completions.
+// Retorna uma Response de erro quando inválido, ou null quando OK.
+function validateProviderForForward(providerId: string): Response | null {
+  if (!isProviderEnabled(providerId)) {
+    return jsonErrorResponse(404, `Provider "${providerId}" is not available`)
+  }
+  if (!providerRegistry[providerId]) {
+    return jsonErrorResponse(404, `Provider "${providerId}" not found`)
+  }
+  if (!isProviderAvailableViaExternalApi(providerId)) {
+    return jsonErrorResponse(
+      400,
+      `Provider "${providerId}" usa autenticacao no navegador e nao esta disponivel via /v1/chat/completions`,
+    )
+  }
+  return null
+}
+
+// Encaminha a requisição (já em formato OpenAI) ao handler interno do provider.
+// Assume que validateProviderForForward já passou.
+async function dispatchToProvider(
+  c: { req: { url: string; raw: Request } },
+  providerId: string,
+  modelId: string,
+  body: Record<string, unknown>,
+  routingMeta: RoutingMeta | null,
+  fallbackFrom?: string,
+): Promise<Response> {
+  const entry = providerRegistry[providerId]
+
+  const proxyBody: Record<string, unknown> = { ...body, modelId }
+  delete proxyBody.model
+
+  const internalUrl = new URL(c.req.url)
+  internalUrl.pathname = `/${providerId}/api/chat`
+  internalUrl.search = ''
+
+  const internalHeaders = new Headers(c.req.raw.headers)
+  internalHeaders.set('content-type', 'application/json')
+
+  if (routingMeta) {
+    internalHeaders.set('x-modelhub-routing-tier', routingMeta.tier)
+    internalHeaders.set('x-modelhub-routing-reason', routingMeta.reason)
+    if (routingMeta.taskCategory) {
+      internalHeaders.set('x-modelhub-task-category', routingMeta.taskCategory)
+    }
+  }
+  if (fallbackFrom) {
+    internalHeaders.set('x-modelhub-fallback-from', fallbackFrom)
+  }
+
+  const internalRequest = new Request(internalUrl.toString(), {
+    method: 'POST',
+    headers: internalHeaders,
+    body: JSON.stringify(proxyBody),
+  })
+
+  return entry.handler(internalRequest)
+}
+
+// Executa o roteamento "auto": tenta o modelo primário e, em caso de falha
+// elegível, percorre os fallbacks configurados (pulando os que estão em
+// cooldown de rate-limit). Converte a resposta bem-sucedida para SSE OpenAI.
+async function forwardAutoWithFallback(
+  c: { req: { url: string; raw: Request } },
+  body: Record<string, unknown>,
+  resolved: { routing: RoutingResult; providerId: string; modelId: string },
+): Promise<Response> {
+  const primary: RoutingCandidate = {
+    providerId: resolved.providerId,
+    modelId: resolved.modelId,
+    tier: resolved.routing.tier,
+  }
+  const candidates: RoutingCandidate[] = [primary, ...resolved.routing.fallbacks]
+  const primaryModel = `${primary.providerId}/${primary.modelId}`
+
+  let lastError: Response | null = null
+  let skippedByCooldown = false
+
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i]
+
+    const invalid = validateProviderForForward(cand.providerId)
+    if (invalid) {
+      lastError = invalid
+      continue
+    }
+    if (isInCooldown(cand.providerId, cand.modelId)) {
+      skippedByCooldown = true
+      continue
+    }
+
+    const isFallback = i > 0
+    const meta: RoutingMeta = {
+      tier: cand.tier,
+      reason: isFallback ? 'fallback' : resolved.routing.reason,
+      taskCategory: isFallback ? null : resolved.routing.taskCategory,
+    }
+    const response = await dispatchToProvider(
+      c,
+      cand.providerId,
+      cand.modelId,
+      body,
+      meta,
+      isFallback ? primaryModel : undefined,
+    )
+    recordCooldown(cand.providerId, cand.modelId, response.status, response.headers.get('retry-after'))
+
+    if (response.ok) {
+      return vercelStreamToOpenAiSse(withProviderMetadata(response, cand.providerId), `${cand.providerId}/${cand.modelId}`)
+    }
+
+    lastError = withProviderMetadata(response, cand.providerId)
+    if (!shouldTriggerFallback(response.status)) break
+  }
+
+  if (lastError) {
+    return vercelStreamToOpenAiSse(lastError, primaryModel)
+  }
+  if (skippedByCooldown) {
+    return jsonErrorResponse(429, 'Todos os modelos de roteamento estão temporariamente em cooldown (rate limit). Tente novamente em instantes.')
+  }
+  return jsonErrorResponse(503, 'No routing candidates available. Configure your routing at /dashboard/routing.')
+}
+
 const app = new Hono()
 app.use('*', securityHeaders)
 app.use('*', protectedCors)
@@ -117,12 +249,9 @@ app.post('/v1/chat/completions', async (c) => {
     return jsonErrorResponse(400, 'Missing or invalid "model" field. Use the format: provider/model-id or "auto"')
   }
 
-  let providerId: string
-  let modelId: string
-  let effectiveModel = rawModel
-  let routingMeta: { tier: string; reason: string; taskCategory: string | null } | null = null
-
-  // Suporte a model="auto" — resolve via configuração de roteamento do usuário
+  // Suporte a model="auto" — resolve via configuração de roteamento do usuário,
+  // com fallback automático para os demais modelos configurados quando o
+  // modelo escolhido falha (>=400, exceto erros de request do cliente).
   if (rawModel === 'auto' || rawModel.endsWith(':auto')) {
     const tierPrefix = rawModel.endsWith(':auto') ? rawModel.replace(':auto', '') : undefined
     const forcedTier = VALID_TIERS.includes(tierPrefix as RoutingTier) ? (tierPrefix as RoutingTier) : undefined
@@ -130,74 +259,23 @@ app.post('/v1/chat/completions', async (c) => {
     if (!resolved) {
       return jsonErrorResponse(400, 'Routing config not found. Configure your routing at /dashboard/routing or use explicit provider/model format.')
     }
-    providerId = resolved.providerId
-    modelId = resolved.modelId
-    effectiveModel = `${providerId}/${modelId}`
-    routingMeta = {
-      tier: resolved.routing.tier,
-      reason: resolved.routing.reason,
-      taskCategory: resolved.routing.taskCategory,
-    }
-  } else {
-    const parsed = parseProviderAndModel(rawModel)
-    if (!parsed) {
-      return jsonErrorResponse(400, `Unable to resolve provider from model "${rawModel}". Use the format: provider/model-id (e.g. groq/llama-3.3-70b-versatile) or "auto"`)
-    }
-    providerId = parsed.providerId
-    modelId = parsed.modelId
+    return forwardAutoWithFallback(c, body, resolved)
   }
 
-  if (!isProviderEnabled(providerId)) {
-    return jsonErrorResponse(404, `Provider "${providerId}" is not available`)
+  // Modelo explícito provider/model-id — sem fallback (cliente escolheu o modelo).
+  const parsed = parseProviderAndModel(rawModel)
+  if (!parsed) {
+    return jsonErrorResponse(400, `Unable to resolve provider from model "${rawModel}". Use the format: provider/model-id (e.g. groq/llama-3.3-70b-versatile) or "auto"`)
   }
 
-  const entry = providerRegistry[providerId]
-  if (!entry) {
-    return jsonErrorResponse(404, `Provider "${providerId}" not found`)
-  }
+  const invalid = validateProviderForForward(parsed.providerId)
+  if (invalid) return invalid
 
-  if (!isProviderAvailableViaExternalApi(providerId)) {
-    return jsonErrorResponse(
-      400,
-      `Provider "${providerId}" usa autenticacao no navegador e nao esta disponivel via /v1/chat/completions`,
-    )
-  }
-
-  // Transform OpenAI-format body to internal proxy format
-  const proxyBody: Record<string, unknown> = {
-    ...body,
-    modelId,
-  }
-  delete proxyBody.model
-
-  // Build internal Request targeting the provider's /api/chat endpoint
-  const internalUrl = new URL(c.req.url)
-  internalUrl.pathname = `/${providerId}/api/chat`
-  internalUrl.search = ''
-
-  const internalHeaders = new Headers(c.req.raw.headers)
-  internalHeaders.set('content-type', 'application/json')
-
-  // Passar metadados de roteamento via headers internos para logging no provider handler
-  if (routingMeta) {
-    internalHeaders.set('x-modelhub-routing-tier', routingMeta.tier)
-    internalHeaders.set('x-modelhub-routing-reason', routingMeta.reason)
-    if (routingMeta.taskCategory) {
-      internalHeaders.set('x-modelhub-task-category', routingMeta.taskCategory)
-    }
-  }
-
-  const internalRequest = new Request(internalUrl.toString(), {
-    method: 'POST',
-    headers: internalHeaders,
-    body: JSON.stringify(proxyBody),
-  })
-
-  const response = await entry.handler(internalRequest)
-  const tagged = withProviderMetadata(response, providerId)
+  const response = await dispatchToProvider(c, parsed.providerId, parsed.modelId, body, null)
+  const tagged = withProviderMetadata(response, parsed.providerId)
 
   // Providers return Vercel AI SDK format — convert to OpenAI SSE for external clients
-  return vercelStreamToOpenAiSse(tagged, effectiveModel)
+  return vercelStreamToOpenAiSse(tagged, rawModel)
 })
 
 export default app.fetch
