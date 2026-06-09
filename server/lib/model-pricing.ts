@@ -1,3 +1,5 @@
+import { getOpenRouterPrice } from './openrouter-pricing'
+
 export type ModelPrice = {
   inputPer1M: number
   outputPer1M: number
@@ -155,6 +157,38 @@ const PRICING: Record<string, Record<string, ModelPrice>> = {
     'mistralai/Mistral-7B-Instruct-v0.3': { inputPer1M: 0.2, outputPer1M: 0.2 },
     'Qwen/Qwen2.5-72B-Instruct': { inputPer1M: 1.2, outputPer1M: 1.2 },
   },
+  xai: {
+    'grok-4': { inputPer1M: 3, outputPer1M: 15 },
+    'grok-3': { inputPer1M: 3, outputPer1M: 15 },
+    'grok-3-mini': { inputPer1M: 0.3, outputPer1M: 0.5 },
+    'grok-code-fast-1': { inputPer1M: 0.2, outputPer1M: 1.5 },
+    'grok-2-vision': { inputPer1M: 2, outputPer1M: 10 },
+  },
+  moonshot: {
+    'kimi-k2-0711-preview': { inputPer1M: 0.6, outputPer1M: 2.5 },
+    'moonshot-v1-128k': { inputPer1M: 2, outputPer1M: 5 },
+    'moonshot-v1-32k': { inputPer1M: 1, outputPer1M: 3 },
+    'moonshot-v1-8k': { inputPer1M: 0.2, outputPer1M: 2 },
+  },
+  qwen: {
+    'qwen-max': { inputPer1M: 1.6, outputPer1M: 6.4 },
+    'qwen-plus': { inputPer1M: 0.4, outputPer1M: 1.2 },
+    'qwen-turbo': { inputPer1M: 0.05, outputPer1M: 0.2 },
+    'qwen3-coder-plus': { inputPer1M: 1, outputPer1M: 5 },
+    'qwq-32b': { inputPer1M: 0.2, outputPer1M: 0.6 },
+  },
+  zai: {
+    'glm-4.6': { inputPer1M: 0.6, outputPer1M: 2.2 },
+    'glm-4.5': { inputPer1M: 0.6, outputPer1M: 2.2 },
+    'glm-4.5-air': { inputPer1M: 0.2, outputPer1M: 1.1 },
+    'glm-4-flash': { inputPer1M: 0, outputPer1M: 0 },
+  },
+  zaicoding: {
+    // Assinatura (GLM Coding Plan) — tarifa fixa, custo marginal $0 por chamada.
+    'glm-4.6': { inputPer1M: 0, outputPer1M: 0 },
+    'glm-4.5': { inputPer1M: 0, outputPer1M: 0 },
+    'glm-4.5-air': { inputPer1M: 0, outputPer1M: 0 },
+  },
   ollama: {
     // Modelos locais são gratuitos
   },
@@ -162,20 +196,21 @@ const PRICING: Record<string, Record<string, ModelPrice>> = {
 
 export function getModelPrice(providerId: string, modelId: string): ModelPrice | null {
   const providerPricing = PRICING[providerId]
-  if (!providerPricing) return null
+  if (providerPricing) {
+    // Tentativa exata
+    if (providerPricing[modelId]) return providerPricing[modelId]
 
-  // Tentativa exata
-  if (providerPricing[modelId]) return providerPricing[modelId]
-
-  // Tentativa por prefixo — chaves mais longas têm prioridade para evitar "o1" engolir "o1-mini"
-  const sortedKeys = Object.keys(providerPricing).sort((a, b) => b.length - a.length)
-  for (const key of sortedKeys) {
-    if (modelId.startsWith(key) || key.startsWith(modelId)) {
-      return providerPricing[key]
+    // Tentativa por prefixo — chaves mais longas têm prioridade para evitar "o1" engolir "o1-mini"
+    const sortedKeys = Object.keys(providerPricing).sort((a, b) => b.length - a.length)
+    for (const key of sortedKeys) {
+      if (modelId.startsWith(key) || key.startsWith(modelId)) {
+        return providerPricing[key]
+      }
     }
   }
 
-  return null
+  // Fallback: cache dinâmico do OpenRouter (preenchido sob demanda).
+  return getOpenRouterPrice(providerId, modelId)
 }
 
 export function calculateCostUsd(

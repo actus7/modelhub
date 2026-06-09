@@ -1117,6 +1117,8 @@ async function updateUsageLogTokens(
   modelId: string | undefined,
 ): Promise<void> {
   const { calculateCostUsd } = await import('./model-pricing')
+  // Aquece o cache de preços do OpenRouter (fire-and-forget) — beneficia chamadas seguintes.
+  void import('./openrouter-pricing').then((m) => m.ensureOpenRouterPricingFresh()).catch(() => {})
   const costUsd = modelId ? calculateCostUsd(providerId, modelId, tokens.inputTokens, tokens.completionTokens) : null
 
   prisma.usageLog.update({
