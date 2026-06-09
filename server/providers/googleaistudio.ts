@@ -7,8 +7,8 @@ import {
 import { chatViaOpenAiCompatible } from '../lib/openai-compatible'
 
 export const models = [
-  { capabilities: { documents: true, images: true, tools: true }, id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Google AI Studio)' },
-  { capabilities: { documents: true, images: true, tools: true }, id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite (Google AI Studio)' },
+  { capabilities: { documents: true, images: true, tools: true, fast: true }, id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Google AI Studio)' },
+  { capabilities: { documents: true, images: true, tools: true, fast: true }, id: 'gemini-2.5-flash-lite', name: 'Gemini 2.5 Flash Lite (Google AI Studio)' },
 ]
 
 const app = createProviderApp({
@@ -67,11 +67,16 @@ export async function fetchGoogleAiStudioModels(credentials?: Record<string, str
     m.supportedGenerationMethods?.includes('generateContent'),
   )
 
+  const FAST_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-8b']
+  const REASONING_MODELS = ['gemini-2.5-pro', 'gemini-2.0-flash-thinking']
+
   return chatModels.map((m) => {
     // name comes as "models/gemini-2.5-flash", strip the prefix
     const id = m.name.replace(/^models\//, '')
+    const fast = FAST_MODELS.some((f) => id.startsWith(f))
+    const reasoning = REASONING_MODELS.some((r) => id.startsWith(r))
     return {
-      capabilities: { documents: true, images: true, tools: true },
+      capabilities: { documents: true, images: true, tools: true, ...(fast && { fast }), ...(reasoning && { reasoning }) },
       id,
       name: `${m.displayName || id} (Google AI Studio)`,
     }

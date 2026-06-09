@@ -14,6 +14,7 @@ import {
   buildDocumentContextBlock,
 } from './conversation-attachments'
 import { ensureProtectedAccess, isProductionEnv, protectedCors, securityHeaders } from './security'
+import { checkBudget } from './budget'
 
 type ChatMessageToolCall = {
   id: string
@@ -598,9 +599,14 @@ function extractSseTextDelta(parsed: OpenAiSseChunk | null): string {
 async function writeFinish(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   reason = 'stop',
+  usage?: { promptTokens: number; completionTokens: number },
 ): Promise<void> {
   const encoder = new TextEncoder()
-  await writer.write(encoder.encode(`d:${JSON.stringify({ finishReason: reason })}\n`))
+  const payload: Record<string, unknown> = { finishReason: reason }
+  if (usage) {
+    payload.usage = usage
+  }
+  await writer.write(encoder.encode(`d:${JSON.stringify(payload)}\n`))
 }
 
 function logParsingIssue(context: string, error: unknown): void {
@@ -656,6 +662,7 @@ async function processSseLine(
   lineRaw: string,
   writer: WritableStreamDefaultWriter<Uint8Array>,
   toolCallAccumulator: Map<number, AccumulatedToolCall>,
+  usageAccumulator: { value: { promptTokens: number; completionTokens: number } | null },
 ): Promise<boolean> {
   const encoder = new TextEncoder()
   const line = lineRaw.trim()
@@ -666,7 +673,7 @@ async function processSseLine(
 
   if (data === '[DONE]') {
     await flushAccumulatedToolCalls(toolCallAccumulator, writer)
-    await writeFinish(writer)
+    await writeFinish(writer, 'stop', usageAccumulator.value ?? undefined)
     return true
   }
 
@@ -682,10 +689,23 @@ async function processSseLine(
       accumulateToolCallDeltas(toolCallDeltas, toolCallAccumulator)
     }
 
+    // Capture usage from chunks that carry it (sent when stream_options.include_usage=true)
+    const usageRaw = (parsed as Record<string, unknown>).usage as Record<string, unknown> | undefined
+    if (usageRaw && typeof usageRaw.prompt_tokens === 'number') {
+      usageAccumulator.value = {
+        promptTokens: usageRaw.prompt_tokens as number,
+        completionTokens: (usageRaw.completion_tokens as number | undefined) ?? 0,
+      }
+    }
+
     const finishReason = parsed.choices?.[0]?.finish_reason
     if (finishReason && finishReason !== 'null') {
       await flushAccumulatedToolCalls(toolCallAccumulator, writer)
-      await writeFinish(writer, finishReason === 'tool_calls' ? 'tool-calls' : finishReason)
+      await writeFinish(
+        writer,
+        finishReason === 'tool_calls' ? 'tool-calls' : finishReason,
+        usageAccumulator.value ?? undefined,
+      )
       return true
     }
   } catch (error) {
@@ -695,11 +715,15 @@ async function processSseLine(
   return false
 }
 
-export function toVercelStreamFromOpenAiSse(upstream: Response): Response {
+export function toVercelStreamFromOpenAiSse(
+  upstream: Response,
+  onUsage?: (usage: { promptTokens: number; completionTokens: number }) => void,
+): Response {
   const decoder = new TextDecoder()
   const { readable, writable } = new TransformStream()
   const writer = writable.getWriter()
   const toolCallAccumulator = new Map<number, AccumulatedToolCall>()
+  const usageAccumulator: { value: { promptTokens: number; completionTokens: number } | null } = { value: null }
 
   ;(async () => {
     let didFinish = false
@@ -717,13 +741,13 @@ export function toVercelStreamFromOpenAiSse(upstream: Response): Response {
         buffer = lines.pop() || ''
 
         for (const lineRaw of lines) {
-          didFinish = (await processSseLine(lineRaw, writer, toolCallAccumulator)) || didFinish
+          didFinish = (await processSseLine(lineRaw, writer, toolCallAccumulator, usageAccumulator)) || didFinish
         }
       }
 
       if (!didFinish) {
         await flushAccumulatedToolCalls(toolCallAccumulator, writer)
-        await writeFinish(writer)
+        await writeFinish(writer, 'stop', usageAccumulator.value ?? undefined)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -731,6 +755,9 @@ export function toVercelStreamFromOpenAiSse(upstream: Response): Response {
       await writer.write(encoder.encode(`3:${JSON.stringify(message)}\n`))
       await writeFinish(writer, 'error')
     } finally {
+      if (usageAccumulator.value && onUsage) {
+        onUsage(usageAccumulator.value)
+      }
       await writer.close()
     }
   })()
@@ -847,7 +874,7 @@ export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string)
             })
           } else if (prefix === 'd') {
             // Finish
-            const data = JSON.parse(payload) as { finishReason: string }
+            const data = JSON.parse(payload) as { finishReason: string; usage?: { promptTokens: number; completionTokens: number } }
             const finishReason = data.finishReason === 'tool-calls' ? 'tool_calls' : data.finishReason
             const delta: Record<string, unknown> = {}
             if (toolCalls.length > 0) {
@@ -861,6 +888,22 @@ export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string)
               choices: [{ index: 0, delta, finish_reason: finishReason }],
             }
             await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`))
+            // Emit usage chunk if available (OpenAI stream_options.include_usage format)
+            if (data.usage) {
+              const usageChunk = {
+                id: chatId,
+                object: 'chat.completion.chunk',
+                created,
+                model,
+                choices: [],
+                usage: {
+                  prompt_tokens: data.usage.promptTokens,
+                  completion_tokens: data.usage.completionTokens,
+                  total_tokens: data.usage.promptTokens + data.usage.completionTokens,
+                },
+              }
+              await writer.write(encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`))
+            }
             await writer.write(encoder.encode('data: [DONE]\n\n'))
           } else if (prefix === '3') {
             // Error
@@ -1024,15 +1067,24 @@ function logUsage(data: {
   endpoint: string | undefined
   statusCode: number
   errorDetail?: string | null
-}): void {
-  if (!data.userId) return // Sem usuário autenticado, não loga
+  inputTokens?: number | null
+  outputTokens?: number | null
+  costUsd?: number | null
+  durationMs?: number | null
+  routingTier?: string | null
+  routingReason?: string | null
+  taskCategory?: string | null
+  baselineModelId?: string | null
+  baselineCostUsd?: number | null
+}): Promise<string | null> {
+  if (!data.userId) return Promise.resolve(null)
 
   const errorDetail =
     data.errorDetail && data.errorDetail.length > 0
       ? data.errorDetail.slice(0, MAX_USAGE_LOG_ERROR_CHARS)
       : null
 
-  prisma.usageLog.create({
+  return prisma.usageLog.create({
     data: {
       userId: data.userId,
       apiKeyId: data.apiKeyId ?? null,
@@ -1041,9 +1093,41 @@ function logUsage(data: {
       endpoint: data.endpoint ?? null,
       statusCode: data.statusCode,
       errorDetail,
+      inputTokens: data.inputTokens ?? null,
+      outputTokens: data.outputTokens ?? null,
+      costUsd: data.costUsd ?? null,
+      durationMs: data.durationMs ?? null,
+      routingTier: data.routingTier ?? null,
+      routingReason: data.routingReason ?? null,
+      taskCategory: data.taskCategory ?? null,
+      baselineModelId: data.baselineModelId ?? null,
+      baselineCostUsd: data.baselineCostUsd ?? null,
+    },
+    select: { id: true },
+  }).then((log) => log.id).catch((err: unknown) => {
+    console.error('[usage-log] Failed to record usage', err)
+    return null
+  })
+}
+
+async function updateUsageLogTokens(
+  logId: string,
+  tokens: { inputTokens: number; completionTokens: number },
+  providerId: string,
+  modelId: string | undefined,
+): Promise<void> {
+  const { calculateCostUsd } = await import('./model-pricing')
+  const costUsd = modelId ? calculateCostUsd(providerId, modelId, tokens.inputTokens, tokens.completionTokens) : null
+
+  prisma.usageLog.update({
+    where: { id: logId },
+    data: {
+      inputTokens: tokens.inputTokens,
+      outputTokens: tokens.completionTokens,
+      costUsd,
     },
   }).catch((err: unknown) => {
-    console.error('[usage-log] Failed to record usage', err)
+    console.error('[usage-log] Failed to update token counts', err)
   })
 }
 
@@ -1297,7 +1381,31 @@ export function createProviderApp(config: ProviderConfig) {
         userId,
       })
 
+      // Verificar orçamento antes de processar
+      if (userId) {
+        const budgetCheck = await checkBudget(userId)
+        if (!budgetCheck.allowed) {
+          logUsage({
+            userId,
+            apiKeyId,
+            providerId: config.providerId,
+            modelId,
+            endpoint: c.req.path,
+            statusCode: 429,
+            errorDetail: `budget_exceeded: ${budgetCheck.periodSpendUsd.toFixed(6)}/${budgetCheck.limitUsd} USD`,
+          })
+          return jsonErrorResponse(429, `Limite de orçamento atingido: $${budgetCheck.periodSpendUsd.toFixed(4)} de $${budgetCheck.limitUsd?.toFixed(2)} USD no período`)
+        }
+      }
+
+      const startedAt = Date.now()
+      const routingTier = c.req.header('x-modelhub-routing-tier') ?? null
+      const routingReason = c.req.header('x-modelhub-routing-reason') ?? null
+      const taskCategory = c.req.header('x-modelhub-task-category') ?? null
+
       const response = await config.chat(resolvedMessages, modelId, rawBody, credentials, userId)
+
+      const durationMs = Date.now() - startedAt
 
       let errorDetail: string | null = null
       if (response.status >= 400) {
@@ -1319,7 +1427,7 @@ export function createProviderApp(config: ProviderConfig) {
         }
       }
 
-      logUsage({
+      const logPromise = logUsage({
         userId,
         apiKeyId,
         providerId: config.providerId,
@@ -1327,7 +1435,49 @@ export function createProviderApp(config: ProviderConfig) {
         endpoint: c.req.path,
         statusCode: response.status,
         errorDetail,
+        durationMs,
+        routingTier,
+        routingReason,
+        taskCategory,
       })
+
+      // Tap streaming response to extract token usage asynchronously
+      if (response.ok && response.body) {
+        const [streamForCaller, streamForMonitor] = response.body.tee()
+
+        ;(async () => {
+          try {
+            const logId = await logPromise
+            if (!logId) return
+
+            const reader = streamForMonitor.getReader()
+            const decoder = new TextDecoder()
+            let buffer = ''
+            while (true) {
+              const { done, value } = await reader.read()
+              if (done) break
+              buffer += decoder.decode(value, { stream: true })
+              const lines = buffer.split('\n')
+              buffer = lines.pop() || ''
+              for (const line of lines) {
+                if (!line.startsWith('d:')) continue
+                try {
+                  const data = JSON.parse(line.slice(2)) as { finishReason?: string; usage?: { promptTokens: number; completionTokens: number } }
+                  if (data.usage) {
+                    await updateUsageLogTokens(logId, { inputTokens: data.usage.promptTokens, completionTokens: data.usage.completionTokens }, config.providerId, modelId)
+                    return
+                  }
+                } catch { /* ignore parse errors */ }
+              }
+            }
+          } catch { /* ignore monitor errors */ }
+        })()
+
+        return new Response(streamForCaller, {
+          status: response.status,
+          headers: response.headers,
+        })
+      }
 
       return response
     } catch (error) {

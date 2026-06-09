@@ -59,11 +59,15 @@ export type UiProvider = {
 type UsageProviderStat = {
   provider: string;
   count: number;
+  costUsd?: number;
 };
 
 type UsageModelStat = {
   model: string | null;
   count: number;
+  costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
 };
 
 type UsageStatusStat = {
@@ -74,6 +78,7 @@ type UsageStatusStat = {
 type UsageDailyStat = {
   date: string;
   count: number;
+  costUsd?: number;
 };
 
 export type UsageSummary = {
@@ -87,6 +92,9 @@ export type UsageSummary = {
   byModel: UsageModelStat[];
   byStatus: UsageStatusStat[];
   daily: UsageDailyStat[];
+  totalCostUsd: number;
+  avgDurationMs: number | null;
+  tokenStats: { totalInput: number; totalOutput: number };
 };
 
 export type RecentUsageLog = {
@@ -97,10 +105,40 @@ export type RecentUsageLog = {
   statusCode: number;
   errorDetail: string | null;
   createdAt: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+  durationMs: number | null;
+  routingTier: string | null;
+  taskCategory: string | null;
   apiKey: {
     prefix: string;
     label: string;
   } | null;
+};
+
+export type TierAssignment = {
+  providerId: string;
+  modelId: string;
+};
+
+export type RoutingConfigSummary = {
+  complexityEnabled: boolean;
+  taskRoutingEnabled: boolean;
+  tiers: Record<string, TierAssignment>;
+  taskOverrides: Record<string, TierAssignment>;
+};
+
+export type BudgetSummary = {
+  periodType: string;
+  limitUsd: number | null;
+  alertThreshold: number;
+  blocksRequests: boolean;
+  baselineModelId: string | null;
+  currentSpend: number;
+  baselineSpend: number | null;
+  savings: number | null;
+  savingsPct: number | null;
 };
 
 export type ProviderModel = {

@@ -174,80 +174,81 @@ app.get("/usage", async (c) => {
   const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.min(daysParam, 365) : 30;
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const totalRequests = await prisma.usageLog.count({
-    where: {
-      createdAt: { gte: since },
-      userId,
-    },
-  });
+  const [totalRequests, byProvider, byModel, byStatus, aggregates, dailyLogs] = await Promise.all([
+    prisma.usageLog.count({ where: { createdAt: { gte: since }, userId } }),
+    prisma.usageLog.groupBy({
+      by: ["providerId"],
+      where: { createdAt: { gte: since }, userId },
+      _count: { id: true },
+      _sum: { costUsd: true },
+      orderBy: { _count: { id: "desc" } },
+    }),
+    prisma.usageLog.groupBy({
+      by: ["modelId"],
+      where: { createdAt: { gte: since }, modelId: { not: null }, userId },
+      _count: { id: true },
+      _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+      orderBy: { _count: { id: "desc" } },
+      take: 10,
+    }),
+    prisma.usageLog.groupBy({
+      by: ["statusCode"],
+      where: { createdAt: { gte: since }, userId },
+      _count: { id: true },
+      orderBy: { statusCode: "asc" },
+    }),
+    prisma.usageLog.aggregate({
+      where: { createdAt: { gte: since }, userId },
+      _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+      _avg: { durationMs: true },
+    }),
+    prisma.usageLog.findMany({
+      where: { createdAt: { gte: since }, userId },
+      select: { createdAt: true, costUsd: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
 
-  const byProvider = await prisma.usageLog.groupBy({
-    by: ["providerId"],
-    where: {
-      createdAt: { gte: since },
-      userId,
-    },
-    _count: { id: true },
-    orderBy: { _count: { id: "desc" } },
-  });
-
-  const byModel = await prisma.usageLog.groupBy({
-    by: ["modelId"],
-    where: {
-      createdAt: { gte: since },
-      modelId: { not: null },
-      userId,
-    },
-    _count: { id: true },
-    orderBy: { _count: { id: "desc" } },
-    take: 10,
-  });
-
-  const byStatus = await prisma.usageLog.groupBy({
-    by: ["statusCode"],
-    where: {
-      createdAt: { gte: since },
-      userId,
-    },
-    _count: { id: true },
-    orderBy: { statusCode: "asc" },
-  });
-
-  const recentLogs = await prisma.usageLog.findMany({
-    where: {
-      createdAt: { gte: since },
-      userId,
-    },
-    select: { createdAt: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  const dailyMap = new Map<string, number>();
-  for (const log of recentLogs) {
+  const dailyMap = new Map<string, { count: number; costUsd: number }>();
+  for (const log of dailyLogs) {
     const day = log.createdAt.toISOString().slice(0, 10);
-    dailyMap.set(day, (dailyMap.get(day) ?? 0) + 1);
+    const prev = dailyMap.get(day) ?? { count: 0, costUsd: 0 };
+    dailyMap.set(day, { count: prev.count + 1, costUsd: prev.costUsd + (log.costUsd ?? 0) });
   }
 
   type StatusRow = { statusCode: number; _count: { id: number } };
-  type ModelRow = { modelId: string | null; _count: { id: number } };
-  type ProviderRow = { providerId: string; _count: { id: number } };
+  type ModelRow = { modelId: string | null; _count: { id: number }; _sum: { costUsd: number | null; inputTokens: number | null; outputTokens: number | null } };
+  type ProviderRow = { providerId: string; _count: { id: number }; _sum: { costUsd: number | null } };
 
   const errorCount = (byStatus as StatusRow[])
-    .filter((status) => status.statusCode >= 400)
-    .reduce((sum, status) => sum + status._count.id, 0);
+    .filter((s) => s.statusCode >= 400)
+    .reduce((sum, s) => sum + s._count.id, 0);
   const errorRate = totalRequests > 0 ? +(errorCount / totalRequests * 100).toFixed(2) : 0;
 
   return c.json({
-    byModel: (byModel as ModelRow[]).map((entry) => ({ count: entry._count.id, model: entry.modelId })),
-    byProvider: (byProvider as ProviderRow[]).map((entry) => ({ count: entry._count.id, provider: entry.providerId })),
-    byStatus: (byStatus as StatusRow[]).map((entry) => ({ count: entry._count.id, status: entry.statusCode })),
-    daily: Array.from(dailyMap.entries()).map(([date, count]) => ({ date, count })),
+    byModel: (byModel as ModelRow[]).map((e) => ({
+      count: e._count.id,
+      model: e.modelId,
+      costUsd: e._sum.costUsd ?? 0,
+      inputTokens: e._sum.inputTokens ?? 0,
+      outputTokens: e._sum.outputTokens ?? 0,
+    })),
+    byProvider: (byProvider as ProviderRow[]).map((e) => ({
+      count: e._count.id,
+      provider: e.providerId,
+      costUsd: e._sum.costUsd ?? 0,
+    })),
+    byStatus: (byStatus as StatusRow[]).map((e) => ({ count: e._count.id, status: e.statusCode })),
+    daily: Array.from(dailyMap.entries()).map(([date, d]) => ({ date, count: d.count, costUsd: d.costUsd })),
     errorRate,
-    period: {
-      days,
-      since: since.toISOString(),
-    },
+    period: { days, since: since.toISOString() },
     totalRequests,
+    totalCostUsd: aggregates._sum.costUsd ?? 0,
+    avgDurationMs: aggregates._avg.durationMs ?? null,
+    tokenStats: {
+      totalInput: aggregates._sum.inputTokens ?? 0,
+      totalOutput: aggregates._sum.outputTokens ?? 0,
+    },
   });
 });
 
@@ -261,12 +262,7 @@ app.get("/usage/recent", async (c) => {
   const logs = await prisma.usageLog.findMany({
     where: { userId },
     select: {
-      apiKey: {
-        select: {
-          label: true,
-          prefix: true,
-        },
-      },
+      apiKey: { select: { label: true, prefix: true } },
       createdAt: true,
       endpoint: true,
       errorDetail: true,
@@ -274,12 +270,173 @@ app.get("/usage/recent", async (c) => {
       modelId: true,
       providerId: true,
       statusCode: true,
+      inputTokens: true,
+      outputTokens: true,
+      costUsd: true,
+      durationMs: true,
+      routingTier: true,
+      taskCategory: true,
     },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
 
   return c.json({ logs });
+});
+
+// GET /user/routing-config
+app.get("/routing-config", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const config = await prisma.routingConfig.findUnique({ where: { userId } });
+  if (!config) {
+    return c.json({ complexityEnabled: false, taskRoutingEnabled: false, tiers: {}, taskOverrides: {} });
+  }
+
+  return c.json({
+    complexityEnabled: config.complexityEnabled,
+    taskRoutingEnabled: config.taskRoutingEnabled,
+    tiers: config.tiers,
+    taskOverrides: config.taskOverrides,
+  });
+});
+
+// PUT/PATCH /user/routing-config
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const routingConfigUpdateHandler = async (c: any) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  let body: unknown;
+  try { body = await c.req.json() } catch { return c.json({ error: "Invalid JSON" }, 400) }
+
+  const data = body as Record<string, unknown>;
+  const config = await prisma.routingConfig.upsert({
+    where: { userId },
+    create: {
+      userId,
+      complexityEnabled: Boolean(data.complexityEnabled),
+      taskRoutingEnabled: Boolean(data.taskRoutingEnabled),
+      tiers: (data.tiers as object) ?? {},
+      taskOverrides: (data.taskOverrides as object) ?? {},
+    },
+    update: {
+      complexityEnabled: data.complexityEnabled !== undefined ? Boolean(data.complexityEnabled) : undefined,
+      taskRoutingEnabled: data.taskRoutingEnabled !== undefined ? Boolean(data.taskRoutingEnabled) : undefined,
+      tiers: data.tiers !== undefined ? (data.tiers as object) : undefined,
+      taskOverrides: data.taskOverrides !== undefined ? (data.taskOverrides as object) : undefined,
+    },
+  });
+
+  // Invalidar cache de roteamento
+  const { invalidateRoutingCache } = await import('../lib/routing/routing-resolver');
+  invalidateRoutingCache(userId);
+
+  return c.json({
+    complexityEnabled: config.complexityEnabled,
+    taskRoutingEnabled: config.taskRoutingEnabled,
+    tiers: config.tiers,
+    taskOverrides: config.taskOverrides,
+  });
+};
+
+app.put("/routing-config", routingConfigUpdateHandler);
+app.patch("/routing-config", routingConfigUpdateHandler);
+
+// GET /user/budget
+app.get("/budget", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const { getPeriodStart } = await import('../lib/budget');
+  const budget = await prisma.userBudget.findUnique({ where: { userId } });
+
+  const periodType = budget?.periodType ?? "monthly";
+  const periodStart = getPeriodStart(periodType);
+
+  const agg = await prisma.usageLog.aggregate({
+    where: { userId, createdAt: { gte: periodStart }, costUsd: { not: null } },
+    _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+  });
+  const currentSpend = agg._sum.costUsd ?? 0;
+
+  // Calcular savings vs baseline model
+  let baselineSpend: number | null = null;
+  let savings: number | null = null;
+  let savingsPct: number | null = null;
+
+  if (budget?.baselineModelId) {
+    const { calculateCostUsd } = await import('../lib/model-pricing');
+    const baseProviderId = budget.baselineModelId.split('/')[0] ?? '';
+    const baseModelId = budget.baselineModelId.split('/').slice(1).join('/') ?? budget.baselineModelId;
+
+    const tokensLogs = await prisma.usageLog.findMany({
+      where: { userId, createdAt: { gte: periodStart }, inputTokens: { not: null } },
+      select: { inputTokens: true, outputTokens: true },
+    });
+
+    baselineSpend = tokensLogs.reduce((sum, log) => {
+      const cost = calculateCostUsd(baseProviderId, baseModelId, log.inputTokens ?? 0, log.outputTokens ?? 0);
+      return sum + (cost ?? 0);
+    }, 0);
+
+    savings = baselineSpend - currentSpend;
+    savingsPct = baselineSpend > 0 ? Math.round((savings / baselineSpend) * 100) : null;
+  }
+
+  return c.json({
+    periodType,
+    limitUsd: budget?.limitUsd ?? null,
+    alertThreshold: budget?.alertThreshold ?? 0.8,
+    blocksRequests: budget?.blocksRequests ?? false,
+    baselineModelId: budget?.baselineModelId ?? null,
+    currentSpend,
+    baselineSpend,
+    savings,
+    savingsPct,
+  });
+});
+
+// PATCH /user/budget
+app.patch("/budget", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  let body: unknown;
+  try { body = await c.req.json() } catch { return c.json({ error: "Invalid JSON" }, 400) }
+
+  const data = body as Record<string, unknown>;
+  const limitUsd = data.limitUsd !== undefined && data.limitUsd !== null ? Number(data.limitUsd) : null;
+  const alertThreshold = data.alertThreshold !== undefined ? Number(data.alertThreshold) : undefined;
+
+  if ((limitUsd !== null && isNaN(limitUsd)) || (alertThreshold !== undefined && isNaN(alertThreshold))) {
+    return c.json({ error: "Invalid numeric values for limitUsd or alertThreshold" }, 400);
+  }
+
+  const budget = await prisma.userBudget.upsert({
+    where: { userId },
+    create: {
+      userId,
+      periodType: (data.periodType as string) ?? "monthly",
+      limitUsd,
+      alertThreshold: alertThreshold ?? 0.8,
+      blocksRequests: data.blocksRequests != null ? Boolean(data.blocksRequests) : false,
+      baselineModelId: (data.baselineModelId as string | null) ?? null,
+    },
+    update: {
+      periodType: data.periodType !== undefined ? (data.periodType as string) : undefined,
+      limitUsd: data.limitUsd !== undefined ? limitUsd : undefined,
+      alertThreshold,
+      blocksRequests: data.blocksRequests !== undefined ? Boolean(data.blocksRequests) : undefined,
+      baselineModelId: data.baselineModelId !== undefined ? (data.baselineModelId as string | null) : undefined,
+    },
+  });
+
+  const { invalidateBudgetCache } = await import('../lib/budget');
+  invalidateBudgetCache(userId);
+
+  return c.json({ success: true, budget });
 });
 
 // --- Custom Instructions (UserSettings) ---

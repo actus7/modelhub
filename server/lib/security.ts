@@ -108,7 +108,7 @@ function extractBearerToken(c: Context): string | undefined {
   return undefined;
 }
 
-async function getActiveApiKey(
+export async function getActiveApiKey(
   token: string,
 ): Promise<{ id: string; userId: string; expiresAt: Date | null } | null> {
   return prisma.apiKey.findFirst({

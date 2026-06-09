@@ -269,6 +269,20 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     signupUrl: 'https://dash.cloudflare.com/profile/api-tokens',
     signupLabel: 'Obter token na Cloudflare',
   }),
+  {
+    id: 'ollama',
+    label: 'Ollama (Local)',
+    base: '/ollama',
+    category: 'api-provider',
+    hasModels: true,
+    runtime: {
+      authMode: 'none',
+      externalApi: false,
+      kind: 'server',
+      openAiCompatible: true,
+      transport: 'openai-compatible',
+    },
+  },
 ]
 
 const PROXY_TARGETS: readonly ProxyTarget[] = [
