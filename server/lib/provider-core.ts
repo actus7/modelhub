@@ -596,6 +596,86 @@ function extractSseTextDelta(parsed: OpenAiSseChunk | null): string {
   return ''
 }
 
+const HIDDEN_REASONING_OPEN_RE = /<\s*(?:thought|think|reasoning)\b[^>]*>/i
+const HIDDEN_REASONING_CLOSE_RE = /<\s*\/\s*(?:thought|think|reasoning)\s*>/i
+const HIDDEN_REASONING_TAG_NAMES = ['thought', 'think', 'reasoning']
+const HIDDEN_REASONING_TAG_BOUNDARY_RE = /^(?:thought|think|reasoning)\b/i
+
+function couldBecomeHiddenReasoningTagName(normalized: string): boolean {
+  return HIDDEN_REASONING_TAG_NAMES.some((tag) => tag.startsWith(normalized)) ||
+    HIDDEN_REASONING_TAG_BOUNDARY_RE.test(normalized)
+}
+
+function splitPotentialHiddenReasoningTag(text: string): { emit: string; pending: string } {
+  const lastOpen = text.lastIndexOf('<')
+  if (lastOpen < 0) return { emit: text, pending: '' }
+
+  const suffix = text.slice(lastOpen).toLowerCase()
+  const normalized = suffix.replace(/^<\s*\/?\s*/, '')
+  const couldBecomeHiddenTag = couldBecomeHiddenReasoningTagName(normalized)
+
+  if (!couldBecomeHiddenTag) return { emit: text, pending: '' }
+  return { emit: text.slice(0, lastOpen), pending: text.slice(lastOpen) }
+}
+
+function getPotentialHiddenReasoningClose(text: string): string {
+  const lastOpen = text.lastIndexOf('<')
+  if (lastOpen < 0) return ''
+
+  const suffix = text.slice(lastOpen).toLowerCase()
+  const normalized = suffix.replace(/^<\s*\/?\s*/, '')
+  const couldBecomeClose = suffix.startsWith('</') &&
+    couldBecomeHiddenReasoningTagName(normalized)
+
+  return couldBecomeClose ? text.slice(lastOpen) : ''
+}
+
+function createHiddenReasoningSanitizer() {
+  let pending = ''
+  let insideHiddenBlock = false
+
+  return {
+    sanitize(chunk: string, final = false): string {
+      let text = pending + chunk
+      pending = ''
+      let out = ''
+
+      while (text.length > 0) {
+        if (insideHiddenBlock) {
+          const closeMatch = HIDDEN_REASONING_CLOSE_RE.exec(text)
+          if (!closeMatch) {
+            pending = final ? '' : getPotentialHiddenReasoningClose(text)
+            return out
+          }
+
+          text = text.slice(closeMatch.index + closeMatch[0].length)
+          insideHiddenBlock = false
+          continue
+        }
+
+        const openMatch = HIDDEN_REASONING_OPEN_RE.exec(text)
+        if (!openMatch) {
+          if (final) {
+            out += text
+            return out
+          }
+
+          const split = splitPotentialHiddenReasoningTag(text)
+          pending = split.pending
+          out += split.emit
+          return out
+        }
+
+        out += text.slice(0, openMatch.index)
+        text = text.slice(openMatch.index + openMatch[0].length)
+        insideHiddenBlock = true
+      }
+
+      return out
+    },
+  }
+}
+
 async function writeFinish(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   reason = 'stop',
@@ -663,6 +743,7 @@ async function processSseLine(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   toolCallAccumulator: Map<number, AccumulatedToolCall>,
   usageAccumulator: { value: { promptTokens: number; completionTokens: number } | null },
+  reasoningSanitizer: ReturnType<typeof createHiddenReasoningSanitizer>,
 ): Promise<boolean> {
   const encoder = new TextEncoder()
   const line = lineRaw.trim()
@@ -679,7 +760,7 @@ async function processSseLine(
 
   try {
     const parsed = JSON.parse(data) as OpenAiSseChunk
-    const token = extractSseTextDelta(parsed)
+    const token = reasoningSanitizer.sanitize(extractSseTextDelta(parsed))
     if (token) {
       await writer.write(encoder.encode(`0:${JSON.stringify(token)}\n`))
     }
@@ -700,6 +781,10 @@ async function processSseLine(
 
     const finishReason = parsed.choices?.[0]?.finish_reason
     if (finishReason && finishReason !== 'null') {
+      const finalText = reasoningSanitizer.sanitize('', true)
+      if (finalText) {
+        await writer.write(encoder.encode(`0:${JSON.stringify(finalText)}\n`))
+      }
       await flushAccumulatedToolCalls(toolCallAccumulator, writer)
       await writeFinish(
         writer,
@@ -724,6 +809,7 @@ export function toVercelStreamFromOpenAiSse(
   const writer = writable.getWriter()
   const toolCallAccumulator = new Map<number, AccumulatedToolCall>()
   const usageAccumulator: { value: { promptTokens: number; completionTokens: number } | null } = { value: null }
+  const reasoningSanitizer = createHiddenReasoningSanitizer()
 
   ;(async () => {
     let didFinish = false
@@ -741,11 +827,18 @@ export function toVercelStreamFromOpenAiSse(
         buffer = lines.pop() || ''
 
         for (const lineRaw of lines) {
-          didFinish = (await processSseLine(lineRaw, writer, toolCallAccumulator, usageAccumulator)) || didFinish
+          didFinish =
+            (await processSseLine(lineRaw, writer, toolCallAccumulator, usageAccumulator, reasoningSanitizer)) ||
+            didFinish
         }
       }
 
       if (!didFinish) {
+        const finalText = reasoningSanitizer.sanitize('', true)
+        if (finalText) {
+          const encoder = new TextEncoder()
+          await writer.write(encoder.encode(`0:${JSON.stringify(finalText)}\n`))
+        }
         await flushAccumulatedToolCalls(toolCallAccumulator, writer)
         await writeFinish(writer, 'stop', usageAccumulator.value ?? undefined)
       }
@@ -772,7 +865,9 @@ export function toVercelStreamFromOpenAiSse(
 }
 
 export function toVercelSingleTextResponse(text: string): Response {
-  const payload = `0:${JSON.stringify(text)}\nd:{"finishReason":"stop"}\n`
+  const sanitizer = createHiddenReasoningSanitizer()
+  const sanitized = sanitizer.sanitize(text) + sanitizer.sanitize('', true)
+  const payload = `0:${JSON.stringify(sanitized)}\nd:{"finishReason":"stop"}\n`
   return new Response(payload, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
@@ -830,6 +925,7 @@ export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string)
   const encoder = new TextEncoder()
   const { readable, writable } = new TransformStream()
   const writer = writable.getWriter()
+  const reasoningSanitizer = createHiddenReasoningSanitizer()
 
   ;(async () => {
     try {
@@ -856,12 +952,14 @@ export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string)
           if (prefix === '0') {
             // Text chunk
             const text = JSON.parse(payload) as string
+            const sanitizedText = reasoningSanitizer.sanitize(text)
+            if (!sanitizedText) continue
             const chunk = {
               id: chatId,
               object: 'chat.completion.chunk',
               created,
               model,
-              choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
+              choices: [{ index: 0, delta: { content: sanitizedText }, finish_reason: null }],
             }
             await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`))
           } else if (prefix === '9') {
@@ -875,6 +973,17 @@ export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string)
           } else if (prefix === 'd') {
             // Finish
             const data = JSON.parse(payload) as { finishReason: string; usage?: { promptTokens: number; completionTokens: number } }
+            const finalText = reasoningSanitizer.sanitize('', true)
+            if (finalText) {
+              const textChunk = {
+                id: chatId,
+                object: 'chat.completion.chunk',
+                created,
+                model,
+                choices: [{ index: 0, delta: { content: finalText }, finish_reason: null }],
+              }
+              await writer.write(encoder.encode(`data: ${JSON.stringify(textChunk)}\n\n`))
+            }
             const finishReason = data.finishReason === 'tool-calls' ? 'tool_calls' : data.finishReason
             const delta: Record<string, unknown> = {}
             if (toolCalls.length > 0) {

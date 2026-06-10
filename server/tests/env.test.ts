@@ -40,18 +40,14 @@ describe("runtime env validation", () => {
     );
   });
 
-  it("requires all shared provider envs when one of them is configured", () => {
+  it("accepts Cloudflare Workers AI shared env with token only", () => {
     const issues = validateRuntimeEnvConfig({
       ...VALID_ENV,
       CLOUDFLARE_API_TOKEN: "token",
       ENABLED_PROVIDERS: "cloudflareworkersai",
     });
 
-    expect(issues).toEqual(
-      expect.arrayContaining([
-        'Provider "cloudflareworkersai" is in shared-env mode and requires CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.',
-      ]),
-    );
+    expect(issues).toEqual([]);
   });
 
   it("requires explicit opt-in for Duck.ai jsdom challenge execution", () => {
