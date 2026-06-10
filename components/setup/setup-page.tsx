@@ -103,6 +103,7 @@ const SUBSCRIPTION_PROVIDER_IDS = new Set([
   "commandcode",
   "copilot",
   "ollamacloud",
+  "openai",
   "opencodego",
   "qwentoken",
   "xaisubscription",
