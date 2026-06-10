@@ -3,7 +3,7 @@ import { CloudProviderError, CloudProviderErrorType } from "./driver";
 import { renderDriver } from "./render";
 import { railwayDriver } from "./railway";
 // Registry of all available cloud provider drivers
-export const cloudDrivers: Record<CloudProvider, CloudProviderDriver> = {
+const cloudDrivers: Record<CloudProvider, CloudProviderDriver> = {
   render: renderDriver,
   railway: railwayDriver,
 };

@@ -135,7 +135,7 @@ const app = createProviderApp({
 
       if (response.ok) {
         const contentType = response.headers.get('Content-Type') || ''
-        if (contentType.includes('text/event-stream') || contentType.includes('text/event-stream')) {
+        if (contentType.includes('text/event-stream')) {
           return toVercelStreamFromOpenAiSse(response)
         }
         return new Response(response.body, {

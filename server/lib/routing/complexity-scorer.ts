@@ -4,6 +4,13 @@ export interface ComplexityScore {
   tier: RoutingTier
   rawScore: number
   signals: string[]
+  /** Confiança [0,1] derivada da distância do score à fronteira de tier mais próxima. */
+  confidence: number
+}
+
+export interface ScoreComplexityOptions {
+  /** Quando a request traz tools ativas, o tier mínimo vira "standard". */
+  hasTools?: boolean
 }
 
 // Limiares: 0-15=simple, 16-40=standard, 41-65=complex, >65=reasoning
@@ -13,6 +20,29 @@ const TIER_THRESHOLDS: Record<RoutingTier, number> = {
   complex: 65,
   reasoning: Infinity,
 }
+
+const TIER_ORDER: RoutingTier[] = ['simple', 'standard', 'complex', 'reasoning']
+
+/**
+ * Fronteiras numéricas entre tiers (para cálculo de confiança).
+ * Derivadas de TIER_THRESHOLDS, excluindo o Infinity final.
+ */
+const TIER_BOUNDARIES = [TIER_THRESHOLDS.simple, TIER_THRESHOLDS.standard, TIER_THRESHOLDS.complex]
+
+/** Sigmoide sobre a distância (em pontos) até a fronteira mais próxima. */
+const CONFIDENCE_SIGMOID_K = 0.15
+
+/**
+ * Pings de keep-alive de agentes (ex.: OpenClaw) não devem consumir scoring
+ * nem inflar estatísticas de complexidade.
+ */
+const HEARTBEAT_PATTERN = /\bHEARTBEAT_OK\b/
+
+/** Mensagens curtas sem sinais complexos vão direto para "simple". */
+const SHORT_MESSAGE_MAX_CHARS = 50
+
+/** Contexto estimado acima disso (~50k tokens) força tier mínimo "complex". */
+const LARGE_CONTEXT_FLOOR_CHARS = 200_000
 
 function extractText(content: unknown): string {
   if (typeof content === 'string') return content
@@ -82,14 +112,42 @@ const FORMAL_LOGIC_PATTERNS = [
   /\b(axiom|theorem|lemma|corollary|proof|qed|axioma|teorema|lema|corolário|prova|demonstração)\b/i,
 ]
 
+function tierFromScore(score: number): RoutingTier {
+  for (const tier of TIER_ORDER) {
+    if (score <= TIER_THRESHOLDS[tier]) return tier
+  }
+  return 'reasoning'
+}
+
+/** Confiança baseada na distância do score à fronteira de tier mais próxima. */
+function confidenceFromScore(score: number): number {
+  const minDistance = Math.min(...TIER_BOUNDARIES.map((b) => Math.abs(score - b)))
+  return Math.round((1 / (1 + Math.exp(-CONFIDENCE_SIGMOID_K * minDistance))) * 100) / 100
+}
+
+function floorTier(tier: RoutingTier, minimum: RoutingTier): RoutingTier {
+  return TIER_ORDER.indexOf(tier) < TIER_ORDER.indexOf(minimum) ? minimum : tier
+}
+
 export function scoreComplexity(
   messages: Array<{ role: string; content: unknown }>,
+  options: ScoreComplexityOptions = {},
 ): ComplexityScore {
-  if (!messages.length) return { tier: 'simple', rawScore: 0, signals: [] }
+  if (!messages.length) return { tier: 'simple', rawScore: 0, signals: [], confidence: 1 }
 
-  const lastUser = [...messages].reverse().find((m) => m.role === 'user')
+  // System prompts de agentes (Kilo Code, Cline etc.) são densos em keywords
+  // técnicas e inflariam toda request para "reasoning" — ficam fora do scoring.
+  const scoreable = messages.filter((m) => m.role !== 'system' && m.role !== 'developer')
+  if (!scoreable.length) return { tier: 'simple', rawScore: 0, signals: [], confidence: 1 }
+
+  const lastUser = [...scoreable].reverse().find((m) => m.role === 'user')
   const lastText = lastUser ? extractText(lastUser.content) : ''
-  const allText = messages.map((m) => extractText(m.content)).join('\n')
+  const allText = scoreable.map((m) => extractText(m.content)).join('\n')
+
+  // Heartbeat de agente: roteia direto para o tier mais barato sem scoring.
+  if (HEARTBEAT_PATTERN.test(lastText)) {
+    return { tier: 'simple', rawScore: 0, signals: ['heartbeat'], confidence: 0.99 }
+  }
 
   let score = 0
   const signals: string[] = []
@@ -99,8 +157,8 @@ export function scoreComplexity(
   else if (lastText.length > 500) { score += 10; signals.push('medium_prompt') }
 
   // 2. Profundidade da conversa
-  if (messages.length > 16) { score += 10; signals.push('deep_conversation') }
-  else if (messages.length > 8) { score += 5; signals.push('medium_conversation') }
+  if (scoreable.length > 16) { score += 10; signals.push('deep_conversation') }
+  else if (scoreable.length > 8) { score += 5; signals.push('medium_conversation') }
 
   // 3. Bloco de código extenso
   if (CODE_PATTERN.test(lastText)) { score += 15; signals.push('code_block') }
@@ -130,10 +188,11 @@ export function scoreComplexity(
   if (domainHits >= 3) { score += 10; signals.push('domain_vocabulary') }
   else if (domainHits >= 1) { score += 5; signals.push('technical_term') }
 
-  // 9. Lógica formal
-  if (FORMAL_LOGIC_PATTERNS.some((p) => p.test(lastText))) { score += 15; signals.push('formal_logic') }
+  // 9. Lógica formal na última mensagem do usuário
+  const hasFormalLogic = FORMAL_LOGIC_PATTERNS.some((p) => p.test(lastText))
+  if (hasFormalLogic) { score += 15; signals.push('formal_logic') }
 
-  // 10. Contexto muito longo (> ~50k chars ≈ 50k tokens)
+  // 10. Contexto muito longo
   if (allText.length > 50000) { score += 8; signals.push('large_context') }
 
   // 11. Keywords de planejamento/design
@@ -148,14 +207,40 @@ export function scoreComplexity(
     score += 4; signals.push('structured_output')
   }
 
-  // Determinar tier
-  let tier: RoutingTier = 'reasoning'
-  for (const [t, threshold] of Object.entries(TIER_THRESHOLDS) as Array<[RoutingTier, number]>) {
-    if (score <= threshold) {
-      tier = t
-      break
-    }
+  score = Math.min(score, 100)
+  let tier = tierFromScore(score)
+  let confidence = confidenceFromScore(score)
+
+  // --- Hard overrides (em ordem de precedência) ---
+
+  // Lógica formal pedida explicitamente → modelo de raciocínio, sempre.
+  if (hasFormalLogic) {
+    tier = 'reasoning'
+    confidence = Math.max(confidence, 0.95)
+    if (!signals.includes('forced_reasoning')) signals.push('forced_reasoning')
   }
 
-  return { tier, rawScore: Math.min(score, 100), signals }
+  // Mensagem curta sem nenhum sinal complexo → simple direto.
+  const hasComplexSignal = signals.some((s) =>
+    ['code_block', 'math_notation', 'formal_logic', 'multi_step', 'long_prompt', 'large_context'].includes(s),
+  )
+  if (!hasFormalLogic && lastText.length > 0 && lastText.length < SHORT_MESSAGE_MAX_CHARS && !hasComplexSignal) {
+    tier = 'simple'
+    confidence = Math.max(confidence, 0.9)
+    signals.push('short_message')
+  }
+
+  // Tools ativas exigem um modelo que saiba usá-las → piso "standard".
+  if (options.hasTools && tier === 'simple' && !signals.includes('heartbeat')) {
+    tier = 'standard'
+    signals.push('tools_floor')
+  }
+
+  // Contexto gigante (~50k+ tokens) precisa de janela grande → piso "complex".
+  if (allText.length > LARGE_CONTEXT_FLOOR_CHARS) {
+    tier = floorTier(tier, 'complex')
+    signals.push('large_context_floor')
+  }
+
+  return { tier, rawScore: score, signals, confidence }
 }

@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth/server";
 import { isProviderEnabled } from "./catalog";
 import { prisma } from "./db";
 import { hashApiKey } from "./crypto";
+import { parseCsv } from "./env-utils";
 
 type RateLimitRecord = {
   count: number;
@@ -23,13 +24,6 @@ const DEV_ALLOWED_ORIGINS = [
   "http://127.0.0.1:3000",
   "http://127.0.0.1:4000",
 ];
-
-function parseCsv(value: string | undefined): string[] {
-  return (value ?? "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
 
 function normalizeOrigin(origin: string): string {
   return origin.trim().replace(/\/+$/, "").toLowerCase();

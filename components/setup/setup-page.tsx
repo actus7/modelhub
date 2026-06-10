@@ -5,17 +5,22 @@ import Link from "next/link";
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
+  CloudIcon,
   ExternalLinkIcon,
   EyeIcon,
   EyeOffIcon,
+  Globe2Icon,
   KeyRoundIcon,
   Loader2Icon,
   MessageSquareTextIcon,
   PlayIcon,
   SaveIcon,
+  SearchIcon,
+  ServerIcon,
   SparklesIcon,
   Trash2Icon,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAppState } from "@/components/app-state-provider";
@@ -33,6 +38,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { apiJsonRequest, testProviderCredentials } from "@/lib/api";
 import type { UiProvider } from "@/lib/contracts";
@@ -45,6 +51,132 @@ import {
   sortProvidersByConfiguredCredentials,
 } from "@/lib/provider-credentials";
 
+type IntegrationTab = "all" | "connected" | "api" | "subscription" | "free" | "local";
+type IntegrationKind = "api" | "browser" | "free" | "local" | "subscription";
+
+const TAB_ITEMS: Array<{
+  value: IntegrationTab;
+  label: string;
+  hint: string;
+  icon: LucideIcon;
+}> = [
+  {
+    value: "all",
+    label: "Todas",
+    hint: "Visao completa das integracoes, com providers prontos, locais e os que ainda precisam de credencial.",
+    icon: SparklesIcon,
+  },
+  {
+    value: "connected",
+    label: "Conectadas",
+    hint: "Providers com credenciais salvas aparecem aqui para teste rapido, troca ou desconexao.",
+    icon: CheckCircle2Icon,
+  },
+  {
+    value: "api",
+    label: "API keys",
+    hint: "Providers tradicionais que usam chave, token ou variavel de ambiente para liberar chamadas.",
+    icon: KeyRoundIcon,
+  },
+  {
+    value: "subscription",
+    label: "Assinaturas",
+    hint: "Providers baseados em plano, conta paga, token de assinatura ou fluxo equivalente.",
+    icon: CloudIcon,
+  },
+  {
+    value: "free",
+    label: "Gratis/Browser",
+    hint: "Providers sem chave salva no setup, incluindo opcoes gratuitas e login pelo navegador.",
+    icon: Globe2Icon,
+  },
+  {
+    value: "local",
+    label: "Local",
+    hint: "Runtimes locais e endpoints que dependem de servicos rodando na maquina ou na rede.",
+    icon: ServerIcon,
+  },
+];
+
+const SUBSCRIPTION_PROVIDER_IDS = new Set([
+  "bytepluscoding",
+  "commandcode",
+  "copilot",
+  "ollamacloud",
+  "opencodego",
+  "qwentoken",
+  "xaisubscription",
+  "xiaomitoken",
+  "zaicoding",
+]);
+
+function getIntegrationKind(provider: UiProvider): IntegrationKind {
+  if (provider.id === "ollama" || provider.label.toLowerCase().includes("(local)")) {
+    return "local";
+  }
+
+  if (providerUsesBrowserSession(provider)) {
+    return "browser";
+  }
+
+  if (providerAuthMode(provider) === "none") {
+    return "free";
+  }
+
+  const normalizedLabel = provider.label.toLowerCase();
+  if (
+    SUBSCRIPTION_PROVIDER_IDS.has(provider.id) ||
+    normalizedLabel.includes("assinatura") ||
+    normalizedLabel.includes("subscription")
+  ) {
+    return "subscription";
+  }
+
+  return "api";
+}
+
+function integrationKindLabel(kind: IntegrationKind): string {
+  switch (kind) {
+    case "api":
+      return "API key";
+    case "browser":
+      return "Browser";
+    case "free":
+      return "Gratis";
+    case "local":
+      return "Local";
+    case "subscription":
+      return "Assinatura";
+  }
+}
+
+function providerInitials(label: string): string {
+  const words = label
+    .replace(/\([^)]*\)/g, "")
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter(Boolean);
+
+  if (words.length === 0) return "AI";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+}
+
+function integrationKindIcon(kind: IntegrationKind): LucideIcon {
+  switch (kind) {
+    case "api":
+      return KeyRoundIcon;
+    case "browser":
+      return Globe2Icon;
+    case "free":
+      return SparklesIcon;
+    case "local":
+      return ServerIcon;
+    case "subscription":
+      return CloudIcon;
+  }
+}
+
 export function SetupPage() {
   const { credentials, providers, refreshCredentials } = useAppState();
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -54,34 +186,93 @@ export function SetupPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [showValues, setShowValues] = useState<Record<string, boolean>>({});
   const [pendingDisconnect, setPendingDisconnect] = useState<UiProvider | null>(null);
+  const [activeTab, setActiveTab] = useState<IntegrationTab>("all");
+  const [query, setQuery] = useState("");
 
-  const freeProviders = useMemo(
-    () => providers.filter((provider) => providerAuthMode(provider) === "none"),
-    [providers],
-  );
-  const browserSessionProviders = useMemo(
-    () => providers.filter(providerUsesBrowserSession),
-    [providers],
-  );
-  const paidProviders = useMemo(
-    () => sortProvidersByConfiguredCredentials(
-      providers.filter(providerUsesStoredCredentials),
-      credentials,
-    ),
+  const sortedProviders = useMemo(
+    () => sortProvidersByConfiguredCredentials(providers, credentials),
     [credentials, providers],
   );
-  const configuredCount = useMemo(
-    () => paidProviders.filter((p) => providerHasRequiredCredentials(p, credentials)).length,
-    [paidProviders, credentials],
+  const freeProviders = useMemo(
+    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "free"),
+    [sortedProviders],
+  );
+  const browserSessionProviders = useMemo(
+    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "browser"),
+    [sortedProviders],
+  );
+  const localProviders = useMemo(
+    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "local"),
+    [sortedProviders],
+  );
+  const subscriptionProviders = useMemo(
+    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "subscription"),
+    [sortedProviders],
+  );
+  const apiKeyProviders = useMemo(
+    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "api"),
+    [sortedProviders],
+  );
+  const credentialedProviders = useMemo(
+    () => sortedProviders.filter(providerUsesStoredCredentials),
+    [sortedProviders],
   );
   const configuredProviders = useMemo(
-    () => paidProviders.filter((p) => providerHasRequiredCredentials(p, credentials)),
-    [paidProviders, credentials],
+    () => credentialedProviders.filter((p) => providerHasRequiredCredentials(p, credentials)),
+    [credentialedProviders, credentials],
   );
   const availableProviders = useMemo(
-    () => paidProviders.filter((p) => !providerHasRequiredCredentials(p, credentials)),
-    [paidProviders, credentials],
+    () => credentialedProviders.filter((p) => !providerHasRequiredCredentials(p, credentials)),
+    [credentialedProviders, credentials],
   );
+  const visibleProviders = useMemo(
+    () => {
+      const normalizedQuery = query.trim().toLowerCase();
+      return sortedProviders.filter((provider) => {
+        const kind = getIntegrationKind(provider);
+        const isConfigured =
+          providerUsesStoredCredentials(provider) &&
+          providerHasRequiredCredentials(provider, credentials);
+        const matchesTab =
+          activeTab === "all" ||
+          (activeTab === "connected" && isConfigured) ||
+          (activeTab === "api" && kind === "api") ||
+          (activeTab === "subscription" && kind === "subscription") ||
+          (activeTab === "free" && (kind === "free" || kind === "browser")) ||
+          (activeTab === "local" && kind === "local");
+
+        if (!matchesTab) return false;
+        if (!normalizedQuery) return true;
+
+        return [
+          provider.id,
+          provider.label,
+          provider.requiredEnv ?? "",
+          provider.signupLabel ?? "",
+          integrationKindLabel(kind),
+        ].some((value) => value.toLowerCase().includes(normalizedQuery));
+      });
+    },
+    [activeTab, credentials, query, sortedProviders],
+  );
+  const configuredCount = configuredProviders.length;
+  const readyWithoutCredentialsCount = useMemo(
+    () => [...freeProviders, ...browserSessionProviders, ...localProviders].length,
+    [browserSessionProviders, freeProviders, localProviders],
+  );
+  const tabCounts = useMemo(
+    () => ({
+      all: providers.length,
+      api: apiKeyProviders.length,
+      connected: configuredProviders.length,
+      free: freeProviders.length + browserSessionProviders.length,
+      local: localProviders.length,
+      subscription: subscriptionProviders.length,
+    }),
+    [apiKeyProviders, browserSessionProviders, configuredProviders, freeProviders, localProviders, providers, subscriptionProviders],
+  );
+  const activeTabMeta = TAB_ITEMS.find((item) => item.value === activeTab) ?? TAB_ITEMS[0];
+  const ActiveTabIcon = activeTabMeta.icon;
 
   function toggleExpand(providerId: string) {
     if (expandedId === providerId) {
@@ -191,6 +382,8 @@ export function SetupPage() {
   }
 
   function renderPaidProviderCard(provider: UiProvider) {
+    const kind = getIntegrationKind(provider);
+    const KindIcon = integrationKindIcon(kind);
     const isConfigured = providerHasRequiredCredentials(provider, credentials);
     const isExpanded = expandedId === provider.id;
     const isSaving = saving === provider.id;
@@ -201,39 +394,48 @@ export function SetupPage() {
     const hasPassedTest = testResult === "ok";
 
     const cardBorder = hasFailed
-      ? "border-red-500/30 bg-red-500/5"
+      ? "border-red-500/35 bg-red-500/5"
       : isConfigured
-        ? "border-green-500/30 bg-green-500/5"
-        : "border-border/60";
+        ? "border-green-500/35 bg-green-500/5"
+        : "border-border/70 bg-card/80 hover:border-foreground/20";
 
     const iconBg = hasFailed
       ? "bg-red-500/10"
       : isConfigured
         ? "bg-green-500/10"
-        : "bg-muted";
+        : "bg-muted/70";
 
     return (
       <Card
         key={provider.id}
-        className={`border transition-colors ${cardBorder}`}
+        className={`border shadow-none transition-colors ${cardBorder}`}
       >
-        <CardContent className="py-4">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div
-                className={`flex size-9 items-center justify-center rounded-lg ${iconBg}`}
-              >
-                {hasFailed ? (
-                  <AlertCircleIcon className="size-4 text-red-500" />
-                ) : isConfigured ? (
-                  <CheckCircle2Icon className="size-4 text-green-500" />
-                ) : (
-                  <KeyRoundIcon className="size-4 text-muted-foreground" />
-                )}
+        <CardContent className="py-3">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className={`relative flex size-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+                <span className="text-[11px] font-semibold tracking-normal text-foreground">
+                  {providerInitials(provider.label)}
+                </span>
+                <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full border bg-background">
+                  {hasFailed ? (
+                    <AlertCircleIcon className="size-3 text-red-500" />
+                  ) : isConfigured ? (
+                    <CheckCircle2Icon className="size-3 text-green-500" />
+                  ) : (
+                    <KindIcon className="size-3 text-muted-foreground" />
+                  )}
+                </span>
               </div>
-              <div>
-                <p className="text-sm font-medium">{provider.label}</p>
-                <p className="text-xs text-muted-foreground">
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <p className="truncate text-sm font-medium">{provider.label}</p>
+                  <Badge variant="outline" className="h-5 gap-1 rounded-md px-1.5 text-[10px]">
+                    <KindIcon className="size-3" />
+                    {integrationKindLabel(kind)}
+                  </Badge>
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {hasFailed
                     ? "Falha na conexão"
                     : isConfigured
@@ -243,7 +445,7 @@ export function SetupPage() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2 md:justify-end">
               {provider.signupUrl && (
                 <Button asChild variant="ghost" size="sm" className="text-xs">
                   <a href={provider.signupUrl} target="_blank" rel="noopener noreferrer">
@@ -278,6 +480,7 @@ export function SetupPage() {
                 <Button
                   variant={isExpanded ? "secondary" : "default"}
                   size="sm"
+                  className="min-w-24"
                   onClick={() => toggleExpand(provider.id)}
                 >
                   {isExpanded ? "Cancelar" : "Configurar"}
@@ -289,7 +492,7 @@ export function SetupPage() {
           {isExpanded && !isConfigured ? (
             <div className="mt-4 flex flex-col gap-3 border-t pt-4">
               {provider.signupUrl && (
-                <div className="flex items-center gap-2 rounded-lg bg-blue-500/5 px-3 py-2 text-xs text-blue-600 dark:text-blue-400">
+                <div className="flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                   <ExternalLinkIcon className="size-3 shrink-0" />
                   <span>
                     Não tem chave?{" "}
@@ -366,6 +569,51 @@ export function SetupPage() {
     );
   }
 
+  function renderInformationalProviderCard(provider: UiProvider) {
+    const kind = getIntegrationKind(provider);
+    const Icon = integrationKindIcon(kind);
+    const description =
+      kind === "browser"
+        ? "Login acontece no chat, sem salvar API key."
+        : kind === "local"
+          ? "Roda fora da nuvem do provider; confirme que o servico local esta ativo."
+          : "Pronto para testar sem adicionar credencial.";
+
+    return (
+      <Card
+        key={provider.id}
+        className="border border-border/70 bg-card/80 shadow-none transition-colors hover:border-foreground/20"
+      >
+        <CardContent className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="relative flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted/70">
+              <span className="text-[11px] font-semibold tracking-normal text-foreground">
+                {providerInitials(provider.label)}
+              </span>
+              <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full border bg-background">
+                <Icon className="size-3 text-muted-foreground" />
+              </span>
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{provider.label}</p>
+              <p className="text-xs text-muted-foreground">{description}</p>
+            </div>
+          </div>
+          <Badge variant="outline" className="w-fit shrink-0 gap-1.5 rounded-md">
+            <Icon className="size-3" />
+            {integrationKindLabel(kind)}
+          </Badge>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  function renderProviderCard(provider: UiProvider) {
+    return providerUsesStoredCredentials(provider)
+      ? renderPaidProviderCard(provider)
+      : renderInformationalProviderCard(provider);
+  }
+
   return (
     <div className="mx-auto w-full max-w-5xl px-3 py-6 md:px-6 md:py-12">
       <div className="mb-8 flex flex-col gap-2">
@@ -378,114 +626,93 @@ export function SetupPage() {
         </p>
       </div>
 
-      <div className="mb-8 grid gap-3 md:grid-cols-4">
+      <div className="mb-6 grid gap-3 md:grid-cols-4">
         <Card className="border-border/60">
           <CardContent className="flex flex-col gap-1 py-4">
-            <span className="text-xs font-medium text-muted-foreground">Gratuitos</span>
-            <span className="text-2xl font-semibold">{freeProviders.length}</span>
-            <span className="text-xs text-muted-foreground">Disponíveis sem configurar</span>
+            <span className="text-xs font-medium text-muted-foreground">Prontos sem chave</span>
+            <span className="text-2xl font-semibold">{readyWithoutCredentialsCount}</span>
+            <span className="text-xs text-muted-foreground">Gratis, browser ou local</span>
           </CardContent>
         </Card>
         <Card className="border-border/60">
           <CardContent className="flex flex-col gap-1 py-4">
-            <span className="text-xs font-medium text-muted-foreground">Browser</span>
-            <span className="text-2xl font-semibold">{browserSessionProviders.length}</span>
-            <span className="text-xs text-muted-foreground">Usam sessao autenticada no navegador</span>
+            <span className="text-xs font-medium text-muted-foreground">API keys</span>
+            <span className="text-2xl font-semibold">{apiKeyProviders.length}</span>
+            <span className="text-xs text-muted-foreground">Providers pay-as-you-go</span>
           </CardContent>
         </Card>
         <Card className="border-green-500/20 bg-green-500/5">
           <CardContent className="flex flex-col gap-1 py-4">
             <span className="text-xs font-medium text-muted-foreground">Conectados</span>
             <span className="text-2xl font-semibold">{configuredCount}</span>
-            <span className="text-xs text-muted-foreground">Providers pagos já prontos para uso</span>
+            <span className="text-xs text-muted-foreground">Credenciais salvas e prontas</span>
           </CardContent>
         </Card>
         <Card className="border-border/60">
           <CardContent className="flex flex-col gap-1 py-4">
-            <span className="text-xs font-medium text-muted-foreground">Disponíveis</span>
+            <span className="text-xs font-medium text-muted-foreground">A configurar</span>
             <span className="text-2xl font-semibold">{availableProviders.length}</span>
-            <span className="text-xs text-muted-foreground">Ainda aguardando configuração</span>
+            <span className="text-xs text-muted-foreground">Precisam de credencial</span>
           </CardContent>
         </Card>
       </div>
 
-      <div className="mb-8">
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <CheckCircle2Icon className="size-4 text-green-500" />
-          Gratuitos disponíveis
-        </h2>
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {freeProviders.map((p) => (
-            <Card key={p.id} className="border-border/60">
-              <CardContent className="flex items-center justify-between gap-3 py-4">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{p.label}</p>
-                  <p className="text-xs text-muted-foreground">Pronto para testar sem adicionar chave</p>
-                </div>
-                <Badge variant="secondary" className="gap-1.5">
-                  <CheckCircle2Icon className="size-3 text-green-500" />
-                  Gratuito
-                </Badge>
-              </CardContent>
-            </Card>
-          ))}
+      <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="relative w-full md:max-w-sm">
+          <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Buscar provider, tipo ou chave"
+            className="pl-9"
+          />
         </div>
+        <p className="text-xs text-muted-foreground">
+          {visibleProviders.length} de {providers.length} integracoes
+        </p>
       </div>
 
-      {browserSessionProviders.length > 0 ? (
-        <div className="mb-8">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
-            <KeyRoundIcon className="size-4 text-primary" />
-            Sessao do navegador
-          </h2>
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {browserSessionProviders.map((provider) => (
-              <Card key={provider.id} className="border-border/60">
-                <CardContent className="flex items-center justify-between gap-3 py-4">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{provider.label}</p>
-                    <p className="text-xs text-muted-foreground">Login acontece no chat, sem salvar API key</p>
-                  </div>
-                  <Badge variant="outline" className="gap-1.5">
-                    <KeyRoundIcon className="size-3" />
-                    Browser
-                  </Badge>
-                </CardContent>
-              </Card>
-            ))}
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as IntegrationTab)}>
+        <div className="mb-5 rounded-lg border bg-card/70 p-3 shadow-sm">
+          <div className="overflow-x-auto pb-1">
+            <TabsList className="flex h-auto w-max justify-start rounded-lg border bg-background p-1 shadow-none">
+              {TAB_ITEMS.map(({ value, label, icon: Icon }) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  className="group/tab h-8 flex-none gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground data-active:bg-foreground data-active:text-background data-active:shadow-sm dark:data-active:bg-foreground dark:data-active:text-background"
+                >
+                  <Icon className="size-3.5" />
+                  <span>{label}</span>
+                  <span className="rounded-sm bg-muted px-1.5 py-0 text-[10px] leading-4 text-muted-foreground group-data-[active]/tab:bg-background/20 group-data-[active]/tab:text-background">
+                    {tabCounts[value]}
+                  </span>
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </div>
+          <div className="mt-3 flex items-start gap-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
+            <ActiveTabIcon className="mt-0.5 size-3.5 shrink-0" />
+            <span>{activeTabMeta.hint}</span>
           </div>
         </div>
-      ) : null}
 
-      <div className="mb-4">
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <CheckCircle2Icon className="size-4 text-green-500" />
-          Conectados
-        </h2>
-      </div>
-
-      <div className="mb-8 flex flex-col gap-3">
-        {configuredProviders.length === 0 ? (
-          <Card className="border-border/60">
-            <CardContent className="py-6 text-sm text-muted-foreground">
-              Nenhum provider pago conectado ainda.
-            </CardContent>
-          </Card>
-        ) : (
-          configuredProviders.map((provider) => renderPaidProviderCard(provider))
-        )}
-      </div>
-
-      <div className="mb-4">
-        <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
-          <KeyRoundIcon className="size-4" />
-          Disponíveis para configurar
-        </h2>
-      </div>
-
-      <div className="flex flex-col gap-3">
-        {availableProviders.map((provider) => renderPaidProviderCard(provider))}
-      </div>
+        {(["all", "connected", "api", "subscription", "free", "local"] as const).map((tab) => (
+          <TabsContent key={tab} value={tab} className="mt-0">
+            {visibleProviders.length === 0 ? (
+              <Card className="border-border/60">
+                <CardContent className="py-8 text-sm text-muted-foreground">
+                  Nenhuma integracao encontrada para este filtro.
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-3">
+                {visibleProviders.map((provider) => renderProviderCard(provider))}
+              </div>
+            )}
+          </TabsContent>
+        ))}
+      </Tabs>
 
       <div className="mt-8 flex justify-end">
         <Button asChild size="sm" variant="outline">

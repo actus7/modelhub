@@ -9,6 +9,7 @@ import {
   upstreamErrorResponse,
   type ProviderModel,
 } from '../lib/provider-core'
+import { testViaOpenAiModels } from '../lib/openai-compatible'
 
 export const models = [
   { capabilities: { documents: true, images: false }, id: 'command-r7b-12-2024', name: 'Command R7B (Cohere)' },
@@ -21,27 +22,11 @@ const app = createProviderApp({
   models,
   defaultModel: models[0].id,
   fetchModels: fetchCohereModels,
-  testCredentials: async (credentials) => {
-    try {
-      const apiKey = resolveEnv('COHERE_API_KEY', credentials)
-      const response = await fetchWithTimeout(
-        'https://api.cohere.com/v2/models',
-        { method: 'GET', headers: { Authorization: `Bearer ${apiKey}` } },
-        15000,
-      )
-      if (response.ok) return { ok: true }
-      if (response.status === 401 || response.status === 403) {
-        return { ok: false, error: `Chave inválida ou sem permissão (${response.status}).` }
-      }
-      const errorText = await response.text().catch(() => '')
-      return { ok: false, error: `Erro ${response.status}: ${errorText.slice(0, 200)}` }
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith('CONFIG_ERROR:')) {
-        return { ok: false, error: 'Credencial não fornecida.' }
-      }
-      return { ok: false, error: error instanceof Error ? error.message : 'Erro desconhecido.' }
-    }
-  },
+  testCredentials: (credentials) =>
+    testViaOpenAiModels(
+      { modelsUrl: 'https://api.cohere.com/v2/models', apiKeyEnv: 'COHERE_API_KEY', providerName: 'Cohere' },
+      credentials,
+    ),
   chat: async (messages, modelId, _rawBody, credentials) => {
     try {
       const apiKey = resolveEnv('COHERE_API_KEY', credentials)

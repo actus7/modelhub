@@ -1,5 +1,5 @@
-import { createProviderApp, resolveEnv, postJsonWithTimeout } from '../lib/provider-core'
-import { chatViaOpenAiCompatible } from '../lib/openai-compatible'
+import { createProviderApp, resolveEnv, fetchWithTimeout } from '../lib/provider-core'
+import { chatViaOpenAiCompatible, testViaOpenAiModels } from '../lib/openai-compatible'
 
 export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'mimo-v2.5-pro', name: 'Mimo v2.5 Pro' },
@@ -20,13 +20,13 @@ const app = createProviderApp({
       const apiKey = resolveEnv(OPENGATEWAY_API_KEY, credentials)
       if (!apiKey) return models
 
-      const response = await fetch(OPENGATEWAY_MODELS_URL, {
+      const response = await fetchWithTimeout(OPENGATEWAY_MODELS_URL, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'accept-encoding': 'identity'
         }
-      })
+      }, 15000)
 
       if (!response.ok) return models
 
@@ -61,39 +61,17 @@ const app = createProviderApp({
       { messages, modelId, rawBody },
       credentials,
     ),
-  testCredentials: async (credentials) => {
-    try {
-      const apiKey = resolveEnv(OPENGATEWAY_API_KEY, credentials)
-
-      const response = await postJsonWithTimeout(
-        OPENGATEWAY_CHAT_URL,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`,
-            'accept-encoding': 'identity'
-          },
-          body: {
-            model: 'mimo-v2.5-pro',
-            messages: [{ role: 'user', content: 'hello' }],
-            max_tokens: 1
-          },
-          timeoutMs: 15000
-        }
-      )
-      
-      if (!response.ok) {
-        const text = await response.text()
-        return { ok: false, error: `Erro HTTP ${response.status}: ${text.slice(0, 100)}` }
-      }
-      return { ok: true }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        return { ok: false, error: err.message }
-      }
-      return { ok: false, error: String(err) }
-    }
-  },
+  // GET /models valida a chave sem gastar tokens (antes disparava um chat completion).
+  testCredentials: (credentials) =>
+    testViaOpenAiModels(
+      {
+        modelsUrl: OPENGATEWAY_MODELS_URL,
+        apiKeyEnv: OPENGATEWAY_API_KEY,
+        providerName: 'OpenGateway',
+        extraHeaders: { 'accept-encoding': 'identity' },
+      },
+      credentials,
+    ),
 })
 
 export default app.fetch

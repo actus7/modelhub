@@ -39,7 +39,7 @@ Authentication uses **Neon Auth** (`@neondatabase/auth`). Auth logic is in `lib/
 
 ### Database
 
-PostgreSQL via **Neon** (serverless), accessed through **Prisma 7** with the `@prisma/adapter-pg` adapter. Schema at `prisma/schema.prisma`, generated client output to `generated/prisma/`. Key models: User, ApiKey, ProviderCredential, Conversation, Message, ConversationAttachment, UsageLog, UserMemory, UserSettings.
+PostgreSQL via **Neon** (serverless), accessed through **Prisma 7** with the `@prisma/adapter-neon` adapter (`PrismaNeonHttp` in `server/lib/db.ts`). Schema at `prisma/schema.prisma`, generated client output to `generated/prisma/`. Key models: User, ApiKey, ProviderCredential, Conversation, Message, ConversationAttachment, UsageLog, UserMemory, UserSettings.
 
 ### Frontend
 

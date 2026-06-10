@@ -1,5 +1,7 @@
 import type { ProviderRuntime, UiProvider } from "@/lib/contracts";
 
+import { parseCsvSet } from "./env-utils";
+
 type ProxyTarget = {
   pathSegment: string
   target: string
@@ -78,6 +80,20 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
   publicWebProvider({ id: 'duckai', label: 'Duck.ai', base: '/duckai', hasModels: true }),
   publicWebProvider({ id: 'quillbot', label: 'Quillbot AI', base: '/quillbot', hasModels: true }),
   publicWebProvider({ id: 'pollinations', label: 'Pollinations AI', base: '/pollinations', hasModels: true }),
+  apiProvider({
+    id: 'xiaomiaistudio',
+    label: 'Xiaomi AI Studio',
+    base: '/xiaomiaistudio',
+    hasModels: true,
+    requiredEnv: 'XIAOMI_STUDIO_COOKIE',
+    requiredKeys: [{
+      envName: 'XIAOMI_STUDIO_COOKIE',
+      label: 'Cookie de sessao',
+      placeholder: 'sessionid=...; token=...',
+    }],
+    signupUrl: 'https://aistudio.xiaomimimo.com',
+    signupLabel: 'Logar no AI Studio e copiar cookies (DevTools > Application > Cookies)',
+  }),
   browserProvider({
     id: 'puter',
     label: 'Puter Xiaomi MiMo',
@@ -107,6 +123,16 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     signupLabel: 'Obter chave na xAI',
   }),
   apiProvider({
+    id: 'xaisubscription',
+    label: 'xAI Grok (Assinatura)',
+    base: '/xaisubscription',
+    hasModels: true,
+    requiredEnv: 'XAI_OAUTH_TOKEN',
+    requiredKeys: [{ envName: 'XAI_OAUTH_TOKEN', label: 'OAuth access token', placeholder: 'Bearer token da assinatura Grok' }],
+    signupUrl: 'https://x.ai',
+    signupLabel: 'Entrar na xAI',
+  }),
+  apiProvider({
     id: 'moonshot',
     label: 'Moonshot (Kimi)',
     base: '/moonshot',
@@ -125,6 +151,46 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     requiredKeys: [{ envName: 'DASHSCOPE_API_KEY', label: 'DashScope API Key', placeholder: 'sk-...' }],
     signupUrl: 'https://bailian.console.alibabacloud.com/',
     signupLabel: 'Obter chave no DashScope (Alibaba Cloud)',
+  }),
+  apiProvider({
+    id: 'qwentoken',
+    label: 'Qwen Token Plan (Assinatura)',
+    base: '/qwentoken',
+    hasModels: true,
+    requiredEnv: 'QWEN_TOKEN_PLAN_API_KEY',
+    requiredKeys: [{ envName: 'QWEN_TOKEN_PLAN_API_KEY', label: 'Token Plan API Key', placeholder: 'sk-sp-...' }],
+    signupUrl: 'https://home.qwencloud.com/api-keys',
+    signupLabel: 'Obter chave do Qwen Token Plan',
+  }),
+  apiProvider({
+    id: 'bytepluscoding',
+    label: 'BytePlus ModelArk Coding Plan (Assinatura)',
+    base: '/bytepluscoding',
+    hasModels: true,
+    requiredEnv: 'BYTEPLUS_CODING_API_KEY',
+    requiredKeys: [{ envName: 'BYTEPLUS_CODING_API_KEY', label: 'Coding Plan API Key', placeholder: 'Chave ModelArk Coding Plan' }],
+    signupUrl: 'https://www.byteplus.com/en/activity/codingplan',
+    signupLabel: 'Assinar o ModelArk Coding Plan',
+  }),
+  apiProvider({
+    id: 'commandcode',
+    label: 'Command Code (Assinatura)',
+    base: '/commandcode',
+    hasModels: true,
+    requiredEnv: 'COMMAND_CODE_API_KEY',
+    requiredKeys: [{ envName: 'COMMAND_CODE_API_KEY', label: 'Command Code API Key', placeholder: 'Chave Command Code' }],
+    signupUrl: 'https://commandcode.ai/studio',
+    signupLabel: 'Obter chave no Command Code Studio',
+  }),
+  apiProvider({
+    id: 'xiaomitoken',
+    label: 'Xiaomi MiMo Token Plan (Assinatura)',
+    base: '/xiaomitoken',
+    hasModels: true,
+    requiredEnv: 'XIAOMI_TOKEN_PLAN_API_KEY',
+    requiredKeys: [{ envName: 'XIAOMI_TOKEN_PLAN_API_KEY', label: 'Token Plan API Key', placeholder: 'tp-...' }],
+    signupUrl: 'https://platform.xiaomimimo.com',
+    signupLabel: 'Obter chave do MiMo Token Plan',
   }),
   apiProvider({
     id: 'zai',
@@ -277,6 +343,26 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     signupLabel: 'Obter chave no OpenCode Zen',
   }),
   apiProvider({
+    id: 'opencodego',
+    label: 'OpenCode Go (Assinatura)',
+    base: '/opencodego',
+    hasModels: true,
+    requiredEnv: 'OPENCODE_GO_API_KEY',
+    requiredKeys: [{ envName: 'OPENCODE_GO_API_KEY', label: 'OpenCode Go API Key', placeholder: 'Chave OpenCode Go' }],
+    signupUrl: 'https://opencode.ai',
+    signupLabel: 'Obter chave do OpenCode Go',
+  }),
+  apiProvider({
+    id: 'copilot',
+    label: 'GitHub Copilot (Assinatura)',
+    base: '/copilot',
+    hasModels: true,
+    requiredEnv: 'COPILOT_TOKEN',
+    requiredKeys: [{ envName: 'COPILOT_TOKEN', label: 'Copilot session token', placeholder: 'tid=...' }],
+    signupUrl: 'https://github.com/features/copilot',
+    signupLabel: 'Entrar no GitHub Copilot',
+  }),
+  apiProvider({
     id: 'cerebras',
     label: 'Cerebras',
     base: '/cerebras',
@@ -343,6 +429,16 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
       transport: 'openai-compatible',
     },
   },
+  apiProvider({
+    id: 'ollamacloud',
+    label: 'Ollama Cloud (Assinatura)',
+    base: '/ollamacloud',
+    hasModels: true,
+    requiredEnv: 'OLLAMA_CLOUD_API_KEY',
+    requiredKeys: [{ envName: 'OLLAMA_CLOUD_API_KEY', label: 'Ollama API Key', placeholder: 'Ollama Cloud API key' }],
+    signupUrl: 'https://ollama.com',
+    signupLabel: 'Obter chave no Ollama Cloud',
+  }),
 ]
 
 const PROXY_TARGETS: readonly ProxyTarget[] = [
@@ -355,15 +451,6 @@ const PROXY_TARGETS: readonly ProxyTarget[] = [
     target: 'https://ai-sdk-gateway-demo.labs.vercel.dev',
   },
 ] as const
-
-function parseCsvSet(value: string | undefined): Set<string> {
-  return new Set(
-    (value ?? '')
-      .split(',')
-      .map((item) => item.trim().toLowerCase())
-      .filter(Boolean),
-  )
-}
 
 export function isProviderEnabled(providerId: string): boolean {
   const normalizedProviderId = providerId.trim().toLowerCase()

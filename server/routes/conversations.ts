@@ -474,7 +474,7 @@ app.delete("/:id/messages", async (c) => {
 app.post("/:id/messages/:messageId/reaction", async (c) => {
   const auth = await authorizeConversation(c);
   if (auth instanceof Response) return auth;
-  const { conversationId, userId } = auth;
+  const { userId } = auth;
   const messageId = c.req.param("messageId");
 
   const body = await c.req.json().catch(() => ({})) as { type?: string };

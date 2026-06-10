@@ -12,7 +12,7 @@ interface MomentumEntry {
 
 const store = new Map<string, MomentumEntry>()
 
-export function getRecentTiers(userId: string): RoutingTier[] {
+function getRecentTiers(userId: string): RoutingTier[] {
   const entry = store.get(userId)
   if (!entry) return []
   if (Date.now() - entry.lastAt > TTL_MS) {

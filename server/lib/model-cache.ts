@@ -99,7 +99,9 @@ function refreshInBackground(
       if (models.length > 0) {
         const deduped = dedupeModels(models)
         cache.set(cacheKey, { models: deduped, fetchedAt: Date.now() })
-        console.log(`[ModelCache] Refreshed ${cacheKey}: ${deduped.length} models`)
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[ModelCache] Refreshed ${cacheKey}: ${deduped.length} models`)
+        }
       }
     })
     .catch((error) => {

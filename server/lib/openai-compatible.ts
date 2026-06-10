@@ -16,6 +16,12 @@ import {
   upstreamErrorResponse,
 } from './provider-core'
 import type { ChatMessage, ProviderModel } from './provider-core'
+import {
+  getCooldownRemainingMs,
+  rateLimitCooldownKey,
+  recordRateLimit,
+} from './rate-limit-cooldown'
+import { scrubSecrets } from './secret-scrub'
 
 function hasImageCapability(model: Record<string, unknown>): boolean {
   const candidates = [
@@ -62,6 +68,11 @@ type OpenAiCompatibleConfig = {
   apiKeyEnv: string
   extraHeaders?: Record<string, string>
   bodyTransform?: (input: { messages: ChatMessage[]; modelId: string; rawBody: Record<string, unknown> }) => Record<string, unknown>
+  /**
+   * Transforma a credencial crua antes do uso como Bearer (ex.: GitHub Copilot
+   * troca o token OAuth de longa duração por um token de API curto).
+   */
+  resolveApiKey?: (rawKey: string) => Promise<string>
   timeoutMs?: number
   /**
    * When upstream returns 404 for an unknown / inaccessible model, retry with these IDs in order
@@ -304,7 +315,17 @@ export async function chatViaOpenAiCompatible(
   credentials?: Record<string, string>,
 ): Promise<Response> {
   try {
-    const apiKey = resolveEnv(config.apiKeyEnv, credentials)
+    const rawApiKey = resolveEnv(config.apiKeyEnv, credentials)
+    const apiKey = config.resolveApiKey ? await config.resolveApiKey(rawApiKey) : rawApiKey
+
+    const cooldownKey = rateLimitCooldownKey(config.providerName, input.modelId)
+    const cooldownRemainingMs = getCooldownRemainingMs(cooldownKey)
+    if (cooldownRemainingMs > 0) {
+      const waitSeconds = Math.ceil(cooldownRemainingMs / 1000)
+      return toVercelSingleTextResponse(
+        `⏳ **${config.providerName}** está em cooldown de rate limit para o modelo \`${input.modelId}\`. Tente novamente em ~${waitSeconds}s.`,
+      )
+    }
 
     const extraFallback =
       config.fallbackModelIds?.filter((id) => id !== input.modelId) ?? []
@@ -351,7 +372,17 @@ export async function chatViaOpenAiCompatible(
         })
       }
 
-      const errorText = await response.text()
+      const errorText = scrubSecrets(await response.text())
+
+      if (response.status === 429) {
+        const appliedMs = recordRateLimit(
+          rateLimitCooldownKey(config.providerName, modelId),
+          response.headers.get('retry-after'),
+        )
+        console.warn(
+          `[${config.providerName}] 429 em ${modelId}; cooldown de ${Math.round(appliedMs / 1000)}s aplicado`,
+        )
+      }
 
       if (isUpstreamModelNotFound(response.status, errorText) && idx < modelChain.length - 1) {
         fallbackFailures.push({
@@ -405,11 +436,13 @@ export async function testViaOpenAiModels(
     apiKeyEnv: string
     providerName: string
     extraHeaders?: Record<string, string>
+    resolveApiKey?: (rawKey: string) => Promise<string>
   },
   credentials: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const apiKey = resolveEnv(opts.apiKeyEnv, credentials)
+    const rawApiKey = resolveEnv(opts.apiKeyEnv, credentials)
+    const apiKey = opts.resolveApiKey ? await opts.resolveApiKey(rawApiKey) : rawApiKey
 
     const headers: Record<string, string> = {
       Authorization: `Bearer ${apiKey}`,
@@ -432,7 +465,8 @@ export async function testViaOpenAiModels(
     if (response.status === 401 || response.status === 403) {
       return { ok: false, error: `Chave inválida ou sem permissão (${response.status}).` }
     }
-    return { ok: false, error: `Erro ${response.status}: ${errorText.slice(0, 200)}` }
+    // Provedores podem ecoar a credencial no corpo do erro — redige antes de devolver ao navegador.
+    return { ok: false, error: `Erro ${response.status}: ${scrubSecrets(errorText).slice(0, 200)}` }
   } catch (error) {
     if (error instanceof Error && error.message.startsWith('CONFIG_ERROR:')) {
       return { ok: false, error: 'Credencial não fornecida.' }
@@ -451,11 +485,13 @@ export function createOpenAiFetchModels(opts: {
   apiKeyEnv: string
   providerName: string
   extraHeaders?: Record<string, string>
+  resolveApiKey?: (rawKey: string) => Promise<string>
   /** Optional filter to select which models to include. Defaults to all. */
   filter?: (model: { id: string; owned_by?: string }) => boolean
 }): (credentials?: Record<string, string>) => Promise<ProviderModel[]> {
   return async (credentials?: Record<string, string>) => {
-    const apiKey = resolveEnv(opts.apiKeyEnv, credentials)
+    const rawApiKey = resolveEnv(opts.apiKeyEnv, credentials)
+    const apiKey = opts.resolveApiKey ? await opts.resolveApiKey(rawApiKey) : rawApiKey
 
     const headers: Record<string, string> = { Authorization: `Bearer ${apiKey}` }
     if (opts.extraHeaders) Object.assign(headers, opts.extraHeaders)

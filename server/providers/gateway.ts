@@ -1,4 +1,4 @@
-import { chatViaOpenAiCompatible } from '../lib/openai-compatible'
+import { chatViaOpenAiCompatible, testViaOpenAiModels } from '../lib/openai-compatible'
 import {
   createProviderApp,
   fetchWithTimeout,
@@ -64,6 +64,15 @@ const app = createProviderApp({
   models: GATEWAY_MODELS,
   defaultModel: GATEWAY_MODELS[0].id,
   fetchModels: fetchGatewayModels,
+  testCredentials: (credentials) =>
+    testViaOpenAiModels(
+      {
+        modelsUrl: 'https://ai-gateway.vercel.sh/v1/models',
+        apiKeyEnv: 'VERCEL_AI_GATEWAY_API_KEY',
+        providerName: 'Vercel AI Gateway',
+      },
+      credentials,
+    ),
   chat: async (
     messages: ChatMessage[],
     modelId: string,

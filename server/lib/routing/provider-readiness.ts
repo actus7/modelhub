@@ -35,7 +35,7 @@ function hasConfiguredValue(credentials: Record<string, string>, key: string): b
   return typeof fromEnv === 'string' && fromEnv.trim().length > 0
 }
 
-export function isProviderReadyForRouting(
+function isProviderReadyForRouting(
   provider: UiProvider,
   credentials: Record<string, string> = {},
 ): boolean {
@@ -108,11 +108,6 @@ export async function getConfiguredRoutingProviderSources(userId: string): Promi
         cacheKeySuffix: buildCacheKeySuffix(userId, credentials),
       }
     })
-}
-
-export async function getConfiguredRoutingProviderIds(userId: string): Promise<Set<string>> {
-  const providers = await getConfiguredRoutingProviders(userId)
-  return new Set(providers.map((provider) => provider.id))
 }
 
 export async function getConfiguredRoutingProviderModelReadiness(
