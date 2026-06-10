@@ -71,8 +71,13 @@ async function getUserProviderCredentialsByProvider(userId: string): Promise<Rec
     try {
       credentialsByProvider[row.providerId] ??= {}
       credentialsByProvider[row.providerId]![row.credentialKey] = decryptCredential(row.credentialValue)
-    } catch {
-      // Credentials that cannot be decrypted are not usable for routing.
+    } catch (error) {
+      console.warn('Ignoring provider credential that cannot be decrypted for routing', {
+        credentialKey: row.credentialKey,
+        providerId: row.providerId,
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 

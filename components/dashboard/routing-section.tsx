@@ -338,8 +338,8 @@ export function RoutingSection() {
         taskOverrides: compactTaskOverrides,
       });
       setConfig(updated);
-      setTiers(updated.tiers ?? compactTiers);
-      setTaskOverrides(updated.taskOverrides ?? compactTaskOverrides);
+      setTiers(compactAssignmentMap(updated.tiers ?? compactTiers, availableProviderIds));
+      setTaskOverrides(compactAssignmentMap(updated.taskOverrides ?? compactTaskOverrides, availableProviderIds));
       toast.success("Configuração de routing salva.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao salvar routing.");
