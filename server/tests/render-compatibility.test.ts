@@ -17,7 +17,6 @@ import {
 global.fetch = vi.fn();
 
 describe("Render Driver Compatibility", () => {
-  const mockToken = "test-token";
   const mockUserId = "test-user-123";
 
   beforeEach(() => {

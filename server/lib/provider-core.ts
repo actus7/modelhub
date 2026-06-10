@@ -15,6 +15,7 @@ import {
 } from './conversation-attachments'
 import { ensureProtectedAccess, isProductionEnv, protectedCors, securityHeaders } from './security'
 import { checkBudget } from './budget'
+import { scrubSecrets } from './secret-scrub'
 
 type ChatMessageToolCall = {
   id: string
@@ -1248,9 +1249,12 @@ async function updateUsageLogTokens(
 export function upstreamErrorResponse(
   providerName: string,
   status: number,
-  detailsForLog?: string,
+  detailsForLogRaw?: string,
   extraFields?: Record<string, unknown>,
 ): Response {
+  // Provedores podem ecoar a credencial no corpo do erro (ex.: 401 da Anthropic);
+  // redige antes de logar/persistir/devolver ao cliente.
+  const detailsForLog = detailsForLogRaw === undefined ? undefined : scrubSecrets(detailsForLogRaw)
   if (detailsForLog) {
     console.error(`[${providerName}] upstream error ${status}: ${detailsForLog.slice(0, 500)}`)
   } else {

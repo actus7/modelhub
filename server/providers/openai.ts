@@ -1,5 +1,6 @@
 import { createProviderApp } from '../lib/provider-core'
-import { chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
+import { buildOpenAiCompatibleChatBody, chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
+import { renameMaxTokensForOpenAi } from '../lib/provider-quirks'
 
 export const models = [
   { capabilities: { documents: true, images: true, tools: true }, id: 'gpt-4o', name: 'GPT-4o' },
@@ -21,7 +22,13 @@ const app = createProviderApp({
   defaultModel: models[0].id,
   chat: async (messages, modelId, rawBody, credentials) =>
     chatViaOpenAiCompatible(
-      { providerName: 'OpenAI', chatUrl: OPENAI_CHAT_URL, apiKeyEnv: OPENAI_API_KEY },
+      {
+        providerName: 'OpenAI',
+        chatUrl: OPENAI_CHAT_URL,
+        apiKeyEnv: OPENAI_API_KEY,
+        // o-series e GPT-5+ exigem max_completion_tokens no lugar de max_tokens.
+        bodyTransform: (input) => renameMaxTokensForOpenAi(buildOpenAiCompatibleChatBody(input), input.modelId),
+      },
       { messages, modelId, rawBody },
       credentials,
     ),

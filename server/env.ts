@@ -1,19 +1,9 @@
 import { PROVIDER_CATALOG } from "./lib/catalog";
+import { parseCsv, parseCsvSet } from "./lib/env-utils";
 
 const STRICT_VERCEL_ENVS = new Set(["preview", "production"]);
 
 let runtimeEnvValidated = false;
-
-function parseCsv(value: string | undefined): string[] {
-  return (value ?? "")
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function parseCsvSet(value: string | undefined): Set<string> {
-  return new Set(parseCsv(value).map((item) => item.toLowerCase()));
-}
 
 function isBooleanLike(value: string | undefined): boolean {
   return value === undefined || value === "true" || value === "false";

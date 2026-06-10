@@ -75,4 +75,68 @@ describe('scoreComplexity', () => {
     )
     expect(deep.rawScore).toBeGreaterThan(shallow.rawScore)
   })
+
+  it('exclui system prompts do scoring (não infla para reasoning)', () => {
+    const agentSystemPrompt = `You are a coding agent. Analyze trade-offs, evaluate architecture,
+      use dynamic programming, recursion, memoization, optimization, neural network, cryptography.
+      Therefore prove theorem axiom corollary. ${'x'.repeat(3000)}`
+    const result = scoreComplexity([
+      { role: 'system', content: agentSystemPrompt },
+      { role: 'user', content: 'oi, tudo bem?' },
+    ])
+    expect(result.tier).toBe('simple')
+  })
+
+  it('detecta heartbeat e roteia para simple sem scoring', () => {
+    const result = scoreComplexity(msg('HEARTBEAT_OK ping'))
+    expect(result.tier).toBe('simple')
+    expect(result.signals).toContain('heartbeat')
+    expect(result.confidence).toBeGreaterThanOrEqual(0.99)
+  })
+
+  it('força reasoning quando há lógica formal na última mensagem', () => {
+    const result = scoreComplexity(msg('Prove the theorem: if and only if P, therefore Q.'))
+    expect(result.tier).toBe('reasoning')
+    expect(result.signals).toContain('forced_reasoning')
+    expect(result.confidence).toBeGreaterThanOrEqual(0.95)
+  })
+
+  it('força simple para mensagem curta sem sinais complexos', () => {
+    const deepButShortLast = [
+      ...Array.from({ length: 10 }, (_, i) => ({
+        role: i % 2 === 0 ? 'user' : 'assistant',
+        content: 'mensagem anterior da conversa',
+      })),
+      { role: 'user', content: 'ok, valeu!' },
+    ]
+    const result = scoreComplexity(deepButShortLast)
+    expect(result.tier).toBe('simple')
+    expect(result.signals).toContain('short_message')
+  })
+
+  it('aplica piso standard quando há tools ativas', () => {
+    const result = scoreComplexity(msg('ok, valeu!'), { hasTools: true })
+    expect(result.tier).toBe('standard')
+    expect(result.signals).toContain('tools_floor')
+  })
+
+  it('não aplica tools_floor em heartbeat', () => {
+    const result = scoreComplexity(msg('HEARTBEAT_OK'), { hasTools: true })
+    expect(result.tier).toBe('simple')
+  })
+
+  it('aplica piso complex para contexto gigante', () => {
+    const result = scoreComplexity([
+      { role: 'user', content: 'a'.repeat(250_000) },
+      { role: 'user', content: 'resuma' },
+    ])
+    expect(['complex', 'reasoning']).toContain(result.tier)
+    expect(result.signals).toContain('large_context_floor')
+  })
+
+  it('retorna confidence entre 0 e 1', () => {
+    const result = scoreComplexity(msg('Can you write a Python function to parse CSV files and explain it?'))
+    expect(result.confidence).toBeGreaterThan(0)
+    expect(result.confidence).toBeLessThanOrEqual(1)
+  })
 })

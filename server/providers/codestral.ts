@@ -1,5 +1,6 @@
 import { createProviderApp } from '../lib/provider-core'
-import { chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
+import { buildOpenAiCompatibleChatBody, chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
+import { normalizeMistralToolCallIds } from '../lib/provider-quirks'
 
 export const models = [{ capabilities: { documents: true, images: false, tools: true }, id: 'codestral-latest', name: 'Codestral Latest' }]
 
@@ -14,6 +15,8 @@ const app = createProviderApp({
         providerName: 'Mistral Codestral',
         chatUrl: process.env.CODESTRAL_CHAT_URL || 'https://codestral.mistral.ai/v1/chat/completions',
         apiKeyEnv: 'CODESTRAL_API_KEY',
+        // A API da Mistral só aceita tool call IDs no formato [A-Za-z0-9]{9}.
+        bodyTransform: (input) => normalizeMistralToolCallIds(buildOpenAiCompatibleChatBody(input)),
       },
       { messages, modelId, rawBody },
       credentials,

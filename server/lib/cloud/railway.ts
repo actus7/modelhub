@@ -14,9 +14,9 @@ import { buildOpenClawInfo, buildOpenClawRuntimeConfig } from "./render";
 
 const RAILWAY_API_BASE = "https://backboard.railway.app/graphql/v2";
 
-export const RAILWAY_OPENCLAW_IMAGE = "ghcr.io/openclaw/openclaw:latest";
+const RAILWAY_OPENCLAW_IMAGE = "ghcr.io/openclaw/openclaw:latest";
 
-export const RAILWAY_OPENCLAW_PORT = 10000;
+const RAILWAY_OPENCLAW_PORT = 10000;
 
 
 
@@ -586,7 +586,7 @@ function mapRailwayDeploymentStatus(railwayStatus: string): {
 
 // Free tier error detection
 
-export function isRailwayFreeTierError(error: unknown): boolean {
+function isRailwayFreeTierError(error: unknown): boolean {
 
   if (!(error instanceof CloudProviderError)) return false;
 
@@ -676,7 +676,7 @@ function buildRailwayEnvVars(
 
 // Main implementation functions
 
-export async function validateRailwayToken(token: string): Promise<AccountMetadata> {
+async function validateRailwayToken(token: string): Promise<AccountMetadata> {
 
   const data = await railwayRequest<{ me: RailwayUser }>(token, VALIDATE_TOKEN_QUERY);
 
@@ -716,7 +716,7 @@ export async function validateRailwayToken(token: string): Promise<AccountMetada
 
 
 
-export async function createRailwayOpenClaw(
+async function createRailwayOpenClaw(
 
   token: string,
 
@@ -1110,7 +1110,7 @@ export async function createRailwayOpenClaw(
 
 
 
-export async function updateRailwayOpenClaw(
+async function updateRailwayOpenClaw(
 
   token: string,
 
@@ -1182,7 +1182,7 @@ export async function updateRailwayOpenClaw(
 
 
 
-export async function refreshRailwayDeployment(
+async function refreshRailwayDeployment(
 
   token: string,
 
@@ -1338,7 +1338,7 @@ export async function refreshRailwayDeployment(
 
 
 
-export async function deleteRailwayService(token: string, compositeServiceId: string): Promise<"deleted" | "missing"> {
+async function deleteRailwayService(token: string, compositeServiceId: string): Promise<"deleted" | "missing"> {
 
   // compositeServiceId format: "serviceId:projectId:environmentId"
 

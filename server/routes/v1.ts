@@ -74,6 +74,31 @@ interface RoutingMeta {
   taskCategory: string | null
 }
 
+// Espelha o padrão X-Manifest-* do Manifest: cada resposta roteada expõe ao
+// cliente qual tier/modelo/confiança foi usado, sem precisar consultar logs.
+function withRoutingResponseHeaders(
+  res: Response,
+  meta: {
+    tier: string
+    reason: string
+    provider: string
+    model: string
+    confidence?: number
+    taskCategory?: string | null
+    fallbackFrom?: string
+  },
+): Response {
+  const headers = new Headers(res.headers)
+  headers.set('X-ModelHub-Tier', meta.tier)
+  headers.set('X-ModelHub-Reason', meta.reason)
+  headers.set('X-ModelHub-Provider', meta.provider)
+  headers.set('X-ModelHub-Model', meta.model)
+  if (meta.confidence !== undefined) headers.set('X-ModelHub-Confidence', String(meta.confidence))
+  if (meta.taskCategory) headers.set('X-ModelHub-Task-Category', meta.taskCategory)
+  if (meta.fallbackFrom) headers.set('X-ModelHub-Fallback-From', meta.fallbackFrom)
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers })
+}
+
 // Valida se um provider pode receber forward via /v1/chat/completions.
 // Retorna uma Response de erro quando inválido, ou null quando OK.
 function validateProviderForForward(providerId: string): Response | null {
@@ -186,7 +211,19 @@ async function forwardAutoWithFallback(
     recordCooldown(cand.providerId, cand.modelId, response.status, response.headers.get('retry-after'))
 
     if (response.ok) {
-      return vercelStreamToOpenAiSse(withProviderMetadata(response, cand.providerId), `${cand.providerId}/${cand.modelId}`)
+      const sse = vercelStreamToOpenAiSse(
+        withProviderMetadata(response, cand.providerId),
+        `${cand.providerId}/${cand.modelId}`,
+      )
+      return withRoutingResponseHeaders(sse, {
+        tier: meta.tier,
+        reason: meta.reason,
+        provider: cand.providerId,
+        model: cand.modelId,
+        confidence: isFallback ? undefined : resolved.routing.confidence,
+        taskCategory: meta.taskCategory,
+        fallbackFrom: isFallback ? primaryModel : undefined,
+      })
     }
 
     lastError = withProviderMetadata(response, cand.providerId)

@@ -1,5 +1,6 @@
 import { createProviderApp } from '../lib/provider-core'
-import { chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
+import { buildOpenAiCompatibleChatBody, chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
+import { injectOpenRouterCacheControl } from '../lib/provider-quirks'
 
 export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'openai/gpt-oss-20b:free', name: 'GPT OSS 20B (OpenRouter Free)' },
@@ -22,6 +23,9 @@ const app = createProviderApp({
           'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER || 'https://localhost',
           'X-Title': process.env.OPENROUTER_APP_NAME || 'ai-proxy',
         },
+        // Modelos anthropic/* via OpenRouter suportam prompt caching transparente.
+        bodyTransform: (input) =>
+          injectOpenRouterCacheControl(buildOpenAiCompatibleChatBody(input), input.modelId),
       },
       { messages, modelId, rawBody },
       credentials,

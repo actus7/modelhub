@@ -33,6 +33,8 @@ export interface RoutingResult {
   reason: 'header_override' | 'task_specific' | 'scored' | 'momentum_bias' | 'config_default'
   taskCategory: TaskCategory | null
   complexityScore?: number
+  /** Confiança [0,1] do scoring de complexidade (ausente em overrides/task/default). */
+  confidence?: number
   /// Modelos alternativos (outros tiers configurados) tentados em ordem se o primário falhar.
   fallbacks: RoutingCandidate[]
 }
@@ -227,7 +229,7 @@ export async function resolveRouting(input: {
 
   // 3. Complexity routing
   if (config.complexityEnabled) {
-    const scored = scoreComplexity(textMessages)
+    const scored = scoreComplexity(textMessages, { hasTools: (toolNames?.length ?? 0) > 0 })
 
     // Momentum bias — tenta manter consistência na sessão
     const momentum = getMomentumBias(userId)
@@ -255,6 +257,7 @@ export async function resolveRouting(input: {
         reason,
         taskCategory: null,
         complexityScore: scored.rawScore,
+        confidence: scored.confidence,
       }, config, tierConfig)
     }
   }

@@ -1,3 +1,4 @@
+import { scrubSecrets } from '../lib/secret-scrub'
 import {
   createProviderApp,
   fetchWithTimeout,
@@ -28,7 +29,7 @@ const app = createProviderApp({
         return { ok: false, error: `Chave inválida ou sem permissão (${response.status}).` }
       }
       const errorText = await response.text().catch(() => '')
-      return { ok: false, error: `Erro ${response.status}: ${errorText.slice(0, 200)}` }
+      return { ok: false, error: `Erro ${response.status}: ${scrubSecrets(errorText).slice(0, 200)}` }
     } catch (error) {
       if (error instanceof Error && error.message.startsWith('CONFIG_ERROR:')) {
         return { ok: false, error: 'Credencial não fornecida.' }
