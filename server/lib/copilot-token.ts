@@ -31,6 +31,9 @@ type CachedToken = {
 /** Cache em memória keyed pelo hash do token GitHub (evita reter o token cru como chave). */
 const cache = new Map<string, CachedToken>()
 
+/** Promessas em voo para evitar cache stampede com chamadas concorrentes. */
+const inflight = new Map<string, Promise<CachedToken>>()
+
 function cacheKey(githubToken: string): string {
   return createHash('sha256').update(githubToken).digest('base64url')
 }
@@ -48,6 +51,7 @@ export function isGithubOAuthToken(token: string): boolean {
 /** Limpa o cache — apenas para testes. */
 export function clearCopilotTokenCache(): void {
   cache.clear()
+  inflight.clear()
 }
 
 async function exchange(githubToken: string): Promise<CachedToken> {
@@ -90,7 +94,16 @@ export async function resolveCopilotToken(rawToken: string): Promise<string> {
   }
 
   evictExpired(now)
-  const result = await exchange(rawToken)
+
+  let promise = inflight.get(key)
+  if (!promise) {
+    promise = exchange(rawToken).finally(() => {
+      inflight.delete(key)
+    })
+    inflight.set(key, promise)
+  }
+
+  const result = await promise
   cache.set(key, result)
   return result.token
 }

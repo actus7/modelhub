@@ -408,7 +408,6 @@ export function SetupPage() {
     return (
       <Card
         key={provider.id}
-        size="sm"
         className={`border shadow-none transition-colors ${cardBorder}`}
       >
         <CardContent className="py-3">
@@ -583,7 +582,6 @@ export function SetupPage() {
     return (
       <Card
         key={provider.id}
-        size="sm"
         className="border border-border/70 bg-card/80 shadow-none transition-colors hover:border-foreground/20"
       >
         <CardContent className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:justify-between">

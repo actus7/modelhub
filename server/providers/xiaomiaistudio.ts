@@ -100,19 +100,21 @@ export async function fetchXiaomiStudioModels(
       data?: Array<{ id: string; name?: string }>
     }
 
-    if (!json.data?.length) {
+    if (!json || !Array.isArray(json.data) || json.data.length === 0) {
       return [...XIAOMI_STUDIO_MODELS]
     }
 
-    return json.data.map((m) => ({
-      capabilities: {
-        documents: true,
-        images: m.id.includes('omni'),
-        tools: true,
-      },
-      id: m.id,
-      name: `${m.name || m.id} (AI Studio)`,
-    }))
+    return json.data
+      .filter((m) => m && typeof m.id === 'string')
+      .map((m) => ({
+        capabilities: {
+          documents: true,
+          images: m.id.includes('omni'),
+          tools: true,
+        },
+        id: m.id,
+        name: `${m.name || m.id} (AI Studio)`,
+      }))
   } catch (error) {
     console.warn(
       '[Xiaomi AI Studio] Failed to fetch models:',
@@ -139,7 +141,7 @@ async function handleOAuthStart(c: import('hono').Context) {
   const parsed = oauthStartBodySchema.safeParse(body)
   const redirectUri = parsed.success ? parsed.data.redirectUri : undefined
 
-  const state = crypto.randomUUID()
+  const state = globalThis.crypto.randomUUID()
   const loginUrl = 'https://aistudio.xiaomimimo.com'
 
   return c.json({
