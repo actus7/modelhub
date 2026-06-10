@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const mocks = vi.hoisted(() => ({
   detectTaskCategory: vi.fn(),
   findRoutingConfig: vi.fn(),
-  getConfiguredRoutingProviderIds: vi.fn(),
+  getConfiguredRoutingProviderModelReadiness: vi.fn(),
 }))
 
 vi.mock('../db', () => ({
@@ -19,7 +19,7 @@ vi.mock('./task-detector', () => ({
 }))
 
 vi.mock('./provider-readiness', () => ({
-  getConfiguredRoutingProviderIds: mocks.getConfiguredRoutingProviderIds,
+  getConfiguredRoutingProviderModelReadiness: mocks.getConfiguredRoutingProviderModelReadiness,
 }))
 
 const { invalidateRoutingCache, resolveRouting } = await import('./routing-resolver')
@@ -27,14 +27,25 @@ const { invalidateRoutingCache, resolveRouting } = await import('./routing-resol
 describe('resolveRouting fallbacks', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mocks.getConfiguredRoutingProviderIds.mockResolvedValue(new Set([
-      'anthropic',
-      'codestral',
-      'deepseek',
-      'groq',
-      'openai',
-      'xai',
-    ]))
+    mocks.getConfiguredRoutingProviderModelReadiness.mockResolvedValue({
+      providerIds: new Set([
+        'anthropic',
+        'codestral',
+        'deepseek',
+        'groq',
+        'openai',
+        'xai',
+      ]),
+      modelKeys: new Set([
+        'anthropic/claude-sonnet',
+        'codestral/codestral-latest',
+        'deepseek/deepseek-coder',
+        'groq/',
+        'groq/llama-8b',
+        'openai/gpt-main',
+        'xai/grok-reasoning',
+      ]),
+    })
     invalidateRoutingCache('user-1')
   })
 
@@ -111,7 +122,10 @@ describe('resolveRouting fallbacks', () => {
   })
 
   it('ignores configured assignments and fallbacks whose providers are not ready', async () => {
-    mocks.getConfiguredRoutingProviderIds.mockResolvedValueOnce(new Set(['groq', 'openai']))
+    mocks.getConfiguredRoutingProviderModelReadiness.mockResolvedValueOnce({
+      providerIds: new Set(['groq', 'openai']),
+      modelKeys: new Set(['groq/llama-8b', 'openai/gpt-main']),
+    })
     mocks.findRoutingConfig.mockResolvedValueOnce({
       complexityEnabled: false,
       taskRoutingEnabled: false,

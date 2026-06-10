@@ -5,12 +5,17 @@ import type { UiProvider } from '@/lib/contracts'
 import { isProviderEnabled, PROVIDER_CATALOG } from '../catalog'
 import { decryptCredential } from '../crypto'
 import { prisma } from '../db'
-import { isProviderAvailableViaExternalApi } from '../../providers/registry'
+import { getProviderModels, isProviderAvailableViaExternalApi } from '../../providers/registry'
 
 export type RoutingProviderSource = {
   providerId: string
   credentials: Record<string, string>
   cacheKeySuffix: string
+}
+
+export type RoutingProviderModelReadiness = {
+  providerIds: Set<string>
+  modelKeys: Set<string>
 }
 
 function providerCredentialKeys(provider: UiProvider): string[] {
@@ -108,4 +113,31 @@ export async function getConfiguredRoutingProviderSources(userId: string): Promi
 export async function getConfiguredRoutingProviderIds(userId: string): Promise<Set<string>> {
   const providers = await getConfiguredRoutingProviders(userId)
   return new Set(providers.map((provider) => provider.id))
+}
+
+export async function getConfiguredRoutingProviderModelReadiness(
+  userId: string,
+): Promise<RoutingProviderModelReadiness> {
+  const sources = await getConfiguredRoutingProviderSources(userId)
+  const providerIds = new Set(sources.map((source) => source.providerId))
+  const modelKeys = new Set<string>()
+
+  const results = await Promise.allSettled(
+    sources.map(async ({ cacheKeySuffix, credentials, providerId }) => {
+      const models = await getProviderModels(providerId, { cacheKeySuffix, credentials })
+      for (const model of models) {
+        modelKeys.add(`${providerId.toLowerCase()}/${model.id.toLowerCase()}`)
+      }
+    }),
+  )
+
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.warn('Failed to load provider models for routing readiness', {
+        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
+      })
+    }
+  }
+
+  return { providerIds, modelKeys }
 }

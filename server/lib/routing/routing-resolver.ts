@@ -2,6 +2,7 @@ import { prisma } from '../db'
 import { scoreComplexity, type RoutingTier } from './complexity-scorer'
 import { detectTaskCategory, type TaskCategory } from './task-detector'
 import { getMomentumBias, recordTierAssignment } from './session-momentum'
+import type { RoutingProviderModelReadiness } from './provider-readiness'
 
 export interface TierConfig {
   providerId: string
@@ -44,6 +45,15 @@ function candidateKey(candidate: { providerId: string; modelId?: string }): stri
   return `${candidate.providerId.toLowerCase()}/${(candidate.modelId ?? '').toLowerCase()}`
 }
 
+function hasReadyModel(
+  candidate: { providerId: string; modelId?: string },
+  readiness: RoutingProviderModelReadiness,
+): boolean {
+  if (!readiness.providerIds.has(candidate.providerId)) return false
+  if (!candidate.modelId) return true
+  return readiness.modelKeys.has(candidateKey(candidate))
+}
+
 function pushCandidate(
   out: RoutingCandidate[],
   seen: Set<string>,
@@ -57,14 +67,14 @@ function pushCandidate(
 
 function sanitizeTierConfig(
   config: TierConfig | undefined,
-  configuredProviderIds: Set<string>,
+  readiness: RoutingProviderModelReadiness,
 ): TierConfig | undefined {
   if (!hasProvider(config)) return undefined
-  if (!configuredProviderIds.has(config.providerId)) return undefined
+  if (!hasReadyModel(config, readiness)) return undefined
 
   const fallbacks = (config.fallbacks ?? []).flatMap((fallback) => {
     if (!hasProvider(fallback)) return []
-    if (!configuredProviderIds.has(fallback.providerId)) return []
+    if (!hasReadyModel(fallback, readiness)) return []
     return [{ providerId: fallback.providerId, modelId: fallback.modelId ?? '' }]
   })
 
@@ -78,11 +88,11 @@ function sanitizeTierConfig(
 
 function sanitizeRoutingMap<T extends string>(
   map: Partial<Record<T, TierConfig>>,
-  configuredProviderIds: Set<string>,
+  readiness: RoutingProviderModelReadiness,
 ): Partial<Record<T, TierConfig>> {
   const sanitized: Partial<Record<T, TierConfig>> = {}
   for (const [key, config] of Object.entries(map) as Array<[T, TierConfig | undefined]>) {
-    const sanitizedConfig = sanitizeTierConfig(config, configuredProviderIds)
+    const sanitizedConfig = sanitizeTierConfig(config, readiness)
     if (sanitizedConfig) sanitized[key] = sanitizedConfig
   }
   return sanitized
@@ -141,15 +151,15 @@ export async function getRoutingConfig(userId: string): Promise<RoutingConfigDat
     return null
   }
 
-  const { getConfiguredRoutingProviderIds } = await import('./provider-readiness')
-  const configuredProviderIds = await getConfiguredRoutingProviderIds(userId)
+  const { getConfiguredRoutingProviderModelReadiness } = await import('./provider-readiness')
+  const readiness = await getConfiguredRoutingProviderModelReadiness(userId)
   const tiers = sanitizeRoutingMap(
     (row.tiers as unknown as Partial<Record<RoutingTier | 'default', TierConfig>>) ?? {},
-    configuredProviderIds,
+    readiness,
   )
   const taskOverrides = sanitizeRoutingMap(
     (row.taskOverrides as unknown as Partial<Record<TaskCategory, TierConfig>>) ?? {},
-    configuredProviderIds,
+    readiness,
   )
 
   const data: RoutingConfigData = {
