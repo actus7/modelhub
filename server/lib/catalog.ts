@@ -313,16 +313,6 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     signupLabel: 'Obter token no HuggingFace',
   }),
   apiProvider({
-    id: 'vercelgateway',
-    label: 'Vercel AI Gateway',
-    base: '/vercelgateway',
-    hasModels: true,
-    requiredEnv: 'VERCEL_AI_GATEWAY_API_KEY',
-    requiredKeys: [{ envName: 'VERCEL_AI_GATEWAY_API_KEY', label: 'API Key', placeholder: 'vg_...' }],
-    signupUrl: 'https://vercel.com/docs/ai-gateway',
-    signupLabel: 'Obter chave na Vercel',
-  }),
-  apiProvider({
     id: 'opengateway',
     label: 'OpenGateway',
     base: '/opengateway',

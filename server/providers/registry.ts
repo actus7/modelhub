@@ -37,7 +37,6 @@ import pollinationsFetch, { POLLINATIONS_MODELS, fetchPollinationsModels } from 
 import puterFetch, { PUTER_MODELS } from "./puter";
 import quillbotFetch, { QUILLBOT_MODELS } from "./quillbot";
 import togetheraiFetch, { models as togetheraiModels } from "./togetherai";
-import vercelGatewayFetch, { models as vercelgatewayModels } from "./vercelgateway";
 import { DEFAULT_MODELS_CACHE_TTL_MS, getCachedModels } from "../lib/model-cache";
 import { createOpenAiFetchModels } from "../lib/openai-compatible";
 import type { ProviderModel } from "../lib/provider-core";
@@ -144,11 +143,6 @@ export const providerRegistry: Record<string, ProviderEntry> = {
     handler: togetheraiFetch,
     models: togetheraiModels,
     fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.together.xyz/v1/models', apiKeyEnv: 'TOGETHER_API_KEY', providerName: 'Together AI' }),
-  },
-  vercelgateway: {
-    handler: vercelGatewayFetch,
-    models: vercelgatewayModels,
-    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://ai-gateway.vercel.sh/v1/models', apiKeyEnv: 'VERCEL_AI_GATEWAY_API_KEY', providerName: 'Vercel AI Gateway' }),
   },
   ollama: {
     handler: ollamaFetch,
