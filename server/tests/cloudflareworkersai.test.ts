@@ -23,14 +23,14 @@ describe("Cloudflare Workers AI provider", () => {
     vi.unstubAllEnvs();
   });
 
-  it("validates credentials with token verification only", async () => {
+  it("validates credentials against the configured account", async () => {
     process.env.REQUIRE_AUTH = "false";
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      result: { id: "token-id", status: "active" },
+      result: [{ name: "@cf/openai/gpt-oss-20b" }],
       success: true,
     }), { status: 200 }));
     globalThis.fetch = fetchMock;
-    const credentials = btoa(JSON.stringify({ CLOUDFLARE_API_TOKEN: "cf-token" }));
+    const credentials = btoa(JSON.stringify({ CLOUDFLARE_ACCOUNT_ID: "account-1", CLOUDFLARE_API_TOKEN: "cf-token" }));
 
     const response = await cloudflareFetch(new Request("https://modelhub.test/cloudflareworkersai/api/test", {
       headers: { "x-provider-credentials": credentials },
@@ -39,7 +39,7 @@ describe("Cloudflare Workers AI provider", () => {
 
     await expect(response.json()).resolves.toEqual({ ok: true });
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.cloudflare.com/client/v4/user/tokens/verify",
+      "https://api.cloudflare.com/client/v4/accounts/account-1/ai/models/search",
       expect.objectContaining({
         headers: { Authorization: "Bearer cf-token" },
         method: "GET",
@@ -47,29 +47,17 @@ describe("Cloudflare Workers AI provider", () => {
     );
   });
 
-  it("discovers an account before fetching models when Account ID is not configured", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        result: [{ id: "account-1" }],
-        success: true,
-      }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        result: [{ name: "@cf/openai/gpt-oss-20b" }],
-        success: true,
-      }), { status: 200 }));
+  it("fetches models from the configured account", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      result: [{ name: "@cf/openai/gpt-oss-20b" }],
+      success: true,
+    }), { status: 200 }));
     globalThis.fetch = fetchMock;
 
-    const models = await fetchCloudflareModels({ CLOUDFLARE_API_TOKEN: "cf-token" });
+    const models = await fetchCloudflareModels({ CLOUDFLARE_ACCOUNT_ID: "account-1", CLOUDFLARE_API_TOKEN: "cf-token" });
 
     expect(models.map((model) => model.id)).toEqual(["@cf/openai/gpt-oss-20b"]);
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      1,
-      "https://api.cloudflare.com/client/v4/accounts",
-      expect.objectContaining({ method: "GET" }),
-    );
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
+    expect(fetchMock).toHaveBeenCalledWith(
       "https://api.cloudflare.com/client/v4/accounts/account-1/ai/models/search?task=Text Generation",
       expect.objectContaining({ method: "GET" }),
     );

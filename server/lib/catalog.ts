@@ -322,9 +322,12 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     base: '/cloudflareworkersai',
     hasModels: true,
     requiredEnv: 'CLOUDFLARE_API_TOKEN',
-    requiredKeys: [{ envName: 'CLOUDFLARE_API_TOKEN', label: 'API Token', placeholder: 'Bearer token...' }],
-    signupUrl: 'https://dash.cloudflare.com/profile/api-tokens',
-    signupLabel: 'Obter token na Cloudflare',
+    requiredKeys: [
+      { envName: 'CLOUDFLARE_API_TOKEN', label: 'API Token', placeholder: 'cfut_...' },
+      { envName: 'CLOUDFLARE_ACCOUNT_ID', label: 'Account ID', placeholder: 'Ex: 023e105f4ecef8ad9ca31a8372d0c353' },
+    ],
+    signupUrl: 'https://developers.cloudflare.com/fundamentals/setup/find-account-and-zone-ids/',
+    signupLabel: 'Como encontrar o Account ID na Cloudflare',
   }),
   {
     id: 'ollama',
