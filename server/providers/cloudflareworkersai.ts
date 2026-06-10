@@ -24,10 +24,9 @@ const app = createProviderApp({
   testCredentials: async (credentials) => {
     try {
       const token = resolveEnv('CLOUDFLARE_API_TOKEN', credentials)
-      const accountId = resolveEnv('CLOUDFLARE_ACCOUNT_ID', credentials)
       const base = process.env.CLOUDFLARE_AI_BASE_URL || 'https://api.cloudflare.com/client/v4'
       const response = await fetchWithTimeout(
-        `${base}/accounts/${accountId}/ai/models/search`,
+        `${base}/user/tokens/verify`,
         { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
         15000,
       )
@@ -47,7 +46,7 @@ const app = createProviderApp({
   chat: async (messages, modelId, _rawBody, credentials) => {
     try {
       const token = resolveEnv('CLOUDFLARE_API_TOKEN', credentials)
-      const accountId = resolveEnv('CLOUDFLARE_ACCOUNT_ID', credentials)
+      const accountId = await resolveCloudflareAccountId(token, credentials)
 
       const response = await postJsonWithTimeout(
         `${process.env.CLOUDFLARE_AI_BASE_URL || 'https://api.cloudflare.com/client/v4'}/accounts/${accountId}/ai/run/${encodeURIComponent(modelId)}`,
@@ -91,7 +90,7 @@ const app = createProviderApp({
 
 export async function fetchCloudflareModels(credentials?: Record<string, string>): Promise<ProviderModel[]> {
   const token = resolveEnv('CLOUDFLARE_API_TOKEN', credentials)
-  const accountId = resolveEnv('CLOUDFLARE_ACCOUNT_ID', credentials)
+  const accountId = await resolveCloudflareAccountId(token, credentials)
   const base = process.env.CLOUDFLARE_AI_BASE_URL || 'https://api.cloudflare.com/client/v4'
   const response = await fetchWithTimeout(
     `${base}/accounts/${accountId}/ai/models/search?task=Text Generation`,
@@ -110,6 +109,34 @@ export async function fetchCloudflareModels(credentials?: Record<string, string>
     id: m.name,
     name: `${m.name} (Cloudflare Workers AI)`,
   }))
+}
+
+async function resolveCloudflareAccountId(
+  token: string,
+  credentials?: Record<string, string>,
+): Promise<string> {
+  const configured = credentials?.CLOUDFLARE_ACCOUNT_ID || process.env.CLOUDFLARE_ACCOUNT_ID
+  if (configured?.trim()) return configured.trim()
+
+  const base = process.env.CLOUDFLARE_AI_BASE_URL || 'https://api.cloudflare.com/client/v4'
+  const response = await fetchWithTimeout(
+    `${base}/accounts`,
+    { method: 'GET', headers: { Authorization: `Bearer ${token}` } },
+    15000,
+  )
+  if (!response.ok) {
+    throw new Error(`Cloudflare account discovery failed (${response.status}).`)
+  }
+
+  const json = (await response.json().catch(() => null)) as
+    | { result?: Array<{ id?: string }> }
+    | null
+  const accountId = json?.result?.find((account) => typeof account.id === 'string')?.id
+  if (accountId) return accountId
+
+  throw new Error(
+    'Cloudflare Workers AI requer Account ID para executar modelos. O token foi validado, mas nao permite descobrir contas via /accounts.',
+  )
 }
 
 export default app.fetch

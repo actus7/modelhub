@@ -10,7 +10,14 @@ vi.mock("../lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
 
-const { createProviderApp, MAX_PROVIDER_REQUEST_BODY_BYTES, resolveMessagesForProvider } = await import("../lib/provider-core");
+const {
+  createProviderApp,
+  MAX_PROVIDER_REQUEST_BODY_BYTES,
+  resolveMessagesForProvider,
+  toVercelSingleTextResponse,
+  toVercelStreamFromOpenAiSse,
+  vercelStreamToOpenAiSse,
+} = await import("../lib/provider-core");
 
 const originalRequireAuth = process.env.REQUIRE_AUTH;
 
@@ -262,5 +269,70 @@ describe("provider payload limits", () => {
       message: 'Modelo "demo-model" nao suporta anexos de imagem',
       status: 400,
     });
+  });
+});
+
+async function readText(response: Response): Promise<string> {
+  return response.text();
+}
+
+function extractOpenAiSseText(sse: string): string {
+  let text = "";
+  for (const line of sse.split("\n")) {
+    if (!line.startsWith("data: ") || line === "data: [DONE]") continue;
+    const payload = JSON.parse(line.slice(6)) as { choices?: Array<{ delta?: { content?: string } }> };
+    text += payload.choices?.[0]?.delta?.content ?? "";
+  }
+  return text;
+}
+
+function extractVercelText(streamText: string): string {
+  let text = "";
+  for (const line of streamText.split("\n")) {
+    if (!line.startsWith("0:")) continue;
+    text += JSON.parse(line.slice(2)) as string;
+  }
+  return text;
+}
+
+describe("hidden reasoning sanitization", () => {
+  it("removes thought blocks from single text responses", async () => {
+    const response = toVercelSingleTextResponse("antes <thought>private</thought> depois");
+
+    await expect(readText(response)).resolves.toContain('0:"antes  depois"');
+  });
+
+  it("removes split thought blocks when converting Vercel stream to OpenAI SSE", async () => {
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('0:"ok <tho"\n'));
+        controller.enqueue(new TextEncoder().encode('0:"ught>private</thought> fim"\n'));
+        controller.enqueue(new TextEncoder().encode('d:{"finishReason":"stop"}\n'));
+        controller.close();
+      },
+    });
+
+    const response = vercelStreamToOpenAiSse(new Response(stream), "demo/model");
+    const body = await response.text();
+
+    expect(extractOpenAiSseText(body)).toBe("ok  fim");
+    expect(body).not.toContain("private");
+    expect(body).not.toContain("<thought>");
+  });
+
+  it("removes thought blocks when converting upstream OpenAI SSE to Vercel stream", async () => {
+    const upstream = [
+      'data: {"choices":[{"delta":{"content":"a <think>hidden"}}]}',
+      'data: {"choices":[{"delta":{"content":" still hidden</think> b"}}]}',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+      "",
+    ].join("\n\n");
+
+    const response = toVercelStreamFromOpenAiSse(new Response(upstream));
+    const body = await response.text();
+
+    expect(extractVercelText(body)).toBe("a  b");
+    expect(body).not.toContain("hidden");
+    expect(body).toContain('d:{"finishReason":"stop"}');
   });
 });

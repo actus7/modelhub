@@ -54,19 +54,12 @@ describe("providerHasRequiredCredentials", () => {
           label: "Cloudflare Workers AI",
           requiredKeys: [
             { envName: "CLOUDFLARE_API_TOKEN", label: "Token", placeholder: "..." },
-            { envName: "CLOUDFLARE_ACCOUNT_ID", label: "Account", placeholder: "..." },
           ],
         },
         [
           {
             credentialKey: "CLOUDFLARE_API_TOKEN",
             id: "1",
-            providerId: "cloudflareworkersai",
-            updatedAt: new Date().toISOString(),
-          },
-          {
-            credentialKey: "CLOUDFLARE_ACCOUNT_ID",
-            id: "2",
             providerId: "cloudflareworkersai",
             updatedAt: new Date().toISOString(),
           },

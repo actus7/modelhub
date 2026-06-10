@@ -322,10 +322,7 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = [
     base: '/cloudflareworkersai',
     hasModels: true,
     requiredEnv: 'CLOUDFLARE_API_TOKEN',
-    requiredKeys: [
-      { envName: 'CLOUDFLARE_API_TOKEN', label: 'API Token', placeholder: 'Bearer token...' },
-      { envName: 'CLOUDFLARE_ACCOUNT_ID', label: 'Account ID', placeholder: 'Seu Account ID' },
-    ],
+    requiredKeys: [{ envName: 'CLOUDFLARE_API_TOKEN', label: 'API Token', placeholder: 'Bearer token...' }],
     signupUrl: 'https://dash.cloudflare.com/profile/api-tokens',
     signupLabel: 'Obter token na Cloudflare',
   }),
