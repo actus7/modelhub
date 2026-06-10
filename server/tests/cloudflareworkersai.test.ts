@@ -62,4 +62,32 @@ describe("Cloudflare Workers AI provider", () => {
       expect.objectContaining({ method: "GET" }),
     );
   });
+
+  it("preserves Cloudflare model path segments when running chat", async () => {
+    process.env.REQUIRE_AUTH = "false";
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      result: { response: "ok" },
+      success: true,
+    }), { status: 200 }));
+    globalThis.fetch = fetchMock;
+    const credentials = btoa(JSON.stringify({ CLOUDFLARE_ACCOUNT_ID: "account-1", CLOUDFLARE_API_TOKEN: "cf-token" }));
+
+    const response = await cloudflareFetch(new Request("https://modelhub.test/cloudflareworkersai/api/chat", {
+      body: JSON.stringify({
+        messages: [{ content: "Ola", role: "user" }],
+        modelId: "@cf/openai/gpt-oss-20b",
+      }),
+      headers: {
+        "content-type": "application/json",
+        "x-provider-credentials": credentials,
+      },
+      method: "POST",
+    }));
+
+    expect(response.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.cloudflare.com/client/v4/accounts/account-1/ai/run/@cf/openai/gpt-oss-20b",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
 });
