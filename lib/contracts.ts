@@ -120,6 +120,10 @@ export type RecentUsageLog = {
 export type TierAssignment = {
   providerId: string;
   modelId: string;
+  fallbacks?: Array<{
+    providerId: string;
+    modelId: string;
+  }>;
 };
 
 export type RoutingConfigSummary = {

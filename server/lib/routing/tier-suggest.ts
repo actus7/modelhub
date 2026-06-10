@@ -5,6 +5,7 @@
 // distribuímos do mais barato/simples ao mais capaz.
 
 import { getModelPrice } from '../model-pricing'
+import type { RoutingProviderSource } from './provider-readiness'
 
 export interface ModelCandidate {
   providerId: string
@@ -18,6 +19,10 @@ export interface SuggestedTiers {
   standard?: { providerId: string; modelId: string }
   complex?: { providerId: string; modelId: string }
   reasoning?: { providerId: string; modelId: string }
+}
+
+export type SuggestTierAssignmentsOptions = {
+  sources?: RoutingProviderSource[]
 }
 
 // Modelos de raciocínio explícito (o-series, R1, reasoner, thinking, QwQ…).
@@ -58,7 +63,7 @@ export function pickTiers(candidates: ModelCandidate[]): SuggestedTiers {
   }
 }
 
-export async function suggestTierAssignments(): Promise<SuggestedTiers> {
+export async function suggestTierAssignments(options: SuggestTierAssignmentsOptions = {}): Promise<SuggestedTiers> {
   // Imports dinâmicos: a cadeia do registry puxa o cliente Prisma, que não deve
   // ser avaliada ao importar as funções puras (capabilityScore/pickTiers) em testes.
   const { getProviderModels, isProviderAvailableViaExternalApi, providerRegistry } = await import(
@@ -69,13 +74,13 @@ export async function suggestTierAssignments(): Promise<SuggestedTiers> {
   const { ensureOpenRouterPricingFresh } = await import('../openrouter-pricing')
   await ensureOpenRouterPricingFresh()
 
-  const enabledProviders = Object.keys(providerRegistry).filter(
-    (id) => isProviderEnabled(id) && isProviderAvailableViaExternalApi(id),
-  )
+  const sources = options.sources ?? Object.keys(providerRegistry)
+    .filter((id) => isProviderEnabled(id) && isProviderAvailableViaExternalApi(id))
+    .map((providerId) => ({ providerId, credentials: {}, cacheKeySuffix: 'env' }))
 
   const results = await Promise.allSettled(
-    enabledProviders.map(async (providerId) => {
-      const models = await getProviderModels(providerId)
+    sources.map(async ({ cacheKeySuffix, credentials, providerId }) => {
+      const models = await getProviderModels(providerId, { cacheKeySuffix, credentials })
       return models.map((m) => ({
         providerId,
         modelId: m.id,
