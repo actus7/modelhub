@@ -218,7 +218,7 @@ model RoutingConfig {
   userId             String   @unique
   complexityEnabled  Boolean  @default(false)
   taskRoutingEnabled Boolean  @default(false)
-  /// JSON: Record<string, {providerId: string, modelId: string}> — keyed by tier name or task category
+  /// JSON: Record<string, {providerId: string, modelId: string, fallbacks?: Array<{providerId: string, modelId: string}>}> — keyed by tier name or task category
   tiers              Json     @default("{}")
   taskOverrides      Json     @default("{}")
   createdAt          DateTime @default(now())

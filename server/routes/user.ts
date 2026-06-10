@@ -149,6 +149,9 @@ app.post("/credentials", async (c) => {
     },
   });
 
+  const { invalidateRoutingCache } = await import("../lib/routing/routing-resolver");
+  invalidateRoutingCache(userId);
+
   return c.json({ credential }, 201);
 });
 
@@ -163,6 +166,8 @@ app.delete("/credentials/:id", async (c) => {
   if (!credential) return jsonErrorResponse(404, "Credential not found");
 
   await prisma.providerCredential.delete({ where: { id: credentialId } });
+  const { invalidateRoutingCache } = await import("../lib/routing/routing-resolver");
+  invalidateRoutingCache(userId);
   return c.json({ success: true });
 });
 
@@ -289,17 +294,23 @@ app.get("/routing-config", async (c) => {
   const userId = requireAuth(c);
   if (typeof userId !== "string") return userId;
 
-  const config = await prisma.routingConfig.findUnique({ where: { userId } });
+  const { getRoutingConfig } = await import("../lib/routing/routing-resolver");
+  const config = await getRoutingConfig(userId);
   if (!config) {
     return c.json({ complexityEnabled: false, taskRoutingEnabled: false, tiers: {}, taskOverrides: {} });
   }
 
-  return c.json({
-    complexityEnabled: config.complexityEnabled,
-    taskRoutingEnabled: config.taskRoutingEnabled,
-    tiers: config.tiers,
-    taskOverrides: config.taskOverrides,
-  });
+  return c.json(config);
+});
+
+// GET /user/routing-config/providers — providers prontos para roteamento /v1 auto
+app.get("/routing-config/providers", async (c) => {
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+
+  const { getConfiguredRoutingProviders } = await import("../lib/routing/provider-readiness");
+  const providers = await getConfiguredRoutingProviders(userId);
+  return c.json({ providers });
 });
 
 // GET /user/routing-config/suggest — sugere modelos por tier (qualidade/preço)
@@ -307,8 +318,10 @@ app.get("/routing-config/suggest", async (c) => {
   const userId = requireAuth(c);
   if (typeof userId !== "string") return userId;
 
+  const { getConfiguredRoutingProviderSources } = await import("../lib/routing/provider-readiness");
   const { suggestTierAssignments } = await import("../lib/routing/tier-suggest");
-  const tiers = await suggestTierAssignments();
+  const sources = await getConfiguredRoutingProviderSources(userId);
+  const tiers = await suggestTierAssignments({ sources });
   return c.json({ tiers });
 });
 

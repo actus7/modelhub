@@ -6,6 +6,10 @@ import { getMomentumBias, recordTierAssignment } from './session-momentum'
 export interface TierConfig {
   providerId: string
   modelId: string
+  fallbacks?: Array<{
+    providerId: string
+    modelId: string
+  }>
 }
 
 export interface RoutingConfigData {
@@ -32,28 +36,94 @@ export interface RoutingResult {
   fallbacks: RoutingCandidate[]
 }
 
+function hasProvider(candidate: { providerId?: unknown } | null | undefined): candidate is { providerId: string; modelId?: string } {
+  return typeof candidate?.providerId === 'string' && candidate.providerId.length > 0
+}
+
+function candidateKey(candidate: { providerId: string; modelId?: string }): string {
+  return `${candidate.providerId.toLowerCase()}/${(candidate.modelId ?? '').toLowerCase()}`
+}
+
+function pushCandidate(
+  out: RoutingCandidate[],
+  seen: Set<string>,
+  candidate: { providerId: string; modelId?: string; tier: RoutingTier | 'default' },
+): void {
+  const key = candidateKey(candidate)
+  if (seen.has(key)) return
+  seen.add(key)
+  out.push({ providerId: candidate.providerId, modelId: candidate.modelId ?? '', tier: candidate.tier })
+}
+
+function sanitizeTierConfig(
+  config: TierConfig | undefined,
+  configuredProviderIds: Set<string>,
+): TierConfig | undefined {
+  if (!hasProvider(config)) return undefined
+  if (!configuredProviderIds.has(config.providerId)) return undefined
+
+  const fallbacks = (config.fallbacks ?? []).flatMap((fallback) => {
+    if (!hasProvider(fallback)) return []
+    if (!configuredProviderIds.has(fallback.providerId)) return []
+    return [{ providerId: fallback.providerId, modelId: fallback.modelId ?? '' }]
+  })
+
+  const sanitized: TierConfig = {
+    providerId: config.providerId,
+    modelId: config.modelId ?? '',
+  }
+  if (fallbacks.length > 0) sanitized.fallbacks = fallbacks
+  return sanitized
+}
+
+function sanitizeRoutingMap<T extends string>(
+  map: Partial<Record<T, TierConfig>>,
+  configuredProviderIds: Set<string>,
+): Partial<Record<T, TierConfig>> {
+  const sanitized: Partial<Record<T, TierConfig>> = {}
+  for (const [key, config] of Object.entries(map) as Array<[T, TierConfig | undefined]>) {
+    const sanitizedConfig = sanitizeTierConfig(config, configuredProviderIds)
+    if (sanitizedConfig) sanitized[key] = sanitizedConfig
+  }
+  return sanitized
+}
+
 // Coleta os modelos configurados nos tiers como pool de fallback, ordenados do
 // mais capaz (reasoning) ao mais simples, deduplicados por provider/modelo.
-function collectCandidates(config: RoutingConfigData): RoutingCandidate[] {
+function collectTierCandidates(config: RoutingConfigData, seen: Set<string>): RoutingCandidate[] {
   const order: Array<RoutingTier | 'default'> = ['reasoning', 'complex', 'standard', 'simple', 'default']
-  const seen = new Set<string>()
   const out: RoutingCandidate[] = []
   for (const tier of order) {
     const cfg = config.tiers[tier]
-    if (!cfg || !cfg.providerId || !cfg.modelId) continue
-    const key = `${cfg.providerId}/${cfg.modelId}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    out.push({ providerId: cfg.providerId, modelId: cfg.modelId, tier })
+    if (!hasProvider(cfg)) continue
+    pushCandidate(out, seen, { providerId: cfg.providerId, modelId: cfg.modelId, tier })
   }
   return out
 }
 
-function withFallbacks(result: Omit<RoutingResult, 'fallbacks'>, config: RoutingConfigData): RoutingResult {
-  const primaryKey = `${result.providerId.toLowerCase()}/${result.modelId.toLowerCase()}`
-  const fallbacks = collectCandidates(config).filter(
-    (c) => `${c.providerId.toLowerCase()}/${c.modelId.toLowerCase()}` !== primaryKey,
-  )
+function collectExplicitFallbacks(
+  assignment: TierConfig | undefined,
+  fallbackTier: RoutingTier | 'default',
+  seen: Set<string>,
+): RoutingCandidate[] {
+  const out: RoutingCandidate[] = []
+  for (const fallback of assignment?.fallbacks ?? []) {
+    if (!hasProvider(fallback)) continue
+    pushCandidate(out, seen, { providerId: fallback.providerId, modelId: fallback.modelId, tier: fallbackTier })
+  }
+  return out
+}
+
+function withFallbacks(
+  result: Omit<RoutingResult, 'fallbacks'>,
+  config: RoutingConfigData,
+  assignment?: TierConfig,
+): RoutingResult {
+  const seen = new Set<string>([candidateKey(result)])
+  const fallbacks = [
+    ...collectExplicitFallbacks(assignment, result.tier, seen),
+    ...collectTierCandidates(config, seen),
+  ]
   return { ...result, fallbacks }
 }
 
@@ -71,11 +141,22 @@ export async function getRoutingConfig(userId: string): Promise<RoutingConfigDat
     return null
   }
 
+  const { getConfiguredRoutingProviderIds } = await import('./provider-readiness')
+  const configuredProviderIds = await getConfiguredRoutingProviderIds(userId)
+  const tiers = sanitizeRoutingMap(
+    (row.tiers as unknown as Partial<Record<RoutingTier | 'default', TierConfig>>) ?? {},
+    configuredProviderIds,
+  )
+  const taskOverrides = sanitizeRoutingMap(
+    (row.taskOverrides as unknown as Partial<Record<TaskCategory, TierConfig>>) ?? {},
+    configuredProviderIds,
+  )
+
   const data: RoutingConfigData = {
     complexityEnabled: row.complexityEnabled,
     taskRoutingEnabled: row.taskRoutingEnabled,
-    tiers: (row.tiers as unknown as Record<string, TierConfig>) ?? {},
-    taskOverrides: (row.taskOverrides as unknown as Record<string, TierConfig>) ?? {},
+    tiers,
+    taskOverrides,
   }
 
   configCache.set(userId, { data, expiresAt: Date.now() + CONFIG_CACHE_TTL_MS })
@@ -113,7 +194,7 @@ export async function resolveRouting(input: {
         tier: forcedTier,
         reason: 'header_override',
         taskCategory: null,
-      }, config)
+      }, config, tierConfig)
     }
   }
 
@@ -129,7 +210,7 @@ export async function resolveRouting(input: {
           tier: 'default',
           reason: 'task_specific',
           taskCategory: taskResult.category,
-        }, config)
+        }, config, taskConfig)
       }
     }
   }
@@ -164,7 +245,7 @@ export async function resolveRouting(input: {
         reason,
         taskCategory: null,
         complexityScore: scored.rawScore,
-      }, config)
+      }, config, tierConfig)
     }
   }
 
@@ -177,7 +258,7 @@ export async function resolveRouting(input: {
       tier: 'default',
       reason: 'config_default',
       taskCategory: null,
-    }, config)
+    }, config, defaultConfig)
   }
 
   return null

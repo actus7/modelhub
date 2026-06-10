@@ -1,15 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckIcon, CopyIcon, Loader2Icon, RouteIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, Loader2Icon, PlusIcon, RouteIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
-import { useAppState } from "@/components/app-state-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiJson, apiJsonRequest } from "@/lib/api";
-import type { ProviderModel, RoutingConfigSummary, TierAssignment } from "@/lib/contracts";
+import type { ProviderModel, RoutingConfigSummary, TierAssignment, UiProvider } from "@/lib/contracts";
 
 const TIERS = [
   { id: "simple", label: "Simples", description: "Perguntas diretas, bate-papo casual" },
@@ -30,6 +29,67 @@ const TASK_CATEGORIES = [
   { id: "trading", label: "Trading" },
 ] as const;
 
+const NO_PROVIDER_VALUE = "__none__";
+const MAX_FALLBACKS = 2;
+
+type ProviderOption = {
+  id: string;
+  label: string;
+  base: string;
+  hasModels: boolean;
+  localModels?: ProviderModel[];
+};
+
+function emptyAssignment(): TierAssignment {
+  return { providerId: "", modelId: "", fallbacks: [] };
+}
+
+function dedupeFallbacks(
+  assignment: TierAssignment,
+  availableProviderIds: Set<string>,
+): NonNullable<TierAssignment["fallbacks"]> {
+  const primaryKey = `${assignment.providerId.toLowerCase()}/${assignment.modelId.toLowerCase()}`;
+  const seen = new Set([primaryKey]);
+  const fallbacks: NonNullable<TierAssignment["fallbacks"]> = [];
+
+  for (const fallback of assignment.fallbacks ?? []) {
+    if (!fallback.providerId) continue;
+    if (!availableProviderIds.has(fallback.providerId)) continue;
+    const key = `${fallback.providerId.toLowerCase()}/${fallback.modelId.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    fallbacks.push({ providerId: fallback.providerId, modelId: fallback.modelId });
+  }
+
+  return fallbacks;
+}
+
+function compactAssignment(
+  assignment: TierAssignment | undefined,
+  availableProviderIds: Set<string>,
+): TierAssignment | null {
+  if (!assignment?.providerId) return null;
+  if (!availableProviderIds.has(assignment.providerId)) return null;
+
+  const compacted: TierAssignment = {
+    providerId: assignment.providerId,
+    modelId: assignment.modelId,
+  };
+  const fallbacks = dedupeFallbacks(assignment, availableProviderIds);
+  if (fallbacks.length > 0) compacted.fallbacks = fallbacks;
+  return compacted;
+}
+
+function compactAssignmentMap(
+  assignments: Record<string, TierAssignment>,
+  availableProviderIds: Set<string>,
+): Record<string, TierAssignment> {
+  return Object.fromEntries(
+    Object.entries(assignments)
+      .map(([key, assignment]) => [key, compactAssignment(assignment, availableProviderIds)] as const)
+      .filter((entry): entry is [string, TierAssignment] => entry[1] !== null),
+  );
+}
 
 function ModelSelector({
   providerId,
@@ -39,7 +99,7 @@ function ModelSelector({
 }: {
   providerId: string;
   modelId: string;
-  providers: Array<{ id: string; label: string; base: string; hasModels: boolean; localModels?: ProviderModel[] }>;
+  providers: ProviderOption[];
   onChange: (providerId: string, modelId: string) => void;
 }) {
   const [models, setModels] = useState<ProviderModel[]>([]);
@@ -82,15 +142,15 @@ function ModelSelector({
   return (
     <div className="flex gap-2">
       <Select
-        value={providerId}
-        onValueChange={(v) => onChange(v, "")}
+        value={providerId || NO_PROVIDER_VALUE}
+        onValueChange={(v) => onChange(v === NO_PROVIDER_VALUE ? "" : v, "")}
       >
         <SelectTrigger className="flex-1 text-xs">
           <SelectValue placeholder="Provider" />
         </SelectTrigger>
         <SelectContent>
           <SelectGroup>
-            <SelectItem value="">Nenhum</SelectItem>
+            <SelectItem value={NO_PROVIDER_VALUE}>Nenhum</SelectItem>
             {providers.map((p) => (
               <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
             ))}
@@ -117,9 +177,94 @@ function ModelSelector({
   );
 }
 
+function RoutingAssignmentEditor({
+  assignment,
+  providers,
+  onChange,
+}: {
+  assignment: TierAssignment | undefined;
+  providers: ProviderOption[];
+  onChange: (assignment: TierAssignment) => void;
+}) {
+  const current = assignment ?? emptyAssignment();
+  const fallbacks = current.fallbacks ?? [];
+
+  function setPrimary(providerId: string, modelId: string) {
+    onChange({ ...current, providerId, modelId });
+  }
+
+  function setFallback(index: number, providerId: string, modelId: string) {
+    const nextFallbacks = [...fallbacks];
+    nextFallbacks[index] = { providerId, modelId };
+    onChange({ ...current, fallbacks: nextFallbacks });
+  }
+
+  function removeFallback(index: number) {
+    onChange({ ...current, fallbacks: fallbacks.filter((_, i) => i !== index) });
+  }
+
+  function addFallback() {
+    if (fallbacks.length >= MAX_FALLBACKS) return;
+    onChange({ ...current, fallbacks: [...fallbacks, { providerId: "", modelId: "" }] });
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
+        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Principal</p>
+        <ModelSelector
+          providerId={current.providerId}
+          modelId={current.modelId}
+          providers={providers}
+          onChange={setPrimary}
+        />
+      </div>
+
+      {fallbacks.map((fallback, index) => (
+        <div key={index} className="grid items-end gap-2 sm:grid-cols-[1fr_auto]">
+          <div className="flex flex-col gap-1.5">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              Fallback {index + 1}
+            </p>
+            <ModelSelector
+              providerId={fallback.providerId}
+              modelId={fallback.modelId}
+              providers={providers}
+              onChange={(providerId, modelId) => setFallback(index, providerId, modelId)}
+            />
+          </div>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`Remover fallback ${index + 1}`}
+            onClick={() => removeFallback(index)}
+          >
+            <Trash2Icon />
+          </Button>
+        </div>
+      ))}
+
+      <div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          disabled={!current.providerId || fallbacks.length >= MAX_FALLBACKS}
+          onClick={addFallback}
+        >
+          <PlusIcon data-icon="inline-start" />
+          Adicionar fallback
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function RoutingSection() {
-  const { providers } = useAppState();
   const [, setConfig] = useState<RoutingConfigSummary | null>(null);
+  const [routingProviders, setRoutingProviders] = useState<UiProvider[]>([]);
+  const [routingProvidersLoaded, setRoutingProvidersLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -134,13 +279,22 @@ export function RoutingSection() {
     void (async () => {
       setLoading(true);
       try {
-        const data = await apiJson<RoutingConfigSummary>("/user/routing-config");
+        const [data, routingProviderData] = await Promise.all([
+          apiJson<RoutingConfigSummary>("/user/routing-config"),
+          apiJson<{ providers: UiProvider[] }>("/user/routing-config/providers"),
+        ]);
+        const nextRoutingProviders = routingProviderData.providers ?? [];
+        const nextProviderIds = new Set(nextRoutingProviders.map((provider) => provider.id));
         setConfig(data);
+        setRoutingProviders(nextRoutingProviders);
+        setRoutingProvidersLoaded(true);
         setComplexityEnabled(data.complexityEnabled);
         setTaskRoutingEnabled(data.taskRoutingEnabled);
-        setTiers(data.tiers ?? {});
-        setTaskOverrides(data.taskOverrides ?? {});
+        setTiers(compactAssignmentMap(data.tiers ?? {}, nextProviderIds));
+        setTaskOverrides(compactAssignmentMap(data.taskOverrides ?? {}, nextProviderIds));
       } catch (e) {
+        setRoutingProviders([]);
+        setRoutingProvidersLoaded(false);
         toast.error(e instanceof Error ? e.message : "Falha ao carregar configuração de routing.");
       } finally {
         setLoading(false);
@@ -148,34 +302,44 @@ export function RoutingSection() {
     })();
   }, []);
 
-  function setTierAssignment(tierId: string, providerId: string, modelId: string) {
+  function setTierAssignment(tierId: string, assignment: TierAssignment) {
     setTiers((prev) => ({
       ...prev,
-      [tierId]: { providerId, modelId },
+      [tierId]: assignment,
     }));
   }
 
-  function setTaskAssignment(taskId: string, providerId: string, modelId: string) {
+  function setTaskAssignment(taskId: string, assignment: TierAssignment) {
     setTaskOverrides((prev) => {
-      if (!providerId) {
+      if (!assignment.providerId) {
         const next = { ...prev };
         delete next[taskId];
         return next;
       }
-      return { ...prev, [taskId]: { providerId, modelId } };
+      return { ...prev, [taskId]: assignment };
     });
   }
 
   async function handleSave() {
+    if (!routingProvidersLoaded) {
+      toast.error("Não foi possível validar os providers configurados para routing.");
+      return;
+    }
+
     setSaving(true);
     try {
+      const availableProviderIds = new Set(routingProviders.map((provider) => provider.id));
+      const compactTiers = compactAssignmentMap(tiers, availableProviderIds);
+      const compactTaskOverrides = compactAssignmentMap(taskOverrides, availableProviderIds);
       const updated = await apiJsonRequest<RoutingConfigSummary>("/user/routing-config", "PATCH", {
         complexityEnabled,
         taskRoutingEnabled,
-        tiers,
-        taskOverrides,
+        tiers: compactTiers,
+        taskOverrides: compactTaskOverrides,
       });
       setConfig(updated);
+      setTiers(updated.tiers ?? compactTiers);
+      setTaskOverrides(updated.taskOverrides ?? compactTaskOverrides);
       toast.success("Configuração de routing salva.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao salvar routing.");
@@ -192,7 +356,13 @@ export function RoutingSection() {
         toast.error("Nenhum modelo disponível para sugerir. Conecte provedores primeiro.");
         return;
       }
-      setTiers((prev) => ({ ...prev, ...data.tiers }));
+      setTiers((prev) => {
+        const next = { ...prev };
+        for (const [tierId, assignment] of Object.entries(data.tiers)) {
+          next[tierId] = { ...assignment, fallbacks: prev[tierId]?.fallbacks ?? [] };
+        }
+        return next;
+      });
       toast.success("Modelos sugeridos preenchidos. Revise e salve.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao sugerir modelos.");
@@ -221,7 +391,7 @@ export function RoutingSection() {
     );
   }
 
-  const availableProviders = providers.filter((p) => p.hasModels);
+  const readyProviders = routingProvidersLoaded ? routingProviders : [];
 
   return (
     <div className="flex flex-col gap-4 md:gap-6">
@@ -277,14 +447,14 @@ export function RoutingSection() {
               <div className="space-y-1.5">
                 <CardTitle>Modelos por tier de complexidade</CardTitle>
                 <CardDescription>
-                  Defina qual modelo usar para cada nível. Tiers sem modelo configurado usam o default do provider.
+                  Defina o modelo primário e a ordem de fallback para cada nível.
                 </CardDescription>
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 className="shrink-0"
-                disabled={suggesting}
+                disabled={suggesting || readyProviders.length === 0}
                 onClick={() => void handleSuggestTiers()}
               >
                 {suggesting && <Loader2Icon className="mr-2 size-3 animate-spin" />}
@@ -300,11 +470,10 @@ export function RoutingSection() {
                     <p className="text-sm font-medium">{tier.label}</p>
                     <p className="text-xs text-muted-foreground">{tier.description}</p>
                   </div>
-                  <ModelSelector
-                    providerId={tiers[tier.id]?.providerId ?? ""}
-                    modelId={tiers[tier.id]?.modelId ?? ""}
-                    providers={availableProviders}
-                    onChange={(pId, mId) => setTierAssignment(tier.id, pId, mId)}
+                  <RoutingAssignmentEditor
+                    assignment={tiers[tier.id]}
+                    providers={readyProviders}
+                    onChange={(assignment) => setTierAssignment(tier.id, assignment)}
                   />
                 </div>
               ))}
@@ -324,13 +493,12 @@ export function RoutingSection() {
           <CardContent>
             <div className="space-y-4">
               {TASK_CATEGORIES.map((task) => (
-                <div key={task.id} className="grid items-center gap-2 sm:grid-cols-[160px_1fr]">
-                  <p className="text-sm font-medium">{task.label}</p>
-                  <ModelSelector
-                    providerId={taskOverrides[task.id]?.providerId ?? ""}
-                    modelId={taskOverrides[task.id]?.modelId ?? ""}
-                    providers={availableProviders}
-                    onChange={(pId, mId) => setTaskAssignment(task.id, pId, mId)}
+                <div key={task.id} className="grid items-start gap-2 sm:grid-cols-[160px_1fr]">
+                  <p className="pt-2 text-sm font-medium">{task.label}</p>
+                  <RoutingAssignmentEditor
+                    assignment={taskOverrides[task.id]}
+                    providers={readyProviders}
+                    onChange={(assignment) => setTaskAssignment(task.id, assignment)}
                   />
                 </div>
               ))}
@@ -359,7 +527,7 @@ export function RoutingSection() {
       </Card>
 
       <div className="flex justify-end">
-        <Button disabled={saving} onClick={() => void handleSave()}>
+        <Button disabled={saving || !routingProvidersLoaded} onClick={() => void handleSave()}>
           {saving && <Loader2Icon className="mr-2 size-3 animate-spin" />}
           Salvar configuração
         </Button>
