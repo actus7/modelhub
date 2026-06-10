@@ -2,6 +2,11 @@ import { createProviderApp } from '../lib/provider-core'
 import { chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
 
 const NVIDIA_NIM_MODELS_URL = 'https://integrate.api.nvidia.com/v1/models'
+const NON_CHAT_MODEL_RE = /(^|[/-])(embed|embedding|rerank|retrieval|retriever)([/-]|$)|content-safety|guardrail|moderation/i
+
+export function isNvidiaNimChatModel(model: { id: string }): boolean {
+  return !NON_CHAT_MODEL_RE.test(model.id)
+}
 
 export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'nvidia/nemotron-3-super-120b-a12b', name: 'Nemotron 3 Super 120B A12B' },
@@ -59,6 +64,7 @@ const app = createProviderApp({
     modelsUrl: NVIDIA_NIM_MODELS_URL,
     apiKeyEnv: 'NVIDIA_NIM_API_KEY',
     providerName: 'NVIDIA NIM',
+    filter: isNvidiaNimChatModel,
   }),
   testCredentials: (credentials) =>
     testViaOpenAiModels(
