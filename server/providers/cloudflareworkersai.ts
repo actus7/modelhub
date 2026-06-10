@@ -48,9 +48,10 @@ const app = createProviderApp({
     try {
       const token = resolveEnv('CLOUDFLARE_API_TOKEN', credentials)
       const accountId = resolveEnv('CLOUDFLARE_ACCOUNT_ID', credentials)
+      const modelPath = encodeCloudflareModelPath(modelId)
 
       const response = await postJsonWithTimeout(
-        `${process.env.CLOUDFLARE_AI_BASE_URL || 'https://api.cloudflare.com/client/v4'}/accounts/${accountId}/ai/run/${encodeURIComponent(modelId)}`,
+        `${process.env.CLOUDFLARE_AI_BASE_URL || 'https://api.cloudflare.com/client/v4'}/accounts/${accountId}/ai/run/${modelPath}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -110,6 +111,13 @@ export async function fetchCloudflareModels(credentials?: Record<string, string>
     id: m.name,
     name: `${m.name} (Cloudflare Workers AI)`,
   }))
+}
+
+function encodeCloudflareModelPath(modelId: string): string {
+  return modelId
+    .split('/')
+    .map((segment) => encodeURIComponent(segment).replace(/%40/gi, '@'))
+    .join('/')
 }
 
 export default app.fetch
