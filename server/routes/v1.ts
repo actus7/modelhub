@@ -208,7 +208,14 @@ app.use('*', protectedCors)
 
 // GET /v1/models — aggregated model list in OpenAI format (dynamic + cached)
 app.get('/v1/models', async (c) => {
-  const data: Array<{ id: string; object: string; created: number; owned_by: string }> = []
+  const data: Array<{
+    capabilities: import('../lib/provider-core').ProviderModel['capabilities']
+    created: number
+    id: string
+    name: string
+    object: string
+    owned_by: string
+  }> = []
   const now = Math.floor(Date.now() / 1000)
 
   const enabledProviders = Object.keys(providerRegistry).filter(
@@ -227,7 +234,9 @@ app.get('/v1/models', async (c) => {
     const { providerId, models } = result.value
     for (const model of models) {
       data.push({
+        capabilities: model.capabilities,
         id: `${providerId}/${model.id}`,
+        name: model.name,
         object: 'model',
         created: now,
         owned_by: providerId,
