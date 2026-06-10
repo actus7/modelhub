@@ -599,6 +599,12 @@ function extractSseTextDelta(parsed: OpenAiSseChunk | null): string {
 const HIDDEN_REASONING_OPEN_RE = /<\s*(?:thought|think|reasoning)\b[^>]*>/i
 const HIDDEN_REASONING_CLOSE_RE = /<\s*\/\s*(?:thought|think|reasoning)\s*>/i
 const HIDDEN_REASONING_TAG_NAMES = ['thought', 'think', 'reasoning']
+const HIDDEN_REASONING_TAG_BOUNDARY_RE = /^(?:thought|think|reasoning)\b/i
+
+function couldBecomeHiddenReasoningTagName(normalized: string): boolean {
+  return HIDDEN_REASONING_TAG_NAMES.some((tag) => tag.startsWith(normalized)) ||
+    HIDDEN_REASONING_TAG_BOUNDARY_RE.test(normalized)
+}
 
 function splitPotentialHiddenReasoningTag(text: string): { emit: string; pending: string } {
   const lastOpen = text.lastIndexOf('<')
@@ -606,9 +612,7 @@ function splitPotentialHiddenReasoningTag(text: string): { emit: string; pending
 
   const suffix = text.slice(lastOpen).toLowerCase()
   const normalized = suffix.replace(/^<\s*\/?\s*/, '')
-  const couldBecomeHiddenTag = HIDDEN_REASONING_TAG_NAMES.some((tag) =>
-    tag.startsWith(normalized) || normalized.startsWith(tag),
-  )
+  const couldBecomeHiddenTag = couldBecomeHiddenReasoningTagName(normalized)
 
   if (!couldBecomeHiddenTag) return { emit: text, pending: '' }
   return { emit: text.slice(0, lastOpen), pending: text.slice(lastOpen) }
@@ -621,7 +625,7 @@ function getPotentialHiddenReasoningClose(text: string): string {
   const suffix = text.slice(lastOpen).toLowerCase()
   const normalized = suffix.replace(/^<\s*\/?\s*/, '')
   const couldBecomeClose = suffix.startsWith('</') &&
-    HIDDEN_REASONING_TAG_NAMES.some((tag) => tag.startsWith(normalized) || normalized.startsWith(tag))
+    couldBecomeHiddenReasoningTagName(normalized)
 
   return couldBecomeClose ? text.slice(lastOpen) : ''
 }

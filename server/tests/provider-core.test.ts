@@ -335,4 +335,26 @@ describe("hidden reasoning sanitization", () => {
     expect(body).not.toContain("hidden");
     expect(body).toContain('d:{"finishReason":"stop"}');
   });
+
+  it("does not buffer normal words that start with hidden tag names", async () => {
+    const response = toVercelSingleTextResponse("I am <thinking> about a thoughtful answer.");
+
+    await expect(readText(response)).resolves.toContain('0:"I am <thinking> about a thoughtful answer."');
+  });
+
+  it("does not treat unsupported closing tags as pending forever inside hidden blocks", async () => {
+    const upstream = [
+      'data: {"choices":[{"delta":{"content":"visible <think>hidden </thinking> still hidden"}}]}',
+      'data: {"choices":[{"delta":{"content":"</think> done"}}]}',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}',
+      "",
+    ].join("\n\n");
+
+    const response = toVercelStreamFromOpenAiSse(new Response(upstream));
+    const body = await response.text();
+
+    expect(extractVercelText(body)).toBe("visible  done");
+    expect(body).not.toContain("hidden");
+    expect(body).toContain('d:{"finishReason":"stop"}');
+  });
 });
