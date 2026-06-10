@@ -11,6 +11,7 @@ vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
 
 const { chatViaOpenAiCompatible, createOpenAiFetchModels } = await import("../lib/openai-compatible");
+const { isNvidiaNimChatModel } = await import("../providers/nvidianim");
 
 describe("OpenAI-compatible provider helpers", () => {
   const originalFetch = globalThis.fetch;
@@ -102,6 +103,31 @@ describe("OpenAI-compatible provider helpers", () => {
       ["tool-model", true],
       ["text-model", false],
       ["capability-model", false],
+    ]);
+  });
+
+  it("filters NVIDIA NIM utility models out of chat model discovery", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [
+        { id: "nvidia/llama-nemotron-embed-vl-1b-v2" },
+        { id: "nvidia/nemotron-content-safety-reasoning-4b" },
+        { id: "nvidia/llama-3.3-nemotron-super-49b-v1.5" },
+        { id: "openai/gpt-oss-20b" },
+      ],
+    }), { headers: { "content-type": "application/json" }, status: 200 }));
+
+    const fetchModels = createOpenAiFetchModels({
+      apiKeyEnv: "NVIDIA_NIM_API_KEY",
+      filter: isNvidiaNimChatModel,
+      modelsUrl: "https://integrate.api.nvidia.com/v1/models",
+      providerName: "NVIDIA NIM",
+    });
+
+    const models = await fetchModels({ NVIDIA_NIM_API_KEY: "nvapi-test" });
+
+    expect(models.map((model) => model.id)).toEqual([
+      "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+      "openai/gpt-oss-20b",
     ]);
   });
 });

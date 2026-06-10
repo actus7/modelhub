@@ -14,7 +14,7 @@ import groqFetch, { models as groqModels } from "./groq";
 import huggingFaceFetch, { models as huggingfaceModels } from "./huggingface";
 import mistralFetch, { models as mistralModels } from "./mistral";
 import moonshotFetch, { models as moonshotModels } from "./moonshot";
-import nvidiaNimFetch, { models as nvidianimModels } from "./nvidianim";
+import nvidiaNimFetch, { isNvidiaNimChatModel, models as nvidianimModels } from "./nvidianim";
 import openaiFetch, { models as openaiModels } from "./openai";
 import qwenFetch, { models as qwenModels } from "./qwen";
 import xaiFetch, { models as xaiModels } from "./xai";
@@ -92,7 +92,7 @@ export const providerRegistry: Record<string, ProviderEntry> = {
   nvidianim: {
     handler: nvidiaNimFetch,
     models: nvidianimModels,
-    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://integrate.api.nvidia.com/v1/models', apiKeyEnv: 'NVIDIA_NIM_API_KEY', providerName: 'NVIDIA NIM' }),
+    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://integrate.api.nvidia.com/v1/models', apiKeyEnv: 'NVIDIA_NIM_API_KEY', providerName: 'NVIDIA NIM', filter: isNvidiaNimChatModel }),
   },
   opencodezen: {
     handler: openCodeZenFetch,
