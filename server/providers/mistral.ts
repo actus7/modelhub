@@ -5,6 +5,7 @@ import { normalizeMistralToolCallIds } from '../lib/provider-quirks'
 export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'mistral-small-latest', name: 'Mistral Small Latest' },
   { capabilities: { documents: true, images: false, tools: true }, id: 'ministral-3b-latest', name: 'Ministral 3B Latest' },
+  { capabilities: { documents: true, images: false, tools: true }, id: 'codestral-latest', name: 'Codestral Latest' },
 ]
 
 const app = createProviderApp({

@@ -3,7 +3,6 @@ import bytePlusCodingFetch, { models as bytepluscodingModels, fetchModels as fet
 import ollamaFetch, { models as ollamaModels, fetchOllamaModels } from "./ollama";
 import ollamaCloudFetch, { models as ollamacloudModels, fetchModels as fetchOllamaCloudModels } from "./ollamacloud";
 import cloudflareWorkersAiFetch, { models as cloudflareworkersaiModels, fetchCloudflareModels } from "./cloudflareworkersai";
-import codestralFetch, { models as codestralModels } from "./codestral";
 import cohereFetch, { models as cohereModels, fetchCohereModels } from "./cohere";
 import commandCodeFetch, { models as commandcodeModels, fetchModels as fetchCommandCodeModels } from "./commandcode";
 import copilotFetch, { models as copilotModels, fetchModels as fetchCopilotModels } from "./copilot";
@@ -23,8 +22,6 @@ import openaiFetch, { models as openaiModels } from "./openai";
 import openCodeGoFetch, { models as opencodegoModels, fetchModels as fetchOpenCodeGoModels } from "./opencodego";
 import qwenFetch, { models as qwenModels } from "./qwen";
 import qwenTokenFetch, { models as qwentokenModels, fetchModels as fetchQwenTokenModels } from "./qwentoken";
-import xaiFetch, { models as xaiModels } from "./xai";
-import xaiSubscriptionFetch, { models as xaisubscriptionModels } from "./xaisubscription";
 import xiaomiAiStudioFetch, { XIAOMI_STUDIO_MODELS, fetchXiaomiStudioModels } from "./xiaomiaistudio";
 import xiaomiTokenFetch, { models as xiaomitokenModels, fetchModels as fetchXiaomiTokenModels } from "./xiaomitoken";
 import zaiFetch, { models as zaiModels } from "./zai";
@@ -62,11 +59,6 @@ export const providerRegistry: Record<string, ProviderEntry> = {
     fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.cerebras.ai/v1/models', apiKeyEnv: 'CEREBRAS_API_KEY', providerName: 'Cerebras' }),
   },
   cloudflareworkersai: { handler: cloudflareWorkersAiFetch, models: cloudflareworkersaiModels, fetchModels: fetchCloudflareModels },
-  codestral: {
-    handler: codestralFetch,
-    models: codestralModels,
-    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://codestral.mistral.ai/v1/models', apiKeyEnv: 'CODESTRAL_API_KEY', providerName: 'Mistral Codestral' }),
-  },
   cohere: { handler: cohereFetch, models: cohereModels, fetchModels: fetchCohereModels },
   commandcode: {
     handler: commandCodeFetch,
@@ -163,16 +155,6 @@ export const providerRegistry: Record<string, ProviderEntry> = {
     handler: openCodeGoFetch,
     models: opencodegoModels,
     fetchModels: fetchOpenCodeGoModels,
-  },
-  xai: {
-    handler: xaiFetch,
-    models: xaiModels,
-    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.x.ai/v1/models', apiKeyEnv: 'XAI_API_KEY', providerName: 'xAI' }),
-  },
-  xaisubscription: {
-    handler: xaiSubscriptionFetch,
-    models: xaisubscriptionModels,
-    fetchModels: createOpenAiFetchModels({ modelsUrl: 'https://api.x.ai/v1/models', apiKeyEnv: 'XAI_OAUTH_TOKEN', providerName: 'xAI Grok Subscription' }),
   },
   moonshot: {
     handler: moonshotFetch,

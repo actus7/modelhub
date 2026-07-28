@@ -106,7 +106,6 @@ const SUBSCRIPTION_PROVIDER_IDS = new Set([
   "openai",
   "opencodego",
   "qwentoken",
-  "xaisubscription",
   "xiaomitoken",
   "zaicoding",
 ]);
@@ -661,13 +660,18 @@ export function SetupPage() {
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="relative w-full md:max-w-sm">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+          <input
+            type="text"
+            inputMode="search"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onInput={(event) => setQuery(event.currentTarget.value)}
             placeholder="Buscar provider, tipo ou chave"
-            className="pl-9"
+            className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent py-1 pl-9 pr-2.5 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
           />
         </div>
+
         <p className="text-xs text-muted-foreground">
           {visibleProviders.length} de {providers.length} integracoes
         </p>

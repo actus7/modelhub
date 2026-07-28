@@ -30,21 +30,21 @@ describe('resolveRouting fallbacks', () => {
     mocks.getConfiguredRoutingProviderModelReadiness.mockResolvedValue({
       providerIds: new Set([
         'anthropic',
-        'codestral',
+        'mistral',
         'deepseek',
         'groq',
         'openai',
-        'xai',
       ]),
       modelKeys: new Set([
         'anthropic/claude-sonnet',
-        'codestral/codestral-latest',
+        'mistral/codestral-latest',
         'deepseek/deepseek-coder',
         'groq/',
         'groq/llama-8b',
         'openai/gpt-main',
-        'xai/grok-reasoning',
+        'openai/o3-mini',
       ]),
+
     })
     invalidateRoutingCache('user-1')
   })
@@ -64,7 +64,7 @@ describe('resolveRouting fallbacks', () => {
           ],
         },
         standard: { providerId: 'openai', modelId: 'gpt-main' },
-        reasoning: { providerId: 'xai', modelId: 'grok-reasoning' },
+        reasoning: { providerId: 'openai', modelId: 'o3-mini' },
       },
       taskOverrides: {},
     })
@@ -83,7 +83,7 @@ describe('resolveRouting fallbacks', () => {
     expect(result?.fallbacks).toEqual([
       { providerId: 'anthropic', modelId: 'claude-sonnet', tier: 'simple' },
       { providerId: 'groq', modelId: '', tier: 'simple' },
-      { providerId: 'xai', modelId: 'grok-reasoning', tier: 'reasoning' },
+      { providerId: 'openai', modelId: 'o3-mini', tier: 'reasoning' },
     ])
   })
 
@@ -97,7 +97,7 @@ describe('resolveRouting fallbacks', () => {
       },
       taskOverrides: {
         coding: {
-          providerId: 'codestral',
+          providerId: 'mistral',
           modelId: 'codestral-latest',
           fallbacks: [{ providerId: 'deepseek', modelId: 'deepseek-coder' }],
         },
@@ -110,7 +110,7 @@ describe('resolveRouting fallbacks', () => {
     })
 
     expect(result).toMatchObject({
-      providerId: 'codestral',
+      providerId: 'mistral',
       modelId: 'codestral-latest',
       reason: 'task_specific',
       taskCategory: 'coding',
