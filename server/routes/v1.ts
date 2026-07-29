@@ -9,9 +9,11 @@ import { resolveMaxOutputTokens } from '@/lib/model-output-limits'
 import { providerRegistry, getProviderModels, isProviderAvailableViaExternalApi } from '../providers/registry'
 import { resolveRouting, type RoutingResult, type RoutingCandidate } from '../lib/routing/routing-resolver'
 import type { RoutingTier } from '../lib/routing/complexity-scorer'
-import { shouldTriggerFallback, isInCooldown, recordCooldown } from '../lib/routing/fallback'
+import { shouldTriggerFallback, isInCooldown, recordCooldown, recordTransientCooldown } from '../lib/routing/fallback'
 
 const VALID_TIERS: RoutingTier[] = ['simple', 'standard', 'complex', 'reasoning']
+const AUTO_ROUTING_CANDIDATE_TIMEOUT_MS = Number(process.env.AUTO_ROUTING_CANDIDATE_TIMEOUT_MS ?? 45_000)
+const AUTO_ROUTING_TIMEOUT_COOLDOWN_MS = 60_000
 
 function parseProviderAndModel(unifiedModelId: string): { providerId: string; modelId: string } | null {
   const slashIndex = unifiedModelId.indexOf('/')
@@ -141,6 +143,7 @@ async function dispatchToProvider(
   body: Record<string, unknown>,
   routingMeta: RoutingMeta | null,
   fallbackFrom?: string,
+  signal?: AbortSignal,
 ): Promise<Response> {
   const entry = providerRegistry[providerId]
 
@@ -172,6 +175,7 @@ async function dispatchToProvider(
     method: 'POST',
     headers: internalHeaders,
     body: JSON.stringify(proxyBody),
+    signal,
   })
 
   return entry.handler(internalRequest)
@@ -215,14 +219,38 @@ async function forwardAutoWithFallback(
       reason: isFallback ? 'fallback' : resolved.routing.reason,
       taskCategory: isFallback ? null : resolved.routing.taskCategory,
     }
-    const response = await dispatchToProvider(
-      c,
-      cand.providerId,
-      cand.modelId,
-      body,
-      meta,
-      isFallback ? primaryModel : undefined,
-    )
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let response: Response
+    try {
+      const timeout = new Promise<Response>((_, reject) => {
+        timer = setTimeout(() => {
+          controller.abort()
+          reject(new DOMException('Provider timed out', 'AbortError'))
+        }, AUTO_ROUTING_CANDIDATE_TIMEOUT_MS)
+      })
+      response = await Promise.race([
+        dispatchToProvider(
+          c,
+          cand.providerId,
+          cand.modelId,
+          body,
+          meta,
+          isFallback ? primaryModel : undefined,
+          controller.signal,
+        ),
+        timeout,
+      ])
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        recordTransientCooldown(cand.providerId, cand.modelId, AUTO_ROUTING_TIMEOUT_COOLDOWN_MS)
+        response = jsonErrorResponse(504, `Provider/model timed out: ${cand.providerId}/${cand.modelId}`)
+      } else {
+        response = jsonErrorResponse(503, error instanceof Error ? error.message : 'Provider request failed')
+      }
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
     recordCooldown(cand.providerId, cand.modelId, response.status, response.headers.get('retry-after'))
 
     if (response.ok) {
