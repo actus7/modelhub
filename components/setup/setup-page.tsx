@@ -1,7 +1,7 @@
-"use client";
+"use client"
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
+import { useMemo, useState } from "react"
+import Link from "next/link"
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
@@ -19,11 +19,11 @@ import {
   ServerIcon,
   SparklesIcon,
   Trash2Icon,
-} from "lucide-react";
-import type { LucideIcon } from "lucide-react";
-import { toast } from "sonner";
+} from "lucide-react"
+import type { LucideIcon } from "lucide-react"
+import { toast } from "sonner"
 
-import { useAppState } from "@/components/app-state-provider";
+import { useAppState } from "@/components/app-state-provider"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,15 +33,15 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-import { apiJsonRequest, testProviderCredentials } from "@/lib/api";
-import type { UiProvider } from "@/lib/contracts";
+import { apiJsonRequest, testProviderCredentials } from "@/lib/api"
+import type { UiProvider } from "@/lib/contracts"
 import {
   providerAuthMode,
   providerCredentialIds,
@@ -49,16 +49,17 @@ import {
   providerUsesBrowserSession,
   providerUsesStoredCredentials,
   sortProvidersByConfiguredCredentials,
-} from "@/lib/provider-credentials";
+} from "@/lib/provider-credentials"
 
-type IntegrationTab = "all" | "connected" | "api" | "subscription" | "free" | "local";
-type IntegrationKind = "api" | "browser" | "free" | "local" | "subscription";
+type IntegrationTab =
+  "all" | "connected" | "api" | "subscription" | "free" | "local"
+type IntegrationKind = "api" | "browser" | "free" | "local" | "subscription"
 
 const TAB_ITEMS: Array<{
-  value: IntegrationTab;
-  label: string;
-  hint: string;
-  icon: LucideIcon;
+  value: IntegrationTab
+  label: string
+  hint: string
+  icon: LucideIcon
 }> = [
   {
     value: "all",
@@ -96,57 +97,60 @@ const TAB_ITEMS: Array<{
     hint: "Runtimes locais e endpoints que dependem de servicos rodando na maquina ou na rede.",
     icon: ServerIcon,
   },
-];
+]
 
 const SUBSCRIPTION_PROVIDER_IDS = new Set([
   "bytepluscoding",
   "commandcode",
   "copilot",
   "ollamacloud",
+  "openai",
   "opencodego",
   "qwentoken",
-  "xaisubscription",
   "xiaomitoken",
   "zaicoding",
-]);
+])
 
 function getIntegrationKind(provider: UiProvider): IntegrationKind {
-  if (provider.id === "ollama" || provider.label.toLowerCase().includes("(local)")) {
-    return "local";
+  if (
+    provider.id === "ollama" ||
+    provider.label.toLowerCase().includes("(local)")
+  ) {
+    return "local"
   }
 
   if (providerUsesBrowserSession(provider)) {
-    return "browser";
+    return "browser"
   }
 
   if (providerAuthMode(provider) === "none") {
-    return "free";
+    return "free"
   }
 
-  const normalizedLabel = provider.label.toLowerCase();
+  const normalizedLabel = provider.label.toLowerCase()
   if (
     SUBSCRIPTION_PROVIDER_IDS.has(provider.id) ||
     normalizedLabel.includes("assinatura") ||
     normalizedLabel.includes("subscription")
   ) {
-    return "subscription";
+    return "subscription"
   }
 
-  return "api";
+  return "api"
 }
 
 function integrationKindLabel(kind: IntegrationKind): string {
   switch (kind) {
     case "api":
-      return "API key";
+      return "API key"
     case "browser":
-      return "Browser";
+      return "Browser"
     case "free":
-      return "Gratis";
+      return "Gratis"
     case "local":
-      return "Local";
+      return "Local"
     case "subscription":
-      return "Assinatura";
+      return "Assinatura"
   }
 }
 
@@ -155,111 +159,134 @@ function providerInitials(label: string): string {
     .replace(/\([^)]*\)/g, "")
     .split(/\s+/)
     .map((word) => word.trim())
-    .filter(Boolean);
+    .filter(Boolean)
 
-  if (words.length === 0) return "AI";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return `${words[0][0]}${words[1][0]}`.toUpperCase();
+  if (words.length === 0) return "AI"
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase()
+  return `${words[0][0]}${words[1][0]}`.toUpperCase()
 }
 
 function integrationKindIcon(kind: IntegrationKind): LucideIcon {
   switch (kind) {
     case "api":
-      return KeyRoundIcon;
+      return KeyRoundIcon
     case "browser":
-      return Globe2Icon;
+      return Globe2Icon
     case "free":
-      return SparklesIcon;
+      return SparklesIcon
     case "local":
-      return ServerIcon;
+      return ServerIcon
     case "subscription":
-      return CloudIcon;
+      return CloudIcon
   }
 }
 
 export function SetupPage() {
-  const { credentials, providers, refreshCredentials } = useAppState();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [saving, setSaving] = useState<string | null>(null);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [testResults, setTestResults] = useState<Record<string, "ok" | "fail">>({});
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [showValues, setShowValues] = useState<Record<string, boolean>>({});
-  const [pendingDisconnect, setPendingDisconnect] = useState<UiProvider | null>(null);
-  const [activeTab, setActiveTab] = useState<IntegrationTab>("all");
-  const [query, setQuery] = useState("");
+  const { credentials, providers, refreshCredentials } = useAppState()
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [saving, setSaving] = useState<string | null>(null)
+  const [testing, setTesting] = useState<string | null>(null)
+  const [testResults, setTestResults] = useState<Record<string, "ok" | "fail">>(
+    {},
+  )
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [showValues, setShowValues] = useState<Record<string, boolean>>({})
+  const [pendingDisconnect, setPendingDisconnect] = useState<UiProvider | null>(
+    null,
+  )
+  const [activeTab, setActiveTab] = useState<IntegrationTab>("all")
+  const [query, setQuery] = useState("")
 
   const sortedProviders = useMemo(
     () => sortProvidersByConfiguredCredentials(providers, credentials),
     [credentials, providers],
-  );
+  )
   const freeProviders = useMemo(
-    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "free"),
+    () =>
+      sortedProviders.filter(
+        (provider) => getIntegrationKind(provider) === "free",
+      ),
     [sortedProviders],
-  );
+  )
   const browserSessionProviders = useMemo(
-    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "browser"),
+    () =>
+      sortedProviders.filter(
+        (provider) => getIntegrationKind(provider) === "browser",
+      ),
     [sortedProviders],
-  );
+  )
   const localProviders = useMemo(
-    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "local"),
+    () =>
+      sortedProviders.filter(
+        (provider) => getIntegrationKind(provider) === "local",
+      ),
     [sortedProviders],
-  );
+  )
   const subscriptionProviders = useMemo(
-    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "subscription"),
+    () =>
+      sortedProviders.filter(
+        (provider) => getIntegrationKind(provider) === "subscription",
+      ),
     [sortedProviders],
-  );
+  )
   const apiKeyProviders = useMemo(
-    () => sortedProviders.filter((provider) => getIntegrationKind(provider) === "api"),
+    () =>
+      sortedProviders.filter(
+        (provider) => getIntegrationKind(provider) === "api",
+      ),
     [sortedProviders],
-  );
+  )
   const credentialedProviders = useMemo(
     () => sortedProviders.filter(providerUsesStoredCredentials),
     [sortedProviders],
-  );
+  )
   const configuredProviders = useMemo(
-    () => credentialedProviders.filter((p) => providerHasRequiredCredentials(p, credentials)),
+    () =>
+      credentialedProviders.filter((p) =>
+        providerHasRequiredCredentials(p, credentials),
+      ),
     [credentialedProviders, credentials],
-  );
+  )
   const availableProviders = useMemo(
-    () => credentialedProviders.filter((p) => !providerHasRequiredCredentials(p, credentials)),
+    () =>
+      credentialedProviders.filter(
+        (p) => !providerHasRequiredCredentials(p, credentials),
+      ),
     [credentialedProviders, credentials],
-  );
-  const visibleProviders = useMemo(
-    () => {
-      const normalizedQuery = query.trim().toLowerCase();
-      return sortedProviders.filter((provider) => {
-        const kind = getIntegrationKind(provider);
-        const isConfigured =
-          providerUsesStoredCredentials(provider) &&
-          providerHasRequiredCredentials(provider, credentials);
-        const matchesTab =
-          activeTab === "all" ||
-          (activeTab === "connected" && isConfigured) ||
-          (activeTab === "api" && kind === "api") ||
-          (activeTab === "subscription" && kind === "subscription") ||
-          (activeTab === "free" && (kind === "free" || kind === "browser")) ||
-          (activeTab === "local" && kind === "local");
+  )
+  const visibleProviders = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    return sortedProviders.filter((provider) => {
+      const kind = getIntegrationKind(provider)
+      const isConfigured =
+        providerUsesStoredCredentials(provider) &&
+        providerHasRequiredCredentials(provider, credentials)
+      const matchesTab =
+        activeTab === "all" ||
+        (activeTab === "connected" && isConfigured) ||
+        (activeTab === "api" && kind === "api") ||
+        (activeTab === "subscription" && kind === "subscription") ||
+        (activeTab === "free" && (kind === "free" || kind === "browser")) ||
+        (activeTab === "local" && kind === "local")
 
-        if (!matchesTab) return false;
-        if (!normalizedQuery) return true;
+      if (!matchesTab) return false
+      if (!normalizedQuery) return true
 
-        return [
-          provider.id,
-          provider.label,
-          provider.requiredEnv ?? "",
-          provider.signupLabel ?? "",
-          integrationKindLabel(kind),
-        ].some((value) => value.toLowerCase().includes(normalizedQuery));
-      });
-    },
-    [activeTab, credentials, query, sortedProviders],
-  );
-  const configuredCount = configuredProviders.length;
+      return [
+        provider.id,
+        provider.label,
+        provider.requiredEnv ?? "",
+        provider.signupLabel ?? "",
+        integrationKindLabel(kind),
+      ].some((value) => value.toLowerCase().includes(normalizedQuery))
+    })
+  }, [activeTab, credentials, query, sortedProviders])
+  const configuredCount = configuredProviders.length
   const readyWithoutCredentialsCount = useMemo(
-    () => [...freeProviders, ...browserSessionProviders, ...localProviders].length,
+    () =>
+      [...freeProviders, ...browserSessionProviders, ...localProviders].length,
     [browserSessionProviders, freeProviders, localProviders],
-  );
+  )
   const tabCounts = useMemo(
     () => ({
       all: providers.length,
@@ -269,56 +296,69 @@ export function SetupPage() {
       local: localProviders.length,
       subscription: subscriptionProviders.length,
     }),
-    [apiKeyProviders, browserSessionProviders, configuredProviders, freeProviders, localProviders, providers, subscriptionProviders],
-  );
-  const activeTabMeta = TAB_ITEMS.find((item) => item.value === activeTab) ?? TAB_ITEMS[0];
-  const ActiveTabIcon = activeTabMeta.icon;
+    [
+      apiKeyProviders,
+      browserSessionProviders,
+      configuredProviders,
+      freeProviders,
+      localProviders,
+      providers,
+      subscriptionProviders,
+    ],
+  )
+  const activeTabMeta =
+    TAB_ITEMS.find((item) => item.value === activeTab) ?? TAB_ITEMS[0]
+  const ActiveTabIcon = activeTabMeta.icon
 
   function toggleExpand(providerId: string) {
     if (expandedId === providerId) {
-      setExpandedId(null);
-      setValues({});
-      setShowValues({});
+      setExpandedId(null)
+      setValues({})
+      setShowValues({})
     } else {
-      setExpandedId(providerId);
-      setValues({});
-      setShowValues({});
+      setExpandedId(providerId)
+      setValues({})
+      setShowValues({})
     }
   }
 
   async function handleSave(provider: UiProvider) {
-    const requiredKeys = provider.requiredKeys ?? [];
+    const requiredKeys = provider.requiredKeys ?? []
     if (requiredKeys.some((f) => !values[f.envName]?.trim())) {
-      toast.error("Preencha todos os campos.");
-      return;
+      toast.error("Preencha todos os campos.")
+      return
     }
 
     // 1. Testar credenciais antes de salvar
-    setTesting(provider.id);
+    setTesting(provider.id)
     try {
-      const creds: Record<string, string> = {};
+      const creds: Record<string, string> = {}
       for (const f of requiredKeys) {
-        creds[f.envName] = values[f.envName];
+        creds[f.envName] = values[f.envName]
       }
 
-      const testResult = await testProviderCredentials(provider.base, creds);
+      const testResult = await testProviderCredentials(provider.base, creds)
 
       if (!testResult.ok) {
-        toast.error(testResult.error ?? "Chave inválida. Verifique e tente novamente.");
-        return;
+        toast.error(
+          testResult.error ?? "Chave inválida. Verifique e tente novamente.",
+        )
+        return
       }
 
       if (testResult.skipped) {
-        toast.info("Teste de conexão não disponível para este provider. Salvando mesmo assim.");
+        toast.info(
+          "Teste de conexão não disponível para este provider. Salvando mesmo assim.",
+        )
       }
     } catch {
-      toast.warning("Não foi possível testar a conexão. Salvando mesmo assim.");
+      toast.warning("Não foi possível testar a conexão. Salvando mesmo assim.")
     } finally {
-      setTesting(null);
+      setTesting(null)
     }
 
     // 2. Salvar credenciais
-    setSaving(provider.id);
+    setSaving(provider.id)
     try {
       await Promise.all(
         requiredKeys.map((f) =>
@@ -328,82 +368,86 @@ export function SetupPage() {
             providerId: provider.id,
           }),
         ),
-      );
-      await refreshCredentials();
-      setExpandedId(null);
-      setValues({});
-      toast.success(`${provider.label} conectado!`);
+      )
+      await refreshCredentials()
+      setExpandedId(null)
+      setValues({})
+      toast.success(`${provider.label} conectado!`)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao salvar.");
+      toast.error(error instanceof Error ? error.message : "Falha ao salvar.")
     } finally {
-      setSaving(null);
+      setSaving(null)
     }
   }
 
   async function handleTest(provider: UiProvider) {
-    setTesting(provider.id);
+    setTesting(provider.id)
     try {
-      const result = await testProviderCredentials(provider.base, {});
+      const result = await testProviderCredentials(provider.base, {})
       if (result.ok) {
-        setTestResults((cur) => ({ ...cur, [provider.id]: "ok" }));
-        toast.success(`${provider.label}: conexão OK!`);
+        setTestResults((cur) => ({ ...cur, [provider.id]: "ok" }))
+        toast.success(`${provider.label}: conexão OK!`)
       } else if (result.skipped) {
-        toast.info(`${provider.label}: teste não disponível para este provider.`);
+        toast.info(
+          `${provider.label}: teste não disponível para este provider.`,
+        )
       } else {
-        setTestResults((cur) => ({ ...cur, [provider.id]: "fail" }));
-        toast.error(`${provider.label}: ${result.error ?? "falha na conexão."}`);
+        setTestResults((cur) => ({ ...cur, [provider.id]: "fail" }))
+        toast.error(`${provider.label}: ${result.error ?? "falha na conexão."}`)
       }
     } catch {
-      setTestResults((cur) => ({ ...cur, [provider.id]: "fail" }));
-      toast.error(`${provider.label}: erro ao testar conexão.`);
+      setTestResults((cur) => ({ ...cur, [provider.id]: "fail" }))
+      toast.error(`${provider.label}: erro ao testar conexão.`)
     } finally {
-      setTesting(null);
+      setTesting(null)
     }
   }
 
   async function handleDisconnect(provider: UiProvider) {
-    setSaving(provider.id);
+    setSaving(provider.id)
     try {
-      const ids = providerCredentialIds(provider.id, credentials);
-      await Promise.all(ids.map((id) => apiJsonRequest(`/user/credentials/${id}`, "DELETE")));
-      await refreshCredentials();
-      setPendingDisconnect(null);
+      const ids = providerCredentialIds(provider.id, credentials)
+      await Promise.all(
+        ids.map((id) => apiJsonRequest(`/user/credentials/${id}`, "DELETE")),
+      )
+      await refreshCredentials()
+      setPendingDisconnect(null)
       setTestResults((cur) => {
-        const next = { ...cur };
-        delete next[provider.id];
-        return next;
-      });
-      toast.success(`${provider.label} desconectado.`);
+        const next = { ...cur }
+        delete next[provider.id]
+        return next
+      })
+      toast.success(`${provider.label} desconectado.`)
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao remover.");
+      toast.error(error instanceof Error ? error.message : "Falha ao remover.")
     } finally {
-      setSaving(null);
+      setSaving(null)
     }
   }
 
   function renderPaidProviderCard(provider: UiProvider) {
-    const kind = getIntegrationKind(provider);
-    const KindIcon = integrationKindIcon(kind);
-    const isConfigured = providerHasRequiredCredentials(provider, credentials);
-    const isExpanded = expandedId === provider.id;
-    const isSaving = saving === provider.id;
-    const isTesting = testing === provider.id;
-    const isBusy = isSaving || isTesting;
-    const testResult = testResults[provider.id];
-    const hasFailed = testResult === "fail";
-    const hasPassedTest = testResult === "ok";
+    const kind = getIntegrationKind(provider)
+    const KindIcon = integrationKindIcon(kind)
+    const isConfigured = providerHasRequiredCredentials(provider, credentials)
+    const isExpanded = expandedId === provider.id
+    const isSaving = saving === provider.id
+    const isTesting = testing === provider.id
+    const isBusy = isSaving || isTesting
+    const testResult = testResults[provider.id]
+    const hasFailed = testResult === "fail"
+    const hasPassedTest = testResult === "ok"
 
     const cardBorder = hasFailed
       ? "border-red-500/35 bg-red-500/5"
       : isConfigured
         ? "border-green-500/35 bg-green-500/5"
-        : "border-border/70 bg-card/80 hover:border-foreground/20";
+        : "border-border/70 bg-card/80 hover:border-foreground/20"
 
     const iconBg = hasFailed
       ? "bg-red-500/10"
       : isConfigured
         ? "bg-green-500/10"
-        : "bg-muted/70";
+        : "bg-muted/70"
 
     return (
       <Card
@@ -413,7 +457,9 @@ export function SetupPage() {
         <CardContent className="py-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="flex min-w-0 items-center gap-3">
-              <div className={`relative flex size-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+              <div
+                className={`relative flex size-10 shrink-0 items-center justify-center rounded-lg ${iconBg}`}
+              >
                 <span className="text-[11px] font-semibold tracking-normal text-foreground">
                   {providerInitials(provider.label)}
                 </span>
@@ -429,8 +475,13 @@ export function SetupPage() {
               </div>
               <div className="min-w-0">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <p className="truncate text-sm font-medium">{provider.label}</p>
-                  <Badge variant="outline" className="h-5 gap-1 rounded-md px-1.5 text-[10px]">
+                  <p className="truncate text-sm font-medium">
+                    {provider.label}
+                  </p>
+                  <Badge
+                    variant="outline"
+                    className="h-5 gap-1 rounded-md px-1.5 text-[10px]"
+                  >
                     <KindIcon className="size-3" />
                     {integrationKindLabel(kind)}
                   </Badge>
@@ -439,7 +490,9 @@ export function SetupPage() {
                   {hasFailed
                     ? "Falha na conexão"
                     : isConfigured
-                      ? hasPassedTest ? "Conectado e testado" : "Conectado"
+                      ? hasPassedTest
+                        ? "Conectado e testado"
+                        : "Conectado"
                       : "Disponível para configurar"}
                 </p>
               </div>
@@ -448,9 +501,15 @@ export function SetupPage() {
             <div className="flex shrink-0 flex-wrap items-center gap-2 md:justify-end">
               {provider.signupUrl && (
                 <Button asChild variant="ghost" size="sm" className="text-xs">
-                  <a href={provider.signupUrl} target="_blank" rel="noopener noreferrer">
+                  <a
+                    href={provider.signupUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     <ExternalLinkIcon className="size-3" />
-                    <span className="hidden sm:inline">{provider.signupLabel ?? "Obter chave"}</span>
+                    <span className="hidden sm:inline">
+                      {provider.signupLabel ?? "Obter chave"}
+                    </span>
                   </a>
                 </Button>
               )}
@@ -462,8 +521,14 @@ export function SetupPage() {
                     disabled={isBusy}
                     onClick={() => void handleTest(provider)}
                   >
-                    {isTesting ? <Loader2Icon className="size-3 animate-spin" /> : <PlayIcon className="size-3" />}
-                    <span className="hidden sm:inline">{isTesting ? "Testando…" : "Testar"}</span>
+                    {isTesting ? (
+                      <Loader2Icon className="size-3 animate-spin" />
+                    ) : (
+                      <PlayIcon className="size-3" />
+                    )}
+                    <span className="hidden sm:inline">
+                      {isTesting ? "Testando…" : "Testar"}
+                    </span>
                   </Button>
                   <Button
                     variant="ghost"
@@ -472,7 +537,11 @@ export function SetupPage() {
                     disabled={isBusy}
                     onClick={() => setPendingDisconnect(provider)}
                   >
-                    {isSaving ? <Loader2Icon className="size-3 animate-spin" /> : <Trash2Icon className="size-3" />}
+                    {isSaving ? (
+                      <Loader2Icon className="size-3 animate-spin" />
+                    ) : (
+                      <Trash2Icon className="size-3" />
+                    )}
                     <span className="hidden sm:inline">Desconectar</span>
                   </Button>
                 </>
@@ -509,7 +578,10 @@ export function SetupPage() {
               )}
               {(provider.requiredKeys ?? []).map((field) => (
                 <div key={field.envName} className="flex flex-col gap-1.5">
-                  <label htmlFor={`setup-${field.envName}`} className="text-xs font-medium">
+                  <label
+                    htmlFor={`setup-${field.envName}`}
+                    className="text-xs font-medium"
+                  >
                     {field.label}
                   </label>
                   <div className="relative">
@@ -519,7 +591,10 @@ export function SetupPage() {
                       placeholder={field.placeholder}
                       value={values[field.envName] ?? ""}
                       onChange={(e) =>
-                        setValues((cur) => ({ ...cur, [field.envName]: e.target.value }))
+                        setValues((cur) => ({
+                          ...cur,
+                          [field.envName]: e.target.value,
+                        }))
                       }
                       className="pr-10"
                     />
@@ -527,7 +602,10 @@ export function SetupPage() {
                       type="button"
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       onClick={() =>
-                        setShowValues((cur) => ({ ...cur, [field.envName]: !cur[field.envName] }))
+                        setShowValues((cur) => ({
+                          ...cur,
+                          [field.envName]: !cur[field.envName],
+                        }))
                       }
                     >
                       {showValues[field.envName] ? (
@@ -547,12 +625,18 @@ export function SetupPage() {
               >
                 {isTesting ? (
                   <>
-                    <Loader2Icon className="size-3 animate-spin" data-icon="inline-start" />
+                    <Loader2Icon
+                      className="size-3 animate-spin"
+                      data-icon="inline-start"
+                    />
                     Testando conexão…
                   </>
                 ) : isSaving ? (
                   <>
-                    <Loader2Icon className="size-3 animate-spin" data-icon="inline-start" />
+                    <Loader2Icon
+                      className="size-3 animate-spin"
+                      data-icon="inline-start"
+                    />
                     Salvando…
                   </>
                 ) : (
@@ -566,18 +650,18 @@ export function SetupPage() {
           ) : null}
         </CardContent>
       </Card>
-    );
+    )
   }
 
   function renderInformationalProviderCard(provider: UiProvider) {
-    const kind = getIntegrationKind(provider);
-    const Icon = integrationKindIcon(kind);
+    const kind = getIntegrationKind(provider)
+    const Icon = integrationKindIcon(kind)
     const description =
       kind === "browser"
         ? "Login acontece no chat, sem salvar API key."
         : kind === "local"
           ? "Roda fora da nuvem do provider; confirme que o servico local esta ativo."
-          : "Pronto para testar sem adicionar credencial.";
+          : "Pronto para testar sem adicionar credencial."
 
     return (
       <Card
@@ -599,19 +683,22 @@ export function SetupPage() {
               <p className="text-xs text-muted-foreground">{description}</p>
             </div>
           </div>
-          <Badge variant="outline" className="w-fit shrink-0 gap-1.5 rounded-md">
+          <Badge
+            variant="outline"
+            className="w-fit shrink-0 gap-1.5 rounded-md"
+          >
             <Icon className="size-3" />
             {integrationKindLabel(kind)}
           </Badge>
         </CardContent>
       </Card>
-    );
+    )
   }
 
   function renderProviderCard(provider: UiProvider) {
     return providerUsesStoredCredentials(provider)
       ? renderPaidProviderCard(provider)
-      : renderInformationalProviderCard(provider);
+      : renderInformationalProviderCard(provider)
   }
 
   return (
@@ -622,37 +709,60 @@ export function SetupPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Integrações</h1>
         </div>
         <p className="text-sm text-muted-foreground">
-          Conecte seus providers de IA e veja rapidamente o que já está pronto para uso.
+          Conecte seus providers de IA e veja rapidamente o que já está pronto
+          para uso.
         </p>
       </div>
 
       <div className="mb-6 grid gap-3 md:grid-cols-4">
         <Card className="border-border/60">
           <CardContent className="flex flex-col gap-1 py-4">
-            <span className="text-xs font-medium text-muted-foreground">Prontos sem chave</span>
-            <span className="text-2xl font-semibold">{readyWithoutCredentialsCount}</span>
-            <span className="text-xs text-muted-foreground">Gratis, browser ou local</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              Prontos sem chave
+            </span>
+            <span className="text-2xl font-semibold">
+              {readyWithoutCredentialsCount}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Gratis, browser ou local
+            </span>
           </CardContent>
         </Card>
         <Card className="border-border/60">
           <CardContent className="flex flex-col gap-1 py-4">
-            <span className="text-xs font-medium text-muted-foreground">API keys</span>
-            <span className="text-2xl font-semibold">{apiKeyProviders.length}</span>
-            <span className="text-xs text-muted-foreground">Providers pay-as-you-go</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              API keys
+            </span>
+            <span className="text-2xl font-semibold">
+              {apiKeyProviders.length}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Providers pay-as-you-go
+            </span>
           </CardContent>
         </Card>
         <Card className="border-green-500/20 bg-green-500/5">
           <CardContent className="flex flex-col gap-1 py-4">
-            <span className="text-xs font-medium text-muted-foreground">Conectados</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              Conectados
+            </span>
             <span className="text-2xl font-semibold">{configuredCount}</span>
-            <span className="text-xs text-muted-foreground">Credenciais salvas e prontas</span>
+            <span className="text-xs text-muted-foreground">
+              Credenciais salvas e prontas
+            </span>
           </CardContent>
         </Card>
         <Card className="border-border/60">
           <CardContent className="flex flex-col gap-1 py-4">
-            <span className="text-xs font-medium text-muted-foreground">A configurar</span>
-            <span className="text-2xl font-semibold">{availableProviders.length}</span>
-            <span className="text-xs text-muted-foreground">Precisam de credencial</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              A configurar
+            </span>
+            <span className="text-2xl font-semibold">
+              {availableProviders.length}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Precisam de credencial
+            </span>
           </CardContent>
         </Card>
       </div>
@@ -660,44 +770,58 @@ export function SetupPage() {
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="relative w-full md:max-w-sm">
           <SearchIcon className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
+          <input
+            type="text"
+            inputMode="search"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onInput={(event) => setQuery(event.currentTarget.value)}
             placeholder="Buscar provider, tipo ou chave"
-            className="pl-9"
+            className="h-8 w-full min-w-0 rounded-lg border border-input bg-transparent py-1 pl-9 pr-2.5 text-base outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 md:text-sm dark:bg-input/30"
           />
         </div>
+
         <p className="text-xs text-muted-foreground">
           {visibleProviders.length} de {providers.length} integracoes
         </p>
       </div>
 
-      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as IntegrationTab)}>
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => setActiveTab(value as IntegrationTab)}
+      >
         <div className="mb-5 rounded-lg border bg-card/70 p-3 shadow-sm">
-          <div className="overflow-x-auto pb-1">
-            <TabsList className="flex h-auto w-max justify-start rounded-lg border bg-background p-1 shadow-none">
-              {TAB_ITEMS.map(({ value, label, icon: Icon }) => (
-                <TabsTrigger
-                  key={value}
-                  value={value}
-                  className="group/tab h-8 flex-none gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground data-active:bg-foreground data-active:text-background data-active:shadow-sm dark:data-active:bg-foreground dark:data-active:text-background"
-                >
-                  <Icon className="size-3.5" />
-                  <span>{label}</span>
-                  <span className="rounded-sm bg-muted px-1.5 py-0 text-[10px] leading-4 text-muted-foreground group-data-[active]/tab:bg-background/20 group-data-[active]/tab:text-background">
-                    {tabCounts[value]}
-                  </span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </div>
+          {/*
+            Sem container de scroll: `overflow-x-auto` fazia o eixo Y computar
+            `auto` junto (CSS overflow), e a lista estourava por fração de pixel
+            criando uma barra vertical. Quebrar linha também evita depender de
+            rolagem horizontal, inalcançável com mouse sem roda no eixo X.
+          */}
+          <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1 rounded-lg border bg-background p-1 shadow-none">
+            {TAB_ITEMS.map(({ value, label, icon: Icon }) => (
+              <TabsTrigger
+                key={value}
+                value={value}
+                className="group/tab h-8 flex-none gap-2 rounded-md px-3 text-xs font-medium text-muted-foreground data-active:bg-foreground data-active:text-background data-active:shadow-sm dark:data-active:bg-foreground dark:data-active:text-background"
+              >
+                <Icon className="size-3.5" />
+                <span>{label}</span>
+                <span className="rounded-sm bg-muted px-1.5 py-0 text-[10px] leading-4 text-muted-foreground group-data-[active]/tab:bg-background/20 group-data-[active]/tab:text-background">
+                  {tabCounts[value]}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
           <div className="mt-3 flex items-start gap-2 rounded-lg border bg-muted/40 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
             <ActiveTabIcon className="mt-0.5 size-3.5 shrink-0" />
             <span>{activeTabMeta.hint}</span>
           </div>
         </div>
 
-        {(["all", "connected", "api", "subscription", "free", "local"] as const).map((tab) => (
+        {(
+          ["all", "connected", "api", "subscription", "free", "local"] as const
+        ).map((tab) => (
           <TabsContent key={tab} value={tab} className="mt-0">
             {visibleProviders.length === 0 ? (
               <Card className="border-border/60">
@@ -707,7 +831,9 @@ export function SetupPage() {
               </Card>
             ) : (
               <div className="grid gap-3">
-                {visibleProviders.map((provider) => renderProviderCard(provider))}
+                {visibleProviders.map((provider) =>
+                  renderProviderCard(provider),
+                )}
               </div>
             )}
           </TabsContent>
@@ -723,7 +849,12 @@ export function SetupPage() {
         </Button>
       </div>
 
-      <AlertDialog open={!!pendingDisconnect} onOpenChange={(open) => { if (!open) setPendingDisconnect(null); }}>
+      <AlertDialog
+        open={!!pendingDisconnect}
+        onOpenChange={(open) => {
+          if (!open) setPendingDisconnect(null)
+        }}
+      >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Desconectar provider?</AlertDialogTitle>
@@ -737,7 +868,11 @@ export function SetupPage() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => pendingDisconnect ? void handleDisconnect(pendingDisconnect) : undefined}
+              onClick={() =>
+                pendingDisconnect
+                  ? void handleDisconnect(pendingDisconnect)
+                  : undefined
+              }
             >
               Desconectar
             </AlertDialogAction>
@@ -745,5 +880,5 @@ export function SetupPage() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  );
+  )
 }

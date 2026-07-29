@@ -31,7 +31,7 @@ const OR_PREFIX_TO_PROVIDER: Record<string, string> = {
 }
 
 // Providers que endereçam modelos pelo id completo "vendor/model" (gateways).
-const FULL_ID_PROVIDERS = new Set(['openrouter', 'vercelgateway', 'gateway', 'opengateway'])
+const FULL_ID_PROVIDERS = new Set(['openrouter', 'gateway', 'opengateway'])
 
 // Cache: chave "providerId/modelId" (lowercase) → preço.
 const cache = new Map<string, ModelPrice>()
@@ -67,7 +67,7 @@ function ingest(models: OpenRouterModel[]): void {
     const vendor = m.id.slice(0, slash).toLowerCase()
     const model = m.id.slice(slash + 1).toLowerCase()
 
-    // Sempre indexa pelo id completo para gateways (openrouter/vercelgateway).
+    // Sempre indexa pelo id completo para gateways (openrouter/gateway/opengateway).
     for (const gw of FULL_ID_PROVIDERS) cache.set(key(gw, m.id), price)
 
     // Indexa também sob o providerId direto quando o vendor é conhecido.

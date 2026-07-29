@@ -15,7 +15,10 @@ const MAX_ENTRIES = 2_000
 /** key → epoch ms até quando o cooldown vale */
 const cooldowns = new Map<string, number>()
 
-export function rateLimitCooldownKey(providerName: string, modelId: string): string {
+export function rateLimitCooldownKey(
+  providerName: string,
+  modelId: string,
+): string {
   return `${providerName}:${modelId}`
 }
 
@@ -23,7 +26,10 @@ export function rateLimitCooldownKey(providerName: string, modelId: string): str
  * Interpreta o header Retry-After (segundos numéricos ou data HTTP).
  * Retorna null quando ausente/inválido.
  */
-export function parseRetryAfterMs(header: string | null | undefined, now = Date.now()): number | null {
+export function parseRetryAfterMs(
+  header: string | null | undefined,
+  now = Date.now(),
+): number | null {
   if (!header) return null
 
   const seconds = Number(header)
@@ -44,10 +50,7 @@ export function parseRetryAfterMs(header: string | null | undefined, now = Date.
  * Registra um cooldown após um 429. Retorna a duração aplicada em ms
  * (Retry-After clampado a 5 min; default 60s quando ausente).
  */
-export function recordRateLimit(key: string, retryAfterHeader?: string | null, now = Date.now()): number {
-  const fromHeader = parseRetryAfterMs(retryAfterHeader, now)
-  const durationMs = Math.min(fromHeader ?? DEFAULT_COOLDOWN_MS, MAX_COOLDOWN_MS)
-
+function setCooldown(key: string, durationMs: number, now: number): number {
   if (cooldowns.size >= MAX_ENTRIES && !cooldowns.has(key)) {
     // Abre espaço removendo entradas expiradas; se nada expirou, descarta a mais antiga.
     for (const [k, until] of cooldowns) {
@@ -61,6 +64,31 @@ export function recordRateLimit(key: string, retryAfterHeader?: string | null, n
 
   cooldowns.set(key, now + durationMs)
   return durationMs
+}
+
+export function recordRateLimit(
+  key: string,
+  retryAfterHeader?: string | null,
+  now = Date.now(),
+): number {
+  const fromHeader = parseRetryAfterMs(retryAfterHeader, now)
+  const durationMs = Math.min(
+    fromHeader ?? DEFAULT_COOLDOWN_MS,
+    MAX_COOLDOWN_MS,
+  )
+  return setCooldown(key, durationMs, now)
+}
+
+/**
+ * Cooldown curto para falha transitória de upstream (5xx, timeout, rede).
+ * Menor que o de 429: um 502 costuma passar em segundos e não há Retry-After
+ * para orientar a espera. Antes disso só 429 marcava cooldown, então um
+ * provedor em queda seguia sendo eleito primário a cada request.
+ */
+export const TRANSIENT_COOLDOWN_MS = 20_000
+
+export function recordUpstreamFailure(key: string, now = Date.now()): number {
+  return setCooldown(key, TRANSIENT_COOLDOWN_MS, now)
 }
 
 /** Tempo restante de cooldown em ms (0 quando não há cooldown ativo). */

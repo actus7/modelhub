@@ -1,287 +1,317 @@
-import { z } from "zod";
-import type { ProviderModelCapabilities } from "@/lib/chat-parts";
+import { z } from "zod"
+import type { ProviderModelCapabilities } from "@/lib/chat-parts"
 
 export type AuthUser = {
-  id: string;
-  email: string;
-  name: string | null;
-  isActive?: boolean;
-  isAdmin?: boolean;
-  createdAt?: string | Date;
+  id: string
+  email: string
+  name: string | null
+  isActive?: boolean
+  isAdmin?: boolean
+  createdAt?: string | Date
   counts?: {
-    activeApiKeys: number;
-    providerCredentials: number;
-    totalRequests: number;
-  };
-};
+    activeApiKeys: number
+    providerCredentials: number
+    totalRequests: number
+  }
+}
 
 type ProviderKeyField = {
-  envName: string;
-  label: string;
-  placeholder: string;
-};
+  envName: string
+  label: string
+  placeholder: string
+}
 
 type ProviderCategory =
-  | "api-provider"
-  | "browser-sdk"
-  | "gateway"
-  | "public-web"
-  | "utility";
+  "api-provider" | "browser-sdk" | "gateway" | "public-web" | "utility"
 
-type ProviderAuthMode = "api-key" | "browser-session" | "none";
+type ProviderAuthMode = "api-key" | "browser-session" | "none"
 
 export type ProviderRuntime = {
-  authMode: ProviderAuthMode;
-  externalApi: boolean;
-  kind: "client" | "server";
-  openAiCompatible: boolean;
+  authMode: ProviderAuthMode
+  externalApi: boolean
+  kind: "client" | "server"
+  openAiCompatible: boolean
   transport:
-    | "browser-sdk"
-    | "modelhub-proxy"
-    | "openai-compatible"
-    | "passthrough-proxy";
-};
+    "browser-sdk" | "modelhub-proxy" | "openai-compatible" | "passthrough-proxy"
+}
 
 export type UiProvider = {
-  id: string;
-  label: string;
-  base: string;
-  category?: ProviderCategory;
-  hasModels: boolean;
-  localModels?: ProviderModel[];
-  requiredEnv?: string;
-  requiredKeys?: ProviderKeyField[];
-  runtime?: ProviderRuntime;
-  signupUrl?: string;
-  signupLabel?: string;
-};
+  id: string
+  label: string
+  base: string
+  category?: ProviderCategory
+  hasModels: boolean
+  localModels?: ProviderModel[]
+  requiredEnv?: string
+  requiredKeys?: ProviderKeyField[]
+  runtime?: ProviderRuntime
+  signupUrl?: string
+  signupLabel?: string
+}
 
 type UsageProviderStat = {
-  provider: string;
-  count: number;
-  costUsd?: number;
-};
+  provider: string
+  count: number
+  costUsd?: number
+}
 
 type UsageModelStat = {
-  model: string | null;
-  count: number;
-  costUsd?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-};
+  model: string | null
+  count: number
+  costUsd?: number
+  inputTokens?: number
+  outputTokens?: number
+}
 
 type UsageStatusStat = {
-  status: number;
-  count: number;
-};
+  status: number
+  count: number
+}
 
 type UsageDailyStat = {
-  date: string;
-  count: number;
-  costUsd?: number;
-};
+  date: string
+  count: number
+  costUsd?: number
+}
 
 export type UsageSummary = {
   period: {
-    days: number;
-    since: string;
-  };
-  totalRequests: number;
-  errorRate: number;
-  byProvider: UsageProviderStat[];
-  byModel: UsageModelStat[];
-  byStatus: UsageStatusStat[];
-  daily: UsageDailyStat[];
-  totalCostUsd: number;
-  avgDurationMs: number | null;
-  tokenStats: { totalInput: number; totalOutput: number };
-};
+    days: number
+    since: string
+  }
+  totalRequests: number
+  errorRate: number
+  byProvider: UsageProviderStat[]
+  byModel: UsageModelStat[]
+  byStatus: UsageStatusStat[]
+  daily: UsageDailyStat[]
+  totalCostUsd: number
+  avgDurationMs: number | null
+  tokenStats: { totalInput: number; totalOutput: number }
+}
 
 export type RecentUsageLog = {
-  id: string;
-  providerId: string | null;
-  modelId: string | null;
-  endpoint: string | null;
-  statusCode: number;
-  errorDetail: string | null;
-  createdAt: string;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  costUsd: number | null;
-  durationMs: number | null;
-  routingTier: string | null;
-  taskCategory: string | null;
+  id: string
+  providerId: string | null
+  modelId: string | null
+  endpoint: string | null
+  statusCode: number
+  errorDetail: string | null
+  createdAt: string
+  inputTokens: number | null
+  outputTokens: number | null
+  costUsd: number | null
+  durationMs: number | null
+  routingTier: string | null
+  taskCategory: string | null
   apiKey: {
-    prefix: string;
-    label: string;
-  } | null;
-};
+    prefix: string
+    label: string
+  } | null
+}
 
 export type TierAssignment = {
-  providerId: string;
-  modelId: string;
+  providerId: string
+  modelId: string
   fallbacks?: Array<{
-    providerId: string;
-    modelId: string;
-  }>;
-};
+    providerId: string
+    modelId: string
+  }>
+}
+
+/** Item do catálogo achatado servido por GET /user/routing-config/models. */
+export type RoutingModelOption = {
+  providerId: string
+  providerLabel: string
+  modelId: string
+  modelName: string
+  inputPer1M: number | null
+  outputPer1M: number | null
+  /** Saúde observada no tráfego do usuário; null quando não há histórico. */
+  health: {
+    total: number
+    errorRate: number
+    avgDurationMs: number | null
+  } | null
+}
+
+export type RoutingModelCatalog = {
+  models: RoutingModelOption[]
+  failedProviders: string[]
+}
+
+/** Modelo proposto por GET /user/routing-config/suggest, com o sinal que o rankeou. */
+export type RoutingSuggestedSlot = {
+  providerId: string
+  modelId: string
+  reason: string
+}
+
+export type RoutingSuggestion = {
+  tiers: Record<string, RoutingSuggestedSlot[]>
+}
 
 export type RoutingConfigSummary = {
-  complexityEnabled: boolean;
-  taskRoutingEnabled: boolean;
-  tiers: Record<string, TierAssignment>;
-  taskOverrides: Record<string, TierAssignment>;
-};
+  complexityEnabled: boolean
+  taskRoutingEnabled: boolean
+  tiers: Record<string, TierAssignment>
+  taskOverrides: Record<string, TierAssignment>
+}
 
 export type BudgetSummary = {
-  periodType: string;
-  limitUsd: number | null;
-  alertThreshold: number;
-  blocksRequests: boolean;
-  baselineModelId: string | null;
-  currentSpend: number;
-  baselineSpend: number | null;
-  savings: number | null;
-  savingsPct: number | null;
-};
+  periodType: string
+  limitUsd: number | null
+  alertThreshold: number
+  blocksRequests: boolean
+  baselineModelId: string | null
+  currentSpend: number
+  baselineSpend: number | null
+  savings: number | null
+  savingsPct: number | null
+}
 
 export type ProviderModel = {
-  capabilities: ProviderModelCapabilities;
-  id: string;
-  name: string;
-};
+  capabilities: ProviderModelCapabilities
+  id: string
+  name: string
+}
 
 export type ProviderCatalogResponse = {
-  authRequired: boolean;
-  providers: UiProvider[];
-};
+  authRequired: boolean
+  providers: UiProvider[]
+}
 
 export type ApiKeySummary = {
-  id: string;
-  prefix: string;
-  label: string;
-  createdAt: string;
-  lastUsedAt: string | null;
-  expiresAt?: string | null;
-};
+  id: string
+  prefix: string
+  label: string
+  createdAt: string
+  lastUsedAt: string | null
+  expiresAt?: string | null
+}
 
 export type ProviderCredentialSummary = {
-  id: string;
-  providerId: string;
-  credentialKey: string;
-  createdAt?: string;
-  updatedAt: string;
-};
+  id: string
+  providerId: string
+  credentialKey: string
+  createdAt?: string
+  updatedAt: string
+}
 
 export const cloudDeploymentStatusSchema = z.enum([
   "provisioning",
   "healthy",
   "failed",
   "deleting",
-]);
+])
 
-export type CloudProvider = "render" | "railway";
-export type CloudDeploymentStatus = z.infer<typeof cloudDeploymentStatusSchema>;
+export type CloudProvider = "render" | "railway"
+export type CloudDeploymentStatus = z.infer<typeof cloudDeploymentStatusSchema>
 
 export type CloudConnectionSummary = {
-  id: string;
-  provider: CloudProvider;
-  label: string;
-  externalUserEmail: string | null;
-  externalOrganizationName: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+  id: string
+  provider: CloudProvider
+  label: string
+  externalUserEmail: string | null
+  externalOrganizationName: string | null
+  createdAt: string
+  updatedAt: string
+}
 
 export type OpenClawDeploymentSummary = {
-  allowedOrigins: string[];
-  controlUiUrl: string;
-  healthUrl: string;
-  model: string;
-  modelhubApiUrl: string;
-  provider: string;
-  readyUrl: string;
-  webSocketUrl: string;
-};
+  allowedOrigins: string[]
+  controlUiUrl: string
+  healthUrl: string
+  model: string
+  modelhubApiUrl: string
+  provider: string
+  readyUrl: string
+  webSocketUrl: string
+}
 
 export type CloudDeploymentSummary = {
-  id: string;
-  connectionId: string;
-  provider: CloudProvider;
-  name: string;
-  status: CloudDeploymentStatus;
-  externalAppName: string;
-  externalServiceId: string;
-  publicUrl: string | null;
-  image: string;
-  region: string;
-  instanceType: string;
-  port: number;
-  error: string | null;
-  openclaw: OpenClawDeploymentSummary | null;
-  createdAt: string;
-  updatedAt: string;
-};
+  id: string
+  connectionId: string
+  provider: CloudProvider
+  name: string
+  status: CloudDeploymentStatus
+  externalAppName: string
+  externalServiceId: string
+  publicUrl: string | null
+  image: string
+  region: string
+  instanceType: string
+  port: number
+  error: string | null
+  openclaw: OpenClawDeploymentSummary | null
+  createdAt: string
+  updatedAt: string
+}
 
 type ToolStartEvent = {
-  type: "tool-start";
-  toolCallId: string;
-  toolName: string;
-  args: unknown;
-};
+  type: "tool-start"
+  toolCallId: string
+  toolName: string
+  args: unknown
+}
 
 type ToolResultEvent = {
-  type: "tool-result";
-  toolCallId: string;
-  result: unknown;
-};
+  type: "tool-result"
+  toolCallId: string
+  result: unknown
+}
 
 type TextDeltaEvent = {
-  type: "text-delta";
-  delta: string;
-};
+  type: "text-delta"
+  delta: string
+}
 
-export type StreamEvent = ToolStartEvent | ToolResultEvent | TextDeltaEvent;
+export type StreamEvent = ToolStartEvent | ToolResultEvent | TextDeltaEvent
 
 export const providerCredentialSchema = z.object({
   providerId: z.string().min(1).max(64),
   credentialKey: z.string().min(1).max(128),
   credentialValue: z.string().min(1).max(4096),
-});
+})
 
 export const cloudRenderConnectionSchema = z.object({
   label: z.string().trim().min(1).max(100).optional(),
   token: z.string().trim().min(1).max(4096),
-});
+})
 
 export const cloudRailwayConnectionSchema = z.object({
   label: z.string().trim().min(1).max(100).optional(),
   token: z.string().trim().min(1).max(4096),
-});
+})
 
 export const openClawDeploymentConfigSchema = z.object({
   allowedOrigins: z.array(z.string().trim().url()).max(12).optional(),
   model: z.string().trim().min(1).max(200),
   provider: z.string().trim().min(1).max(64),
-});
+})
 
 export const apiKeyLabelSchema = z.object({
   label: z.string().max(100).optional(),
-});
+})
 
 /** ID do modelo que efetivamente gerou a resposta (pode diferir do selecionado se houve fallback). */
-export const MODELHUB_EFFECTIVE_MODEL_HEADER = "x-modelhub-effective-model" as const;
+export const MODELHUB_EFFECTIVE_MODEL_HEADER =
+  "x-modelhub-effective-model" as const
 
 /** ID do modelo que o usuário pediu na requisição. */
-export const MODELHUB_REQUESTED_MODEL_HEADER = "x-modelhub-requested-model" as const;
+export const MODELHUB_REQUESTED_MODEL_HEADER =
+  "x-modelhub-requested-model" as const
 
 /** Presente e igual a `"true"` somente quando houve troca de modelo após falha (ex. `model_not_found`). */
-export const MODELHUB_MODEL_FALLBACK_USED_HEADER = "x-modelhub-model-fallback-used" as const;
+export const MODELHUB_MODEL_FALLBACK_USED_HEADER =
+  "x-modelhub-model-fallback-used" as const
 
 /** Lista dos IDs tentados na ordem, separados por vírgula (inclui o que respondeu com sucesso). */
-export const MODELHUB_MODELS_ATTEMPTED_HEADER = "x-modelhub-models-attempted" as const;
+export const MODELHUB_MODELS_ATTEMPTED_HEADER =
+  "x-modelhub-models-attempted" as const
 
 /**
  * Base64url(JSON) com falhas upstream antes de um 200 por fallback — para persistir em UsageLog.errorDetail.
  */
-export const MODELHUB_FALLBACK_DIAGNOSTIC_HEADER = "x-modelhub-fallback-diagnostic" as const;
+export const MODELHUB_FALLBACK_DIAGNOSTIC_HEADER =
+  "x-modelhub-fallback-diagnostic" as const

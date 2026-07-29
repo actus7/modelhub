@@ -140,3 +140,16 @@ describe("GET /user/credentials", () => {
     expect(body.credentials[0]).not.toHaveProperty("credentialValue");
   });
 });
+
+describe("GET /user/usage/recent", () => {
+  it("requests logs in descending creation order", async () => {
+    mockPrisma.usageLog.findMany.mockResolvedValue([]);
+
+    const res = await mkApp().request("/user/usage/recent", { headers: AUTH });
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.usageLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    }));
+  });
+});
