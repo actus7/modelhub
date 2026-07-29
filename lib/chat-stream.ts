@@ -87,7 +87,9 @@ function processVercelStreamLine(line: string, handlers: ParseStreamHandlers, st
 
   if (line.startsWith("d:")) {
     const payload = JSON.parse(line.slice(2)) as { finishReason?: string };
-    state.finishReason = payload.finishReason;
+    if (payload.finishReason && payload.finishReason !== "stop") {
+      state.finishReason = payload.finishReason;
+    }
     return true;
   }
 
@@ -138,7 +140,7 @@ function processRawOpenAiChoices(payload: Record<string, any>, handlers: ParseSt
   if (!Array.isArray(payload.choices)) return;
 
   const choice = payload.choices[0];
-  if (typeof choice?.finish_reason === "string") {
+  if (typeof choice?.finish_reason === "string" && choice.finish_reason !== "stop") {
     state.finishReason = choice.finish_reason;
   }
 
