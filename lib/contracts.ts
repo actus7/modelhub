@@ -173,6 +173,7 @@ export type BudgetSummary = {
 export type ProviderModel = {
   capabilities: ProviderModelCapabilities
   id: string
+  maxOutputTokens?: number
   name: string
 }
 

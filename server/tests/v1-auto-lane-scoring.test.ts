@@ -110,4 +110,19 @@ describe('POST /v1/chat/completions real auto lane scoring', () => {
     const forwardedRequest = mocks.providerHandler.mock.calls.at(-1)?.[0] as Request
     expect(await forwardedRequest.json()).toMatchObject({ modelId: `${expectedTier}-model` })
   })
+
+  it('adds a dynamic output token limit when the client does not send one', async () => {
+    const response = await v1Fetch(new Request('https://modelhub.test/v1/chat/completions', {
+      body: JSON.stringify({
+        messages: [{ parts: [{ text: 'Compare REST e GraphQL.', type: 'text' }], role: 'user' }],
+        model: 'auto',
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }))
+
+    expect(response.status).toBe(200)
+    const forwardedRequest = mocks.providerHandler.mock.calls.at(-1)?.[0] as Request
+    expect(await forwardedRequest.json()).toMatchObject({ max_tokens: 4096 })
+  })
 })
