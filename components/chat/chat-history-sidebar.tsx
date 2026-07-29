@@ -73,6 +73,9 @@ export function ChatHistorySidebar({
   const [renameValue, setRenameValue] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<ConversationSummary | null>(null);
+  const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkWorking, setBulkWorking] = useState(false);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
   const fetchConversations = useCallback(async () => {
@@ -81,6 +84,7 @@ export function ChatHistorySidebar({
       const query = showArchived ? "?archived=true" : "";
       const data = await apiJson<{ conversations: ConversationSummary[] }>(`/conversations${query}`);
       setConversations(data.conversations);
+      setSelectedIds(new Set());
     } catch {
       // silently fail
     } finally {
@@ -101,10 +105,50 @@ export function ChatHistorySidebar({
     try {
       await apiJsonRequest(`/conversations/${id}`, "DELETE");
       setPendingDelete(null);
+      setSelectedIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
       setConversations((prev) => prev.filter((c) => c.id !== id));
       if (activeConversationId === id) onNewChat();
     } catch {
       // silently fail
+    }
+  }
+
+  async function handleBulkDelete() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+
+    setBulkWorking(true);
+    try {
+      await Promise.all(ids.map((id) => apiJsonRequest(`/conversations/${id}`, "DELETE")));
+      setPendingBulkDelete(false);
+      setSelectedIds(new Set());
+      setConversations((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+      if (activeConversationId && selectedIds.has(activeConversationId)) onNewChat();
+    } catch {
+      // silently fail
+    } finally {
+      setBulkWorking(false);
+    }
+  }
+
+  async function handleBulkArchiveToggle() {
+    const ids = [...selectedIds];
+    if (ids.length === 0) return;
+
+    setBulkWorking(true);
+    try {
+      await Promise.all(ids.map((id) => apiJsonRequest(`/conversations/${id}`, "PATCH", { archived: !showArchived })));
+      setSelectedIds(new Set());
+      setConversations((prev) => prev.filter((c) => !selectedIds.has(c.id)));
+      if (activeConversationId && selectedIds.has(activeConversationId)) onNewChat();
+    } catch {
+      // silently fail
+    } finally {
+      setBulkWorking(false);
     }
   }
 
@@ -179,6 +223,31 @@ export function ChatHistorySidebar({
     return conversations.filter((c) => (c.title ?? "").toLowerCase().includes(q));
   }, [conversations, searchQuery]);
 
+  const selectedCount = selectedIds.size;
+  const allVisibleSelected = filteredConversations.length > 0 && filteredConversations.every((c) => selectedIds.has(c.id));
+
+  function toggleConversationSelected(e: React.MouseEvent, id: string) {
+    e.stopPropagation();
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllVisible() {
+    setSelectedIds((current) => {
+      if (allVisibleSelected) return new Set();
+      const next = new Set(current);
+      filteredConversations.forEach((conversation) => next.add(conversation.id));
+      return next;
+    });
+  }
+
   const groupedConversations = useMemo(() => {
     const groups: { label: string; items: ConversationSummary[] }[] = [];
     const groupMap = new Map<string, ConversationSummary[]>();
@@ -234,6 +303,50 @@ export function ChatHistorySidebar({
         </div>
       </div>
 
+      {filteredConversations.length > 0 && (
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/40 px-2 py-1.5">
+          <button
+            type="button"
+            onClick={toggleAllVisible}
+            className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <span
+              className={cn(
+                "flex size-4 items-center justify-center rounded border border-border bg-background",
+                allVisibleSelected && "border-primary bg-primary text-primary-foreground",
+              )}
+            >
+              {allVisibleSelected ? <CheckIcon className="size-3" /> : null}
+            </span>
+            {selectedCount > 0 ? `${selectedCount} selecionada${selectedCount > 1 ? "s" : ""}` : "Selecionar todas"}
+          </button>
+          {selectedCount > 0 && (
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="size-8 md:size-7"
+                onClick={() => void handleBulkArchiveToggle()}
+                disabled={bulkWorking}
+                title={showArchived ? "Desarquivar selecionadas" : "Arquivar selecionadas"}
+              >
+                {showArchived ? <ArchiveRestoreIcon className="size-3.5" /> : <ArchiveIcon className="size-3.5" />}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="size-8 text-destructive hover:text-destructive md:size-7"
+                onClick={() => setPendingBulkDelete(true)}
+                disabled={bulkWorking}
+                title="Excluir selecionadas"
+              >
+                <Trash2Icon className="size-3.5" />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!">
         <div className="flex flex-col gap-0.5 p-2">
           {loading && conversations.length === 0 ? (
@@ -250,13 +363,27 @@ export function ChatHistorySidebar({
                 <p className="px-2 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   {group.label}
                 </p>
-                {group.items.map((conv) => (
+                {group.items.map((conv) => {
+                  const selected = selectedIds.has(conv.id);
+                  return (
                   <div
                     key={conv.id}
                     role="button"
                     tabIndex={0}
                     onClick={() => {
                       if (renamingId === conv.id) return;
+                      if (selectedCount > 0) {
+                        setSelectedIds((current) => {
+                          const next = new Set(current);
+                          if (next.has(conv.id)) {
+                            next.delete(conv.id);
+                          } else {
+                            next.add(conv.id);
+                          }
+                          return next;
+                        });
+                        return;
+                      }
                       onSelectConversation(conv.id);
                       if (isMobile) onMobileSheetOpenChange(false);
                     }}
@@ -271,8 +398,21 @@ export function ChatHistorySidebar({
                     className={cn(
                       "group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted",
                       activeConversationId === conv.id && "bg-muted font-medium",
+                      selected && "bg-muted/80",
                     )}
                   >
+                    <button
+                      type="button"
+                      aria-label={selected ? "Desmarcar conversa" : "Marcar conversa"}
+                      onClick={(e) => toggleConversationSelected(e, conv.id)}
+                      className={cn(
+                        "flex size-4 shrink-0 items-center justify-center rounded border border-border bg-background transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
+                        selected && "border-primary bg-primary text-primary-foreground opacity-100",
+                        selectedCount > 0 && "opacity-100",
+                      )}
+                    >
+                      {selected ? <CheckIcon className="size-3" /> : null}
+                    </button>
                     <div className="min-w-0 flex-1">
                       {renamingId === conv.id ? (
                         <div className="flex items-center gap-1">
@@ -359,7 +499,8 @@ export function ChatHistorySidebar({
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ))
           )}
@@ -401,6 +542,22 @@ export function ChatHistorySidebar({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+        <AlertDialog open={pendingBulkDelete} onOpenChange={setPendingBulkDelete}>
+          <AlertDialogContent size="sm">
+            <AlertDialogHeader>
+              <AlertDialogTitle>Excluir conversas selecionadas?</AlertDialogTitle>
+              <AlertDialogDescription>
+                {selectedCount} conversa{selectedCount === 1 ? "" : "s"} serão removidas do histórico.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+              <AlertDialogAction variant="destructive" onClick={() => void handleBulkDelete()}>
+                Excluir
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </>
     );
   }
@@ -426,6 +583,22 @@ export function ChatHistorySidebar({
               variant="destructive"
               onClick={() => pendingDelete ? void handleDelete(pendingDelete.id) : undefined}
             >
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={pendingBulkDelete} onOpenChange={setPendingBulkDelete}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir conversas selecionadas?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {selectedCount} conversa{selectedCount === 1 ? "" : "s"} serão removidas do histórico.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void handleBulkDelete()}>
               Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
