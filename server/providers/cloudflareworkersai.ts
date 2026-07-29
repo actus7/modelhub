@@ -79,6 +79,9 @@ const app = createProviderApp({
           }
         | null
       const output = json?.result?.response || json?.result?.output_text || json?.result?.text || ''
+      if (!String(output).trim()) {
+        return upstreamErrorResponse('Cloudflare Workers AI', 502, 'Empty model response')
+      }
 
       return toVercelSingleTextResponse(String(output))
     } catch (error) {

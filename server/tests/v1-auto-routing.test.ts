@@ -129,6 +129,78 @@ describe('POST /v1/chat/completions auto routing', () => {
     },
   )
 
+  it('falls back when the selected auto candidate returns only empty frames', async () => {
+    mocks.resolveRouting.mockResolvedValueOnce({
+      confidence: 0.9,
+      fallbacks: [{ modelId: 'fallback-model', providerId: 'demo', tier: 'reasoning' }],
+      modelId: 'empty-stream-model',
+      providerId: 'demo',
+      reason: 'scored',
+      taskCategory: null,
+      tier: 'reasoning',
+    })
+    mocks.providerHandler
+      .mockResolvedValueOnce(new Response('0:""\nd:{"finishReason":"stop"}\n', {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+        status: 200,
+      }))
+      .mockResolvedValueOnce(new Response('0:" fallback"\nd:{"finishReason":"stop"}\n', {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+        status: 200,
+      }))
+
+    const response = await v1Fetch(new Request('https://modelhub.test/v1/chat/completions', {
+      body: JSON.stringify({
+        messages: [{ content: 'hard reasoning task', role: 'user' }],
+        model: 'auto',
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.providerHandler).toHaveBeenCalledTimes(2)
+    expect(response.headers.get('X-ModelHub-Fallback-From')).toBe('demo/empty-stream-model')
+    expect(response.headers.get('X-ModelHub-Model')).toBe('fallback-model')
+    expect(await response.text()).toContain('fallback')
+  })
+
+  it('falls back when the selected auto candidate returns a stream that never starts', async () => {
+    mocks.resolveRouting.mockResolvedValueOnce({
+      confidence: 0.9,
+      fallbacks: [{ modelId: 'fallback-model', providerId: 'demo', tier: 'reasoning' }],
+      modelId: 'silent-stream-model',
+      providerId: 'demo',
+      reason: 'scored',
+      taskCategory: null,
+      tier: 'reasoning',
+    })
+    mocks.providerHandler
+      .mockResolvedValueOnce(new Response(new ReadableStream<Uint8Array>({}), {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+        status: 200,
+      }))
+      .mockResolvedValueOnce(new Response('0:" fallback"\nd:{"finishReason":"stop"}\n', {
+        headers: { 'content-type': 'text/plain; charset=utf-8' },
+        status: 200,
+      }))
+
+    const response = await v1Fetch(new Request('https://modelhub.test/v1/chat/completions', {
+      body: JSON.stringify({
+        messages: [{ content: 'hard reasoning task', role: 'user' }],
+        model: 'auto',
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    }))
+
+    expect(response.status).toBe(200)
+    expect(mocks.providerHandler).toHaveBeenCalledTimes(2)
+    expect(response.headers.get('X-ModelHub-Fallback-From')).toBe('demo/silent-stream-model')
+    expect(response.headers.get('X-ModelHub-Model')).toBe('fallback-model')
+    expect(await response.text()).toContain('fallback')
+  })
+
   it('falls back when the selected auto candidate hangs', async () => {
     mocks.resolveRouting.mockResolvedValueOnce({
       confidence: 0.9,
