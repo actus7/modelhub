@@ -1,21 +1,87 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
-import { CheckIcon, CopyIcon, Loader2Icon, PlusIcon, RouteIcon, Trash2Icon } from "lucide-react";
-import { toast } from "sonner";
+import { useEffect, useMemo, useRef, useState } from "react"
+import {
+  CheckIcon,
+  CopyIcon,
+  ExternalLinkIcon,
+  Loader2Icon,
+  PlusIcon,
+  RouteIcon,
+  SparklesIcon,
+} from "lucide-react"
+import Link from "next/link"
+import { toast } from "sonner"
 
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { apiJson, apiJsonRequest } from "@/lib/api";
-import type { ProviderModel, RoutingConfigSummary, TierAssignment, UiProvider } from "@/lib/contracts";
+import { SuggestionPreview } from "@/components/dashboard/routing/suggestion-preview"
+import { TierCard } from "@/components/dashboard/routing/tier-card"
+import {
+  buildModelIndex,
+  slotKey,
+  toAssignment,
+  toSlots,
+  type RoutingSlot,
+} from "@/components/dashboard/routing/routing-utils"
+import { Button } from "@/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import { Textarea } from "@/components/ui/textarea"
+import { apiJson, apiJsonRequest } from "@/lib/api"
+import { cn } from "@/lib/utils"
+import type {
+  RoutingConfigSummary,
+  RoutingModelCatalog,
+  RoutingModelOption,
+  RoutingSuggestion,
+  TierAssignment,
+  UiProvider,
+} from "@/lib/contracts"
+import {
+  scoreComplexity,
+  type RoutingTier,
+} from "@/server/lib/routing/complexity-scorer"
 
 const TIERS = [
-  { id: "simple", label: "Simples", description: "Perguntas diretas, bate-papo casual" },
-  { id: "standard", label: "Padrão", description: "Texto, código simples, análises" },
-  { id: "complex", label: "Complexo", description: "Raciocínio multi-etapa, pesquisa" },
-  { id: "reasoning", label: "Raciocínio", description: "Matemática avançada, planejamento" },
-] as const;
+  {
+    id: "simple",
+    label: "Simples",
+    hint: "score 0–15",
+    description:
+      "Perguntas diretas e bate-papo casual. Use o modelo mais barato aqui.",
+  },
+  {
+    id: "standard",
+    label: "Padrão",
+    hint: "score 16–40",
+    description: "Texto do dia a dia, código simples, resumos.",
+  },
+  {
+    id: "complex",
+    label: "Complexo",
+    hint: "score 41–65",
+    description: "Raciocínio multi-etapa, análise, contexto longo.",
+  },
+  {
+    id: "reasoning",
+    label: "Raciocínio",
+    hint: "score 66+",
+    description: "Matemática, lógica formal, planejamento profundo.",
+  },
+] as const
 
 const TASK_CATEGORIES = [
   { id: "coding", label: "Programação" },
@@ -27,360 +93,171 @@ const TASK_CATEGORIES = [
   { id: "calendar", label: "Calendário" },
   { id: "social_media", label: "Redes sociais" },
   { id: "trading", label: "Trading" },
-] as const;
+] as const
 
-const NO_PROVIDER_VALUE = "__none__";
-const MAX_FALLBACKS = 2;
+const SNIPPET = `curl -X POST https://www.modelhub.com.br/v1/chat/completions \\
+  -H "Authorization: Bearer $MODELHUB_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"model": "auto", "messages": [{"role": "user", "content": "Sua pergunta aqui"}]}'`
 
-type ProviderOption = {
-  id: string;
-  label: string;
-  base: string;
-  hasModels: boolean;
-  localModels?: ProviderModel[];
-};
+const AUTOSAVE_DELAY_MS = 700
 
-function emptyAssignment(): TierAssignment {
-  return { providerId: "", modelId: "", fallbacks: [] };
-}
-
-function dedupeFallbacks(
-  assignment: TierAssignment,
-  availableProviderIds: Set<string>,
-): NonNullable<TierAssignment["fallbacks"]> {
-  const primaryKey = `${assignment.providerId.toLowerCase()}/${assignment.modelId.toLowerCase()}`;
-  const seen = new Set([primaryKey]);
-  const fallbacks: NonNullable<TierAssignment["fallbacks"]> = [];
-
-  for (const fallback of assignment.fallbacks ?? []) {
-    if (!fallback.providerId) continue;
-    if (!availableProviderIds.has(fallback.providerId)) continue;
-    const key = `${fallback.providerId.toLowerCase()}/${fallback.modelId.toLowerCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    fallbacks.push({ providerId: fallback.providerId, modelId: fallback.modelId });
-  }
-
-  return fallbacks;
-}
-
-function compactAssignment(
-  assignment: TierAssignment | undefined,
-  availableProviderIds: Set<string>,
-): TierAssignment | null {
-  if (!assignment?.providerId) return null;
-  if (!availableProviderIds.has(assignment.providerId)) return null;
-
-  const compacted: TierAssignment = {
-    providerId: assignment.providerId,
-    modelId: assignment.modelId,
-  };
-  const fallbacks = dedupeFallbacks(assignment, availableProviderIds);
-  if (fallbacks.length > 0) compacted.fallbacks = fallbacks;
-  return compacted;
-}
-
-function compactAssignmentMap(
-  assignments: Record<string, TierAssignment>,
-  availableProviderIds: Set<string>,
-): Record<string, TierAssignment> {
-  return Object.fromEntries(
-    Object.entries(assignments)
-      .map(([key, assignment]) => [key, compactAssignment(assignment, availableProviderIds)] as const)
-      .filter((entry): entry is [string, TierAssignment] => entry[1] !== null),
-  );
-}
-
-function ModelSelector({
-  providerId,
-  modelId,
-  providers,
-  onChange,
-}: {
-  providerId: string;
-  modelId: string;
-  providers: ProviderOption[];
-  onChange: (providerId: string, modelId: string) => void;
-}) {
-  const [models, setModels] = useState<ProviderModel[]>([]);
-  const [loadingModels, setLoadingModels] = useState(false);
-
-  const selectedProvider = providers.find((p) => p.id === providerId);
-
-  useEffect(() => {
-    if (!selectedProvider) {
-      setModels([]);
-      return;
-    }
-
-    if (selectedProvider.localModels?.length) {
-      setModels(selectedProvider.localModels);
-      return;
-    }
-
-    if (!selectedProvider.hasModels) {
-      setModels([]);
-      return;
-    }
-
-    let cancelled = false;
-    setLoadingModels(true);
-    apiJson<{ models: ProviderModel[] }>(`${selectedProvider.base}/api/models`)
-      .then((p) => {
-        if (!cancelled) setModels(p.models ?? []);
-      })
-      .catch(() => {
-        if (!cancelled) setModels([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingModels(false);
-      });
-
-    return () => { cancelled = true; };
-  }, [selectedProvider]);
-
-  return (
-    <div className="flex gap-2">
-      <Select
-        value={providerId || NO_PROVIDER_VALUE}
-        onValueChange={(v) => onChange(v === NO_PROVIDER_VALUE ? "" : v, "")}
-      >
-        <SelectTrigger className="flex-1 text-xs">
-          <SelectValue placeholder="Provider" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            <SelectItem value={NO_PROVIDER_VALUE}>Nenhum</SelectItem>
-            {providers.map((p) => (
-              <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <Select
-        value={modelId}
-        onValueChange={(v) => onChange(providerId, v)}
-        disabled={!providerId || (loadingModels ? false : models.length === 0)}
-      >
-        <SelectTrigger className="flex-1 text-xs">
-          <SelectValue placeholder={loadingModels ? "Carregando…" : "Modelo"} />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            {models.map((m) => (
-              <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
-            ))}
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function RoutingAssignmentEditor({
-  assignment,
-  providers,
-  onChange,
-}: {
-  assignment: TierAssignment | undefined;
-  providers: ProviderOption[];
-  onChange: (assignment: TierAssignment) => void;
-}) {
-  const current = assignment ?? emptyAssignment();
-  const fallbacks = current.fallbacks ?? [];
-
-  function setPrimary(providerId: string, modelId: string) {
-    onChange({ ...current, providerId, modelId });
-  }
-
-  function setFallback(index: number, providerId: string, modelId: string) {
-    const nextFallbacks = [...fallbacks];
-    nextFallbacks[index] = { providerId, modelId };
-    onChange({ ...current, fallbacks: nextFallbacks });
-  }
-
-  function removeFallback(index: number) {
-    onChange({ ...current, fallbacks: fallbacks.filter((_, i) => i !== index) });
-  }
-
-  function addFallback() {
-    if (fallbacks.length >= MAX_FALLBACKS) return;
-    onChange({ ...current, fallbacks: [...fallbacks, { providerId: "", modelId: "" }] });
-  }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-col gap-1.5">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Principal</p>
-        <ModelSelector
-          providerId={current.providerId}
-          modelId={current.modelId}
-          providers={providers}
-          onChange={setPrimary}
-        />
-      </div>
-
-      {fallbacks.map((fallback, index) => (
-        <div key={index} className="grid items-end gap-2 sm:grid-cols-[1fr_auto]">
-          <div className="flex flex-col gap-1.5">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-              Fallback {index + 1}
-            </p>
-            <ModelSelector
-              providerId={fallback.providerId}
-              modelId={fallback.modelId}
-              providers={providers}
-              onChange={(providerId, modelId) => setFallback(index, providerId, modelId)}
-            />
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon-sm"
-            aria-label={`Remover fallback ${index + 1}`}
-            onClick={() => removeFallback(index)}
-          >
-            <Trash2Icon />
-          </Button>
-        </div>
-      ))}
-
-      <div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={!current.providerId || fallbacks.length >= MAX_FALLBACKS}
-          onClick={addFallback}
-        >
-          <PlusIcon data-icon="inline-start" />
-          Adicionar fallback
-        </Button>
-      </div>
-    </div>
-  );
-}
+type SaveState = "idle" | "saving" | "saved" | "error"
 
 export function RoutingSection() {
-  const [, setConfig] = useState<RoutingConfigSummary | null>(null);
-  const [routingProviders, setRoutingProviders] = useState<UiProvider[]>([]);
-  const [routingProvidersLoaded, setRoutingProvidersLoaded] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [providers, setProviders] = useState<UiProvider[]>([])
+  const [catalog, setCatalog] = useState<RoutingModelOption[]>([])
+  const [failedProviders, setFailedProviders] = useState<string[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saveState, setSaveState] = useState<SaveState>("idle")
+  const [copied, setCopied] = useState(false)
+  const [suggesting, setSuggesting] = useState(false)
 
-  const [complexityEnabled, setComplexityEnabled] = useState(false);
-  const [taskRoutingEnabled, setTaskRoutingEnabled] = useState(false);
-  const [tiers, setTiers] = useState<Record<string, TierAssignment>>({});
-  const [taskOverrides, setTaskOverrides] = useState<Record<string, TierAssignment>>({});
-  const [suggesting, setSuggesting] = useState(false);
+  const [complexityEnabled, setComplexityEnabled] = useState(false)
+  const [taskRoutingEnabled, setTaskRoutingEnabled] = useState(false)
+  const [tiers, setTiers] = useState<Record<string, TierAssignment>>({})
+  const [taskOverrides, setTaskOverrides] = useState<
+    Record<string, TierAssignment>
+  >({})
+
+  const [probe, setProbe] = useState("")
+  /** Sugestão pendente de confirmação; `null` = nenhum preview aberto. */
+  const [suggestion, setSuggestion] = useState<
+    RoutingSuggestion["tiers"] | null
+  >(null)
+
+  // Não dispara autosave no primeiro render nem enquanto a config inicial carrega.
+  const hydratedRef = useRef(false)
 
   useEffect(() => {
     void (async () => {
-      setLoading(true);
+      setLoading(true)
       try {
-        const [data, routingProviderData] = await Promise.all([
+        const [config, providerData, modelData] = await Promise.all([
           apiJson<RoutingConfigSummary>("/user/routing-config"),
-          apiJson<{ providers: UiProvider[] }>("/user/routing-config/providers"),
-        ]);
-        const nextRoutingProviders = routingProviderData.providers ?? [];
-        const nextProviderIds = new Set(nextRoutingProviders.map((provider) => provider.id));
-        setConfig(data);
-        setRoutingProviders(nextRoutingProviders);
-        setRoutingProvidersLoaded(true);
-        setComplexityEnabled(data.complexityEnabled);
-        setTaskRoutingEnabled(data.taskRoutingEnabled);
-        setTiers(compactAssignmentMap(data.tiers ?? {}, nextProviderIds));
-        setTaskOverrides(compactAssignmentMap(data.taskOverrides ?? {}, nextProviderIds));
-      } catch (e) {
-        setRoutingProviders([]);
-        setRoutingProvidersLoaded(false);
-        toast.error(e instanceof Error ? e.message : "Falha ao carregar configuração de routing.");
+          apiJson<{ providers: UiProvider[] }>(
+            "/user/routing-config/providers",
+          ),
+          apiJson<RoutingModelCatalog>("/user/routing-config/models"),
+        ])
+        setComplexityEnabled(config.complexityEnabled)
+        setTaskRoutingEnabled(config.taskRoutingEnabled)
+        // O servidor já sanitiza tiers/overrides contra os providers prontos
+        // (getRoutingConfig → sanitizeRoutingMap), então a UI confia no payload.
+        setTiers(config.tiers ?? {})
+        setTaskOverrides(config.taskOverrides ?? {})
+        setProviders(providerData.providers ?? [])
+        setCatalog(modelData.models ?? [])
+        setFailedProviders(modelData.failedProviders ?? [])
+      } catch (error) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Falha ao carregar a configuração de roteamento.",
+        )
       } finally {
-        setLoading(false);
+        setLoading(false)
+        hydratedRef.current = true
       }
-    })();
-  }, []);
+    })()
+  }, [])
 
-  function setTierAssignment(tierId: string, assignment: TierAssignment) {
-    setTiers((prev) => ({
-      ...prev,
-      [tierId]: assignment,
-    }));
-  }
+  // Autosave: o botão "Salvar" antigo ficava no fim de uma página longa e
+  // silenciosamente perdia o trabalho de quem não rolava até lá.
+  useEffect(() => {
+    if (!hydratedRef.current) return
 
-  function setTaskAssignment(taskId: string, assignment: TierAssignment) {
-    setTaskOverrides((prev) => {
-      if (!assignment.providerId) {
-        const next = { ...prev };
-        delete next[taskId];
-        return next;
-      }
-      return { ...prev, [taskId]: assignment };
-    });
-  }
-
-  async function handleSave() {
-    if (!routingProvidersLoaded) {
-      toast.error("Não foi possível validar os providers configurados para routing.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const availableProviderIds = new Set(routingProviders.map((provider) => provider.id));
-      const compactTiers = compactAssignmentMap(tiers, availableProviderIds);
-      const compactTaskOverrides = compactAssignmentMap(taskOverrides, availableProviderIds);
-      const updated = await apiJsonRequest<RoutingConfigSummary>("/user/routing-config", "PATCH", {
-        complexityEnabled,
-        taskRoutingEnabled,
-        tiers: compactTiers,
-        taskOverrides: compactTaskOverrides,
-      });
-      setConfig(updated);
-      setTiers(compactAssignmentMap(updated.tiers ?? compactTiers, availableProviderIds));
-      setTaskOverrides(compactAssignmentMap(updated.taskOverrides ?? compactTaskOverrides, availableProviderIds));
-      toast.success("Configuração de routing salva.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Falha ao salvar routing.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleSuggestTiers() {
-    setSuggesting(true);
-    try {
-      const data = await apiJson<{ tiers: Record<string, TierAssignment> }>("/user/routing-config/suggest");
-      if (!data.tiers || Object.keys(data.tiers).length === 0) {
-        toast.error("Nenhum modelo disponível para sugerir. Conecte provedores primeiro.");
-        return;
-      }
-      setTiers((prev) => {
-        const next = { ...prev };
-        for (const [tierId, assignment] of Object.entries(data.tiers)) {
-          next[tierId] = { ...assignment, fallbacks: prev[tierId]?.fallbacks ?? [] };
+    setSaveState("saving")
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          await apiJsonRequest<RoutingConfigSummary>(
+            "/user/routing-config",
+            "PATCH",
+            {
+              complexityEnabled,
+              taskRoutingEnabled,
+              tiers,
+              taskOverrides,
+            },
+          )
+          setSaveState("saved")
+        } catch (error) {
+          setSaveState("error")
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : "Falha ao salvar o roteamento.",
+          )
         }
-        return next;
-      });
-      toast.success("Modelos sugeridos preenchidos. Revise e salve.");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Falha ao sugerir modelos.");
+      })()
+    }, AUTOSAVE_DELAY_MS)
+
+    return () => clearTimeout(timer)
+  }, [complexityEnabled, taskRoutingEnabled, tiers, taskOverrides])
+
+  const modelIndex = useMemo(() => buildModelIndex(catalog), [catalog])
+
+  function writeAssignment(
+    setter: typeof setTiers,
+    key: string,
+    slots: RoutingSlot[],
+  ) {
+    setter((previous) => {
+      const assignment = toAssignment(slots)
+      if (!assignment) {
+        const next = { ...previous }
+        delete next[key]
+        return next
+      }
+      return { ...previous, [key]: assignment }
+    })
+  }
+
+  async function handleSuggest() {
+    setSuggesting(true)
+    try {
+      const data = await apiJson<RoutingSuggestion>(
+        "/user/routing-config/suggest",
+      )
+      if (!data.tiers || Object.keys(data.tiers).length === 0) {
+        toast.error(
+          "Nenhum modelo disponível para sugerir. Conecte provedores primeiro.",
+        )
+        return
+      }
+      // Preview em vez de aplicar direto: a versão anterior sobrescrevia os
+      // principais sem aviso e sem explicar o critério da escolha.
+      setSuggestion(data.tiers)
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Falha ao sugerir modelos.",
+      )
     } finally {
-      setSuggesting(false);
+      setSuggesting(false)
     }
+  }
+
+  function applySuggestion() {
+    if (!suggestion) return
+    setTiers((previous) => {
+      const next = { ...previous }
+      for (const [tierId, slots] of Object.entries(suggestion)) {
+        const assignment = toAssignment(slots)
+        if (assignment) next[tierId] = assignment
+      }
+      return next
+    })
+    setSuggestion(null)
+    toast.success("Sugestão aplicada. Ajuste o que quiser — salva sozinho.")
   }
 
   function handleCopySnippet() {
-    const snippet = `curl -X POST https://www.modelhub.com.br/v1/chat/completions \\
-  -H "Authorization: Bearer $MODELHUB_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"model": "auto", "messages": [{"role": "user", "content": "Sua pergunta aqui"}]}'`;
-    void navigator.clipboard.writeText(snippet).then(() => {
-      setCopied(true);
-      toast.success("Snippet copiado!");
-      setTimeout(() => setCopied(false), 2000);
-    });
+    void navigator.clipboard.writeText(SNIPPET).then(() => {
+      setCopied(true)
+      toast.success("Snippet copiado!")
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   if (loading) {
@@ -388,13 +265,11 @@ export function RoutingSection() {
       <div className="flex flex-1 items-center justify-center p-10">
         <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
       </div>
-    );
+    )
   }
 
-  const readyProviders = routingProvidersLoaded ? routingProviders : [];
-
-  return (
-    <div className="flex flex-col gap-4 md:gap-6">
+  if (providers.length === 0) {
+    return (
       <Card className="border-border/60">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -402,136 +277,316 @@ export function RoutingSection() {
             Roteamento automático
           </CardTitle>
           <CardDescription>
-            Com o modelo <code className="rounded bg-muted px-1 py-0.5 text-xs">auto</code>, o ModelHub escolhe o
-            modelo ideal para cada mensagem automaticamente.
+            Nenhum provedor está pronto para roteamento ainda. Conecte pelo
+            menos um provedor com credenciais válidas para escolher os modelos
+            de cada nível.
           </CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-col gap-3">
-            <label className="flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4"
-                checked={complexityEnabled}
-                onChange={(e) => setComplexityEnabled(e.target.checked)}
-              />
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">Roteamento por complexidade</p>
-                <p className="text-xs text-muted-foreground">
-                  Analisa localmente cada mensagem e encaminha para o tier adequado (&lt;2ms, sem chamada externa).
-                </p>
-              </div>
-            </label>
-            <label className="flex cursor-pointer items-start gap-3">
-              <input
-                type="checkbox"
-                className="mt-0.5 size-4"
-                checked={taskRoutingEnabled}
-                onChange={(e) => setTaskRoutingEnabled(e.target.checked)}
-              />
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">Roteamento por categoria de tarefa</p>
-                <p className="text-xs text-muted-foreground">
-                  Detecta a intenção (programação, e-mail, análise de dados…) e usa o modelo especializado configurado.
-                </p>
-              </div>
-            </label>
-          </div>
+        <CardContent>
+          <Button asChild size="sm">
+            <Link href="/setup">
+              Conectar provedores
+              <ExternalLinkIcon data-icon="inline-end" />
+            </Link>
+          </Button>
         </CardContent>
       </Card>
+    )
+  }
 
-      {complexityEnabled && (
-        <Card className="border-border/60">
-          <CardHeader>
-            <div className="flex items-start justify-between gap-3">
-              <div className="space-y-1.5">
-                <CardTitle>Modelos por tier de complexidade</CardTitle>
-                <CardDescription>
-                  Defina o modelo primário e a ordem de fallback para cada nível.
-                </CardDescription>
-              </div>
+  const probeScore = probe.trim()
+    ? scoreComplexity([{ role: "user", content: probe }])
+    : null
+  const activeTier: RoutingTier | null = probeScore?.tier ?? null
+  const resolvedSlots = activeTier ? toSlots(tiers[activeTier]) : []
+  const resolvedPrimary = resolvedSlots[0]
+  const resolvedModel = resolvedPrimary
+    ? modelIndex.get(slotKey(resolvedPrimary))
+    : undefined
+
+  const unusedCategories = TASK_CATEGORIES.filter(
+    (task) => !taskOverrides[task.id],
+  )
+  const usedCategories = TASK_CATEGORIES.filter(
+    (task) => taskOverrides[task.id],
+  )
+
+  return (
+    <div className="flex flex-col gap-4 md:gap-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <RouteIcon className="size-4" />
+            Roteamento automático
+          </h2>
+          <p className="max-w-2xl text-sm text-muted-foreground">
+            Chame a API com{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">
+              &quot;model&quot;: &quot;auto&quot;
+            </code>{" "}
+            e o ModelHub escolhe o modelo de cada mensagem seguindo as lanes
+            abaixo.
+          </p>
+        </div>
+        <SaveIndicator state={saveState} />
+      </div>
+
+      {failedProviders.length > 0 ? (
+        <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          Não foi possível listar os modelos de: {failedProviders.join(", ")}.
+          Modelos já configurados continuam funcionando, mas não aparecem no
+          seletor até o provedor responder.
+        </p>
+      ) : null}
+
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">Roteamento padrão</p>
+            <p className="text-sm text-muted-foreground">
+              {complexityEnabled
+                ? "Analisa a complexidade de cada requisição na hora e envia para o nível correspondente (<2ms, sem chamada externa)."
+                : "Escolha um modelo e até dois fallbacks como roteamento padrão."}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-4">
+            {complexityEnabled ? (
               <Button
-                variant="outline"
+                disabled={suggesting}
+                onClick={() => void handleSuggest()}
                 size="sm"
-                className="shrink-0"
-                disabled={suggesting || readyProviders.length === 0}
-                onClick={() => void handleSuggestTiers()}
+                type="button"
+                variant="outline"
               >
-                {suggesting && <Loader2Icon className="mr-2 size-3 animate-spin" />}
-                Sugerir automaticamente
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {TIERS.map((tier) => (
-                <div key={tier.id} className="grid items-start gap-2 sm:grid-cols-[160px_1fr]">
-                  <div className="pt-2">
-                    <p className="text-sm font-medium">{tier.label}</p>
-                    <p className="text-xs text-muted-foreground">{tier.description}</p>
-                  </div>
-                  <RoutingAssignmentEditor
-                    assignment={tiers[tier.id]}
-                    providers={readyProviders}
-                    onChange={(assignment) => setTierAssignment(tier.id, assignment)}
+                {suggesting ? (
+                  <Loader2Icon
+                    className="animate-spin"
+                    data-icon="inline-start"
                   />
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+                ) : (
+                  <SparklesIcon data-icon="inline-start" />
+                )}
+                Sugerir modelos
+              </Button>
+            ) : null}
+            <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+              Rotear por complexidade
+              <Switch
+                checked={complexityEnabled}
+                onCheckedChange={setComplexityEnabled}
+              />
+            </label>
+          </div>
+        </div>
 
-      {taskRoutingEnabled && (
+        {complexityEnabled ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {TIERS.map((tier) => (
+              <TierCard
+                active={activeTier === tier.id}
+                description={tier.description}
+                hint={tier.hint}
+                key={tier.id}
+                modelIndex={modelIndex}
+                models={catalog}
+                onChange={(slots) => writeAssignment(setTiers, tier.id, slots)}
+                slots={toSlots(tiers[tier.id])}
+                title={tier.label}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl bg-muted/40 p-4">
+            <div className="max-w-sm">
+              <TierCard
+                description="Modelo usado em toda requisição com model: auto."
+                hint="usado sempre"
+                modelIndex={modelIndex}
+                models={catalog}
+                onChange={(slots) =>
+                  writeAssignment(setTiers, "default", slots)
+                }
+                slots={toSlots(tiers.default)}
+                title="Modelo padrão"
+              />
+            </div>
+          </div>
+        )}
+      </section>
+
+      {complexityEnabled ? (
         <Card className="border-border/60">
           <CardHeader>
-            <CardTitle>Modelos por categoria de tarefa</CardTitle>
+            <CardTitle className="text-sm">Testar antes de confiar</CardTitle>
             <CardDescription>
-              Substitui o tier de complexidade quando a intenção da mensagem for detectada com confiança ≥ 40%.
+              Cole uma mensagem real. O mesmo classificador que roda em produção
+              mostra o nível escolhido e o porquê — sem gastar créditos.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {TASK_CATEGORIES.map((task) => (
-                <div key={task.id} className="grid items-start gap-2 sm:grid-cols-[160px_1fr]">
-                  <p className="pt-2 text-sm font-medium">{task.label}</p>
-                  <RoutingAssignmentEditor
-                    assignment={taskOverrides[task.id]}
-                    providers={readyProviders}
-                    onChange={(assignment) => setTaskAssignment(task.id, assignment)}
-                  />
-                </div>
-              ))}
-            </div>
+          <CardContent className="space-y-3">
+            <Textarea
+              onChange={(event) => setProbe(event.target.value)}
+              placeholder="Ex.: prove que a soma dos n primeiros ímpares é n²"
+              rows={3}
+              value={probe}
+            />
+            {probeScore ? (
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="rounded-full bg-primary/10 px-2 py-1 font-semibold text-primary">
+                  {TIERS.find((tier) => tier.id === probeScore.tier)?.label ??
+                    probeScore.tier}
+                </span>
+                <span className="text-muted-foreground">
+                  score {probeScore.rawScore} · confiança{" "}
+                  {Math.round(probeScore.confidence * 100)}%
+                </span>
+                <span className="text-muted-foreground">→</span>
+                <span className="font-medium">
+                  {resolvedModel?.modelName ??
+                    resolvedPrimary?.modelId ??
+                    "nenhum modelo configurado nesse nível"}
+                </span>
+                {probeScore.signals.length > 0 ? (
+                  <span className="w-full text-[11px] text-muted-foreground">
+                    sinais: {probeScore.signals.join(", ")}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
-      )}
+      ) : null}
+
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">
+              Roteamento por categoria de tarefa
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Detecta a intenção da mensagem e, com confiança ≥ 40%, ignora o
+              nível de complexidade e usa o modelo especializado.
+            </p>
+          </div>
+          <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm font-medium">
+            Rotear por tarefa
+            <Switch
+              checked={taskRoutingEnabled}
+              onCheckedChange={setTaskRoutingEnabled}
+            />
+          </label>
+        </div>
+
+        {taskRoutingEnabled ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {usedCategories.map((task) => (
+              <TierCard
+                description={`Modelo usado quando a mensagem for detectada como “${task.label}”.`}
+                key={task.id}
+                modelIndex={modelIndex}
+                models={catalog}
+                onChange={(slots) =>
+                  writeAssignment(setTaskOverrides, task.id, slots)
+                }
+                slots={toSlots(taskOverrides[task.id])}
+                title={task.label}
+              />
+            ))}
+            {unusedCategories.length > 0 ? (
+              <div className="flex min-h-32 flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-3">
+                <PlusIcon className="size-4 text-muted-foreground" />
+                <Select
+                  onValueChange={(taskId) =>
+                    setTaskOverrides((previous) => ({
+                      ...previous,
+                      [taskId]: { providerId: "", modelId: "" },
+                    }))
+                  }
+                  value=""
+                >
+                  <SelectTrigger className="text-xs" size="sm">
+                    <SelectValue placeholder="Adicionar categoria" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {unusedCategories.map((task) => (
+                        <SelectItem key={task.id} value={task.id}>
+                          {task.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
 
       <Card className="border-border/60">
         <CardHeader>
-          <CardTitle>Usar modelo &quot;auto&quot; na API</CardTitle>
-          <CardDescription>Substitua o model_id pela string literal <code className="rounded bg-muted px-1 py-0.5 text-xs">auto</code>.</CardDescription>
+          <CardTitle className="text-sm">Usar na API</CardTitle>
+          <CardDescription>
+            Substitua o model_id pela string literal{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">auto</code>.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <pre className="overflow-x-auto rounded-lg bg-muted px-3 py-2.5 text-xs leading-relaxed">
-            <code>{`curl -X POST https://www.modelhub.com.br/v1/chat/completions \\
-  -H "Authorization: Bearer $MODELHUB_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"model": "auto", "messages": [{"role": "user", "content": "Sua pergunta aqui"}]}'`}</code>
+            <code>{SNIPPET}</code>
           </pre>
-          <Button variant="outline" size="sm" onClick={handleCopySnippet}>
-            {copied ? <CheckIcon className="mr-2 size-3" /> : <CopyIcon className="mr-2 size-3" />}
+          <Button onClick={handleCopySnippet} size="sm" variant="outline">
+            {copied ? (
+              <CheckIcon data-icon="inline-start" />
+            ) : (
+              <CopyIcon data-icon="inline-start" />
+            )}
             Copiar snippet
           </Button>
         </CardContent>
       </Card>
 
-      <div className="flex justify-end">
-        <Button disabled={saving || !routingProvidersLoaded} onClick={() => void handleSave()}>
-          {saving && <Loader2Icon className="mr-2 size-3 animate-spin" />}
-          Salvar configuração
-        </Button>
-      </div>
+      <SuggestionPreview
+        lanes={TIERS.map((tier) => ({
+          currentCount: toSlots(tiers[tier.id]).length,
+          hint: tier.hint,
+          label: tier.label,
+          slots: suggestion?.[tier.id] ?? [],
+          tierId: tier.id,
+        }))}
+        modelIndex={modelIndex}
+        onApply={applySuggestion}
+        onOpenChange={(next) => {
+          if (!next) setSuggestion(null)
+        }}
+        open={suggestion !== null}
+      />
     </div>
-  );
+  )
+}
+
+function SaveIndicator({ state }: { state: SaveState }) {
+  if (state === "idle") return null
+
+  const copy = {
+    saving: "Salvando…",
+    saved: "Alterações salvas",
+    error: "Falha ao salvar",
+  }[state]
+
+  return (
+    <p
+      aria-live="polite"
+      className={cn(
+        "flex shrink-0 items-center gap-1.5 text-xs",
+        state === "error" ? "text-destructive" : "text-muted-foreground",
+      )}
+    >
+      {state === "saving" ? (
+        <Loader2Icon className="size-3 animate-spin" />
+      ) : null}
+      {state === "saved" ? <CheckIcon className="size-3" /> : null}
+      {copy}
+    </p>
+  )
 }

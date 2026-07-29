@@ -1,13 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const registryMocks = vi.hoisted(() => ({
   getProviderModels: vi.fn(),
   isProviderAvailableViaExternalApi: vi.fn(() => true),
 }))
 
-vi.mock('../../providers/registry', () => ({
+vi.mock("../../providers/registry", () => ({
   getProviderModels: registryMocks.getProviderModels,
-  isProviderAvailableViaExternalApi: registryMocks.isProviderAvailableViaExternalApi,
+  isProviderAvailableViaExternalApi:
+    registryMocks.isProviderAvailableViaExternalApi,
   providerRegistry: {
     anthropic: {},
     groq: {},
@@ -15,100 +16,229 @@ vi.mock('../../providers/registry', () => ({
   },
 }))
 
-vi.mock('../catalog', () => ({
+vi.mock("../catalog", () => ({
   isProviderEnabled: vi.fn(() => true),
 }))
 
-vi.mock('../openrouter-pricing', () => ({
+vi.mock("../openrouter-pricing", () => ({
   ensureOpenRouterPricingFresh: vi.fn(),
   getOpenRouterPrice: vi.fn(() => null),
 }))
 
-import { capabilityScore, pickTiers, suggestTierAssignments, type ModelCandidate } from './tier-suggest'
+import {
+  fillLane,
+  isChatModel,
+  paramBillions,
+  pickTiers,
+  scoreModel,
+  suggestTierAssignments,
+  type ModelCandidate,
+} from "./tier-suggest"
+
+const candidate = (
+  providerId: string,
+  modelId: string,
+  overrides: Partial<ModelCandidate> = {},
+): ModelCandidate => ({
+  providerId,
+  modelId,
+  score: 50,
+  isReasoning: false,
+  outputPer1M: null,
+  signals: [],
+  ...overrides,
+})
 
 beforeEach(() => {
   vi.clearAllMocks()
-  registryMocks.getProviderModels.mockImplementation(async (providerId: string) => {
-    if (providerId === 'groq') {
-      return [{ capabilities: { documents: true, images: false }, id: 'llama-8b', name: 'Llama 8B' }]
-    }
-    if (providerId === 'openai') {
-      return [{ capabilities: { documents: true, images: false }, id: 'o3', name: 'o3' }]
-    }
-    return []
+  registryMocks.getProviderModels.mockImplementation(
+    async (providerId: string) => {
+      if (providerId === "groq") {
+        return [
+          {
+            capabilities: { documents: true, images: false },
+            id: "llama-3.1-8b-instant",
+            name: "Llama 8B",
+          },
+          {
+            capabilities: { documents: true, images: false },
+            id: "llama-guard-3-8b",
+            name: "Llama Guard",
+          },
+        ]
+      }
+      if (providerId === "openai") {
+        return [
+          {
+            capabilities: { documents: true, images: false },
+            id: "o3",
+            name: "o3",
+          },
+        ]
+      }
+      return []
+    },
+  )
+})
+
+describe("paramBillions", () => {
+  it("lê a contagem de parâmetros dos identificadores reais dos catálogos", () => {
+    expect(paramBillions("@cf/meta/llama-3.2-3b-instruct")).toBe(3)
+    expect(paramBillions("gpt-oss-120b")).toBe(120)
+    expect(paramBillions("gemma-4-31b")).toBe(31)
+    expect(paramBillions("deepseek-r1-distill-qwen-32b")).toBe(32)
+  })
+
+  it("ignora sufixos numéricos que não são contagem de parâmetros", () => {
+    // `fp8` não é "8b"; `4o` e `4.7` não têm o sufixo b.
+    expect(paramBillions("llama-3.1-8b-instruct-fp8")).toBe(8)
+    expect(paramBillions("gpt-4o")).toBeNull()
+    expect(paramBillions("zai-glm-4.7")).toBeNull()
   })
 })
 
-describe('capabilityScore', () => {
-  it('dá score maior a modelos topo de linha que a modelos pequenos', () => {
-    expect(capabilityScore('anthropic', 'claude-opus-4-8')).toBeGreaterThan(
-      capabilityScore('anthropic', 'claude-haiku-4-5'),
+describe("isChatModel", () => {
+  it("descarta modelos que não atendem chat completions", () => {
+    expect(isChatModel("@cf/meta/llama-guard-3-8b")).toBe(false)
+    expect(isChatModel("@cf/google/gemma-2b-it-lora")).toBe(false)
+    expect(isChatModel("text-embedding-3-large")).toBe(false)
+    expect(isChatModel("@cf/openai/whisper")).toBe(false)
+  })
+
+  it("mantém modelos de chat", () => {
+    expect(isChatModel("@cf/meta/llama-3.2-3b-instruct")).toBe(true)
+    expect(isChatModel("gpt-oss-120b")).toBe(true)
+  })
+})
+
+describe("scoreModel", () => {
+  it("rankeia por contagem de parâmetros quando o preço é desconhecido", () => {
+    // O caso que quebrava antes: sem preço na tabela, tudo empatava.
+    const big = scoreModel("cerebras", "gpt-oss-120b").score
+    const small = scoreModel(
+      "cloudflare",
+      "@cf/meta/llama-3.2-1b-instruct",
+    ).score
+    expect(big).toBeGreaterThan(small)
+  })
+
+  it("bonifica raciocínio explícito", () => {
+    expect(scoreModel("openai", "o3-mini").score).toBeGreaterThan(
+      scoreModel("openai", "gpt-4o-mini").score,
+    )
+    expect(scoreModel("openai", "o3").isReasoning).toBe(true)
+  })
+
+  it('não confunde "pro" dentro de outra palavra com família topo de linha', () => {
+    expect(scoreModel("x", "prompt-tuned-thing").signals).toContain(
+      "sem sinal no identificador",
     )
   })
 
-  it('bonifica modelos de raciocínio explícito', () => {
-    expect(capabilityScore('openai', 'o3-mini')).toBeGreaterThan(capabilityScore('openai', 'gpt-4o-mini'))
-  })
-
-  it('usa preço mid quando o modelo é desconhecido', () => {
-    expect(capabilityScore('unknown', 'mystery-model')).toBe(5)
+  it("explica o motivo do score para o preview", () => {
+    expect(scoreModel("cerebras", "gpt-oss-120b").signals).toContain(
+      "120B parâmetros",
+    )
   })
 })
 
-describe('pickTiers', () => {
-  it('retorna vazio sem candidatos', () => {
+describe("fillLane", () => {
+  it("prioriza providers distintos antes de repetir", () => {
+    const pool = [
+      candidate("groq", "a"),
+      candidate("groq", "b"),
+      candidate("cerebras", "c"),
+    ]
+    expect(fillLane(pool, 3).map((item) => item.modelId)).toEqual([
+      "a",
+      "c",
+      "b",
+    ])
+  })
+
+  it("respeita o limite de vagas", () => {
+    const pool = [candidate("a", "1"), candidate("b", "2"), candidate("c", "3")]
+    expect(fillLane(pool, 2)).toHaveLength(2)
+  })
+})
+
+describe("pickTiers", () => {
+  it("retorna vazio sem candidatos", () => {
     expect(pickTiers([])).toEqual({})
   })
 
-  it('mapeia o mais barato para simple e o mais capaz para reasoning', () => {
-    const candidates: ModelCandidate[] = [
-      { providerId: 'groq', modelId: 'llama-3.1-8b-instant', score: 0.08, isReasoning: false },
-      { providerId: 'openai', modelId: 'gpt-4o-mini', score: 0.6, isReasoning: false },
-      { providerId: 'anthropic', modelId: 'claude-sonnet-4-6', score: 15, isReasoning: false },
-      { providerId: 'openai', modelId: 'o3', score: 90, isReasoning: true },
+  it("preenche a lane com principal + fallbacks", () => {
+    const candidates = [
+      candidate("groq", "llama-3.1-8b", { score: 48 }),
+      candidate("cerebras", "gemma-4-31b", { score: 45 }),
+      candidate("cloudflare", "mistral-7b", { score: 44 }),
     ]
-    const tiers = pickTiers(candidates)
-    expect(tiers.simple).toEqual({ providerId: 'groq', modelId: 'llama-3.1-8b-instant' })
-    expect(tiers.reasoning).toEqual({ providerId: 'openai', modelId: 'o3' })
+    expect(pickTiers(candidates, 3).standard).toHaveLength(3)
   })
 
-  it('prefere modelo de raciocínio para reasoning mesmo sem ser o de maior score', () => {
-    const candidates: ModelCandidate[] = [
-      { providerId: 'groq', modelId: 'llama-8b', score: 0.1, isReasoning: false },
-      { providerId: 'deepseek', modelId: 'deepseek-reasoner', score: 50, isReasoning: true },
-      { providerId: 'anthropic', modelId: 'claude-opus', score: 75, isReasoning: false },
+  it("coloca o modelo mais capaz da faixa como principal", () => {
+    const candidates = [
+      candidate("groq", "fraco", { score: 42 }),
+      candidate("cerebras", "forte", { score: 60 }),
     ]
-    const tiers = pickTiers(candidates)
-    expect(tiers.reasoning).toEqual({ providerId: 'deepseek', modelId: 'deepseek-reasoner' })
+    expect(pickTiers(candidates, 2).standard?.[0]?.modelId).toBe("forte")
   })
 
-  it('funciona com um único candidato (todos os tiers iguais)', () => {
-    const candidates: ModelCandidate[] = [
-      { providerId: 'groq', modelId: 'llama', score: 1, isReasoning: false },
+  it("prefere modelo de raciocínio para reasoning mesmo com score menor", () => {
+    const candidates = [
+      candidate("deepseek", "deepseek-reasoner", {
+        score: 68,
+        isReasoning: true,
+      }),
+      candidate("anthropic", "claude-opus", { score: 93 }),
     ]
-    const tiers = pickTiers(candidates)
-    expect(tiers.simple).toEqual({ providerId: 'groq', modelId: 'llama' })
-    expect(tiers.reasoning).toEqual({ providerId: 'groq', modelId: 'llama' })
+    const reasoning = pickTiers(candidates, 2).reasoning
+    expect(reasoning?.map((slot) => slot.modelId)).toContain(
+      "deepseek-reasoner",
+    )
+  })
+
+  it("usa os candidatos mais próximos quando nenhuma faixa casa", () => {
+    const candidates = [candidate("groq", "unico", { score: 50 })]
+    const tiers = pickTiers(candidates, 3)
+    // Um catálogo de um modelo só preenche todas as lanes com ele.
+    expect(tiers.simple?.[0]?.modelId).toBe("unico")
+    expect(tiers.reasoning?.[0]?.modelId).toBe("unico")
   })
 })
 
-describe('suggestTierAssignments', () => {
-  it('sugere tiers apenas a partir das fontes configuradas', async () => {
+describe("suggestTierAssignments", () => {
+  it("sugere tiers apenas a partir das fontes configuradas", async () => {
     const tiers = await suggestTierAssignments({
       sources: [
         {
-          cacheKeySuffix: 'user-1:groq',
-          credentials: { GROQ_API_KEY: 'sk-test' },
-          providerId: 'groq',
+          cacheKeySuffix: "user-1:groq",
+          credentials: { GROQ_API_KEY: "sk-test" },
+          providerId: "groq",
         },
       ],
     })
 
     expect(registryMocks.getProviderModels).toHaveBeenCalledTimes(1)
-    expect(registryMocks.getProviderModels).toHaveBeenCalledWith('groq', {
-      cacheKeySuffix: 'user-1:groq',
-      credentials: { GROQ_API_KEY: 'sk-test' },
+    expect(registryMocks.getProviderModels).toHaveBeenCalledWith("groq", {
+      cacheKeySuffix: "user-1:groq",
+      credentials: { GROQ_API_KEY: "sk-test" },
     })
-    expect(Object.values(tiers).every((assignment) => assignment?.providerId === 'groq')).toBe(true)
+    const slots = Object.values(tiers).flat()
+    expect(slots.length).toBeGreaterThan(0)
+    expect(slots.every((slot) => slot?.providerId === "groq")).toBe(true)
+  })
+
+  it("nunca sugere um modelo que não é de chat", async () => {
+    const tiers = await suggestTierAssignments({
+      sources: [
+        { cacheKeySuffix: "user-1:groq", credentials: {}, providerId: "groq" },
+      ],
+    })
+
+    const modelIds = Object.values(tiers)
+      .flat()
+      .map((slot) => slot?.modelId)
+    expect(modelIds).not.toContain("llama-guard-3-8b")
   })
 })
