@@ -23,7 +23,7 @@ importers:
     dependencies:
       '@hono/zod-validator':
         specifier: ^0.8.0
-        version: 0.8.0(hono@4.12.23)(zod@4.4.3)
+        version: 0.8.0(hono@4.12.32)(zod@4.4.3)
       '@neondatabase/auth':
         specifier: 0.2.0-beta.1
         version: 0.2.0-beta.1(efe73246cc848b82dca1a7ee735c1b73)
@@ -46,8 +46,8 @@ importers:
         specifier: ^11.11.1
         version: 11.11.1
       hono:
-        specifier: ^4.12.23
-        version: 4.12.23
+        specifier: ^4.12.32
+        version: 4.12.32
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1(@noble/hashes@2.2.0)
@@ -4329,8 +4329,8 @@ packages:
   hoist-non-react-statics@3.3.2:
     resolution: {integrity: sha512-/gGivxi8JPKWNm/W0jSmzcMPpfpPLc3dY/6GxhX2hQ9iGj3aDfklV4ET7NjKpSinLpJ5vafa9iiGIEZg10SfBw==}
 
-  hono@4.12.23:
-    resolution: {integrity: sha512-eIaZ9qDgu7XV0pxOCrg7/WhnQ6Ivm22UcxhXx/A3dcbqbbYgBEkc6e/J/s7j2tS96zoB0S9VBdLwQNCWwUo4LA==}
+  hono@4.12.32:
+    resolution: {integrity: sha512-XcuyW9qE2kJn07PkecMOBd5Vq/hMy7mmGw+idz1yblbg9N17ijJODrvPkn7/dwL3Kulj8LcRJ69DLOWf91dRUg==}
     engines: {node: '>=16.9.0'}
 
   html-encoding-sniffer@6.0.0:
@@ -5861,6 +5861,11 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
+  semver@7.8.5:
+    resolution: {integrity: sha512-Y7/KDsb8LjooZpwaqGyulO6DQlksgCncchHGk+sZIY4SBvUocMBEFH5Ur1fI4dV+Jvl0w6cjvucaIi40puRioA==}
+    engines: {node: '>=10'}
+    hasBin: true
+
   send@1.2.1:
     resolution: {integrity: sha512-1gnZf7DFcoIcajTjTwjwuDjzuz4PPcY2StKPlsGAQ1+YH20IRVrBaXSWmdjowTJ6u8Rc01PoYOGHXfP1mYcZNQ==}
     engines: {node: '>= 18'}
@@ -7318,13 +7323,13 @@ snapshots:
 
   '@hexagon/base64@1.1.28': {}
 
-  '@hono/node-server@1.19.13(hono@4.12.23)':
+  '@hono/node-server@1.19.13(hono@4.12.32)':
     dependencies:
-      hono: 4.12.23
+      hono: 4.12.32
 
-  '@hono/zod-validator@0.8.0(hono@4.12.23)(zod@4.4.3)':
+  '@hono/zod-validator@0.8.0(hono@4.12.32)(zod@4.4.3)':
     dependencies:
-      hono: 4.12.23
+      hono: 4.12.32
       zod: 4.4.3
 
   '@hookform/resolvers@5.2.2(react-hook-form@7.72.1(react@19.2.7))':
@@ -7524,7 +7529,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.29.0(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.13(hono@4.12.23)
+      '@hono/node-server': 1.19.13(hono@4.12.32)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -7534,7 +7539,7 @@ snapshots:
       eventsource-parser: 3.0.8
       express: 5.2.1
       express-rate-limit: 8.4.1(express@5.2.1)
-      hono: 4.12.23
+      hono: 4.12.32
       jose: 6.2.2
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -7904,13 +7909,13 @@ snapshots:
       '@electric-sql/pglite': 0.4.1
       '@electric-sql/pglite-socket': 0.1.1(@electric-sql/pglite@0.4.1)
       '@electric-sql/pglite-tools': 0.3.1(@electric-sql/pglite@0.4.1)
-      '@hono/node-server': 1.19.13(hono@4.12.23)
+      '@hono/node-server': 1.19.13(hono@4.12.32)
       '@prisma/get-platform': 7.2.0
       '@prisma/query-plan-executor': 7.2.0
       '@prisma/streams-local': 0.1.2
       foreground-child: 3.3.1
       get-port-please: 3.2.0
-      hono: 4.12.23
+      hono: 4.12.32
       http-status-codes: 2.3.0
       pathe: 2.0.3
       proper-lockfile: 4.1.2
@@ -10949,7 +10954,7 @@ snapshots:
     dependencies:
       react-is: 16.13.1
 
-  hono@4.12.23: {}
+  hono@4.12.32: {}
 
   html-encoding-sniffer@6.0.0(@noble/hashes@2.2.0):
     dependencies:
@@ -12827,6 +12832,9 @@ snapshots:
     optional: true
 
   semver@7.8.5: {}
+
+  semver@7.8.5:
+    optional: true
 
   semver@7.8.5:
     optional: true
