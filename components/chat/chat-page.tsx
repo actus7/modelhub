@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
   type CloudDeploymentSummary,
+  type ProviderModel,
   type UiProvider,
 } from "@/lib/contracts";
 import {
@@ -137,6 +138,13 @@ import {
   type PersistedConversationMessage,
 } from "@/lib/chat-utils";
 
+const AUTO_PROVIDER_ID = "modelhub-auto";
+const AUTO_MODEL: ProviderModel = {
+  capabilities: { documents: true, images: true, reasoning: true },
+  id: "auto",
+  name: "Auto · Smart Routing",
+};
+
 export function ChatPage() {
   const { credentials, providers, refreshCredentials } = useAppState();
   const [selectedProviderId, setSelectedProviderId] = useState<string>("");
@@ -218,6 +226,22 @@ export function ChatPage() {
     }
   }, [searchParams, openclawDeployments]);
 
+  const autoProvider = useMemo<UiProvider>(() => ({
+    base: "/v1",
+    category: "gateway",
+    hasModels: true,
+    id: AUTO_PROVIDER_ID,
+    label: "Auto · Smart Routing",
+    localModels: [AUTO_MODEL],
+    runtime: {
+      authMode: "none",
+      externalApi: false,
+      kind: "server",
+      openAiCompatible: true,
+      transport: "openai-compatible",
+    },
+  }), []);
+
   const openclawProviders = useMemo<UiProvider[]>(
     () => {
       const providerLabels = new Map(providers.map((provider) => [provider.id, provider.label]));
@@ -253,9 +277,9 @@ export function ChatPage() {
 
   const selectedProvider = useMemo(
     () =>
-      [...providers, ...openclawProviders].find((provider) => provider.id === selectedProviderId) ??
+      [autoProvider, ...providers, ...openclawProviders].find((provider) => provider.id === selectedProviderId) ??
       null,
-    [providers, openclawProviders, selectedProviderId],
+    [autoProvider, providers, openclawProviders, selectedProviderId],
   );
   const browserProviderAdapter = useMemo(
     () => getBrowserChatProviderAdapter(selectedProviderId),
@@ -345,7 +369,7 @@ export function ChatPage() {
 
     const preferred =
       (globalThis.window?.localStorage.getItem("selected-provider") ?? null) ??
-      (providers.find((provider) => provider.id === "gateway")?.id ?? providers[0]?.id ?? "");
+      AUTO_PROVIDER_ID;
     setSelectedProviderId(preferred);
   }, [providers, selectedProviderId]);
 
@@ -824,14 +848,21 @@ export function ChatPage() {
         setBrowserProviderAuthState("signed-in");
       } else {
       let parsedStream: Awaited<ReturnType<typeof parseChatStream>> | null = null;
-      const response = await apiFetch(`${selectedProvider.base}/api/chat`, {
-        body: JSON.stringify(requestPayload),
-        headers: {
-          "Content-Type": "application/json",
+      const response = await apiFetch(
+        selectedProviderId === AUTO_PROVIDER_ID ? "/v1/chat/completions" : `${selectedProvider.base}/api/chat`,
+        {
+          body: JSON.stringify(
+            selectedProviderId === AUTO_PROVIDER_ID
+              ? { messages: nextConversation, model: selectedModelId }
+              : requestPayload,
+          ),
+          headers: {
+            "Content-Type": "application/json",
+          },
+          method: "POST",
+          signal: controller.signal,
         },
-        method: "POST",
-        signal: controller.signal,
-      });
+      );
 
       if (!response.ok) {
         const errorMessage = await parseApiErrorResponse(response);
@@ -981,19 +1012,27 @@ export function ChatPage() {
             const titleConvId = convId;
             void (async () => {
               try {
-                const titleResponse = await apiFetch(`${selectedProvider.base}/api/chat`, {
-                  body: JSON.stringify({
-                    messages: [
-                      {
-                        role: "user",
-                        parts: [{ type: "text", text: buildTitleGenerationPrompt(text, fullText) }],
-                      },
-                    ],
-                    modelId: selectedProvider.hasModels ? selectedModelId : undefined,
-                  }),
-                  headers: { "Content-Type": "application/json" },
-                  method: "POST",
-                });
+                const titleMessages = [
+                  {
+                    role: "user",
+                    parts: [{ type: "text", text: buildTitleGenerationPrompt(text, fullText) }],
+                  },
+                ];
+                const titleResponse = await apiFetch(
+                  selectedProviderId === AUTO_PROVIDER_ID ? "/v1/chat/completions" : `${selectedProvider.base}/api/chat`,
+                  {
+                    body: JSON.stringify(
+                      selectedProviderId === AUTO_PROVIDER_ID
+                        ? { messages: titleMessages, model: selectedModelId }
+                        : {
+                            messages: titleMessages,
+                            modelId: selectedProvider.hasModels ? selectedModelId : undefined,
+                          },
+                    ),
+                    headers: { "Content-Type": "application/json" },
+                    method: "POST",
+                  },
+                );
                 if (titleResponse.ok) {
                   const titleResult = await parseChatStream(titleResponse, {});
                   const cleanTitle = titleResult.text.trim().replaceAll(/^["']|["']$/g, "").slice(0, 100);
@@ -1181,6 +1220,16 @@ export function ChatPage() {
               <SelectValue placeholder="Provider" />
             </SelectTrigger>
             <SelectContent>
+              <SelectGroup>
+                <SelectLabel>Roteamento</SelectLabel>
+                <SelectItem value={AUTO_PROVIDER_ID}>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">Auto · Smart Routing</span>
+                    <SparklesIcon className="size-3 shrink-0 text-primary" aria-label="Smart Routing" />
+                  </span>
+                </SelectItem>
+              </SelectGroup>
+              <SelectSeparator />
               {openclawProviders.length > 0 && (
                 <SelectGroup>
                   <SelectLabel>Ambientes OpenClaw</SelectLabel>

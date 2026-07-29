@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 
 import { isProviderEnabled } from '../lib/catalog'
 import { jsonErrorResponse, vercelStreamToOpenAiSse } from '../lib/provider-core'
 import { withProviderMetadata } from '../lib/observability'
-import { getActiveApiKey, protectedCors, securityHeaders } from '../lib/security'
+import { authenticateAccess, getActiveApiKey, protectedCors, securityHeaders } from '../lib/security'
 import { providerRegistry, getProviderModels, isProviderAvailableViaExternalApi } from '../providers/registry'
 import { resolveRouting, type RoutingResult, type RoutingCandidate } from '../lib/routing/routing-resolver'
 import type { RoutingTier } from '../lib/routing/complexity-scorer'
@@ -26,17 +27,19 @@ function parseProviderAndModel(unifiedModelId: string): { providerId: string; mo
 }
 
 async function resolveAutoRouting(
-  c: { req: { header: (name: string) => string | undefined } },
+  c: Context,
   body: Record<string, unknown>,
   forcedTierOverride?: RoutingTier,
 ): Promise<{ routing: RoutingResult; providerId: string; modelId: string } | null> {
-  // Extrair userId do token de autenticação
+  let userId = c.get('userId') as string | undefined
+
   const authHeader = c.req.header('Authorization')
   const token = authHeader?.replace(/^Bearer\s+/i, '').trim()
-  if (!token) return null
-
-  const apiKey = await getActiveApiKey(token)
-  if (!apiKey) return null
+  if (!userId && token) {
+    const apiKey = await getActiveApiKey(token)
+    userId = apiKey?.userId
+  }
+  if (!userId) return null
 
   const messages = Array.isArray(body.messages)
     ? (body.messages as Array<{ role: string; content: unknown }>)
@@ -53,7 +56,7 @@ async function resolveAutoRouting(
     : undefined)
 
   const result = await resolveRouting({
-    userId: apiKey.userId,
+    userId,
     messages,
     forcedTier,
     toolNames: tools,
@@ -302,6 +305,9 @@ app.post('/v1/chat/completions', async (c) => {
   // com fallback automático para os demais modelos configurados quando o
   // modelo escolhido falha (>=400, exceto erros de request do cliente).
   if (rawModel === 'auto' || rawModel.endsWith(':auto')) {
+    const accessError = await authenticateAccess(c)
+    if (accessError) return accessError
+
     const tierPrefix = rawModel.endsWith(':auto') ? rawModel.replace(':auto', '') : undefined
     const forcedTier = VALID_TIERS.includes(tierPrefix as RoutingTier) ? (tierPrefix as RoutingTier) : undefined
     const resolved = await resolveAutoRouting(c, body, forcedTier)

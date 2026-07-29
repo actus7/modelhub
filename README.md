@@ -1,77 +1,85 @@
 <p align="right"><a href="README_EN.md">English</a></p>
 
-# ModelHub
-
 <div align="center">
+  <img src="public/logo.png" alt="ModelHub" width="120" height="120" />
 
-![ModelHub](https://img.shields.io/badge/ModelHub-AI%20Gateway-blue?style=for-the-badge)
+  <h1>ModelHub</h1>
 
-**Gateway unificado para múltiplos provedores de IA com API compatível com OpenAI**
+  <p><strong>Gateway unificado para múltiplos provedores de IA com API compatível com OpenAI.</strong></p>
 
-[![CI](https://github.com/actus7/modelhub/actions/workflows/ci.yml/badge.svg)](https://github.com/actus7/modelhub/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen)](https://nodejs.org)
-[![Next.js](https://img.shields.io/badge/Next.js-16.2-black)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
+  <p>
+    <a href="https://github.com/actus7/modelhub/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/actus7/modelhub/actions/workflows/ci.yml/badge.svg" /></a>
+    <a href="LICENSE"><img alt="Licença MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg" /></a>
+    <a href="https://nodejs.org"><img alt="Node.js >= 22" src="https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen" /></a>
+    <a href="https://nextjs.org/"><img alt="Next.js 16.2" src="https://img.shields.io/badge/Next.js-16.2-black" /></a>
+    <a href="https://www.typescriptlang.org/"><img alt="TypeScript 5" src="https://img.shields.io/badge/TypeScript-5.x-blue" /></a>
+  </p>
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub)
+  <p>
+    <a href="#visao-geral">Visão geral</a> ·
+    <a href="#funcionalidades">Funcionalidades</a> ·
+    <a href="#quickstart">Quickstart</a> ·
+    <a href="#api">API</a> ·
+    <a href="#arquitetura">Arquitetura</a> ·
+    <a href="#deploy">Deploy</a>
+  </p>
 
-[Sobre](#sobre) • [Funcionalidades](#funcionalidades) • [Setup](#setup-local) • [API](#api) • [Arquitetura](#arquitetura) • [CI/CD](#cicd)
-
+  <p>
+    <a href="https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub"><img alt="Deploy with Vercel" src="https://vercel.com/button" /></a>
+  </p>
 </div>
 
 ---
 
-## Sobre
+## Visão geral
 
-ModelHub é uma plataforma open-source para centralizar o acesso a vários provedores de IA em uma única interface. Ele expõe uma API compatível com OpenAI, uma interface de chat, gerenciamento de credenciais por usuário e dashboard de uso.
+ModelHub centraliza OpenAI, Google, Groq, Mistral, OpenRouter e outros provedores em uma única plataforma open-source. Ele entrega uma API compatível com OpenAI, chat web autenticado, gerenciamento seguro de credenciais e dashboard de uso.
 
-A ideia é simples: em vez de cada aplicação integrar separadamente OpenAI, Google, Groq, Mistral, OpenRouter e outros, o ModelHub fica no meio e padroniza autenticação, roteamento, logs, custos e fallbacks.
+Em vez de cada aplicação integrar vários provedores separadamente, o ModelHub padroniza autenticação, roteamento, logs, custos, catálogo de modelos e fallbacks.
 
 ## Funcionalidades
 
-- **API Gateway OpenAI-compatible**: endpoints `/v1/chat/completions` e `/v1/models` para uso programático.
-- **Chat web autenticado**: interface pronta para conversar com modelos configurados.
-- **Gerenciamento de API keys**: crie chaves ModelHub para clientes, scripts e integrações.
-- **Credenciais por provider**: salve chaves de provedores com criptografia no banco.
-- **Dashboard de uso**: acompanhe requests, custos estimados, status codes, tokens e logs recentes.
-- **Roteamento inteligente**: tiers por complexidade, overrides por tarefa e fallbacks quando modelos falham.
-- **Suporte a anexos**: imagens, PDFs e documentos no fluxo de chat.
-- **Catálogo dinâmico de modelos**: lista modelos locais e busca modelos remotos quando o provider suporta.
-- **Rate limit e cooldown**: proteção básica contra abuso e provedores instáveis.
-- **Deploy Vercel-ready**: build e preview integrados ao fluxo de PR.
+<table>
+  <tr>
+    <td><strong>API OpenAI-compatible</strong><br />Use <code>/v1/chat/completions</code> e <code>/v1/models</code> com clientes existentes.</td>
+    <td><strong>Chat web</strong><br />Interface autenticada para conversar com modelos configurados.</td>
+  </tr>
+  <tr>
+    <td><strong>Credenciais seguras</strong><br />API keys ModelHub e chaves de provedores criptografadas por usuário.</td>
+    <td><strong>Dashboard de uso</strong><br />Requests, custos estimados, status codes, tokens e logs recentes.</td>
+  </tr>
+  <tr>
+    <td><strong>Roteamento inteligente</strong><br />Tiers por complexidade, overrides por tarefa e fallbacks automáticos.</td>
+    <td><strong>Anexos no chat</strong><br />Suporte a imagens, PDFs e documentos.</td>
+  </tr>
+  <tr>
+    <td><strong>Catálogo dinâmico</strong><br />Modelos locais e busca remota quando o provider suporta.</td>
+    <td><strong>Pronto para produção</strong><br />Rate limit, cooldown, headers de segurança, CI e deploy na Vercel.</td>
+  </tr>
+</table>
 
 ## Provedores
 
 O catálogo fica em `server/lib/catalog.ts` e cada adapter vive em `server/providers/`.
 
-Provedores suportados incluem:
-
-- OpenAI
-- Google AI Studio
-- Groq
-- Mistral, incluindo Codestral como modelo Mistral
-- OpenRouter
-- HuggingFace
-- DeepSeek
-- Perplexity
-- Together AI
-- Fireworks AI
-- Cohere
-- Cloudflare Workers AI
-- Ollama e Ollama Cloud
-- GitHub Models
-- GitHub Copilot
-- Qwen e Qwen Token Plan
-- Z.ai e Z.ai Coding Plan
-- Moonshot/Kimi
-- NVIDIA NIM
-- Pollinations
-- Puter
+| Suportados | |
+|---|---|
+| OpenAI | Google AI Studio |
+| Groq | Mistral / Codestral |
+| OpenRouter | HuggingFace |
+| DeepSeek | Perplexity |
+| Together AI | Fireworks AI |
+| Cohere | Cloudflare Workers AI |
+| Ollama / Ollama Cloud | GitHub Models |
+| GitHub Copilot | Qwen / Qwen Token Plan |
+| Z.ai / Z.ai Coding Plan | Moonshot / Kimi |
+| NVIDIA NIM | Pollinations / Puter |
 
 Providers quebrados ou duplicados devem ser removidos do catálogo e do registry para não aparecerem na tela de integrações.
 
-## Requisitos
+## Quickstart
+
+### Requisitos
 
 - Node.js >= 22
 - pnpm >= 10
@@ -80,7 +88,7 @@ Providers quebrados ou duplicados devem ser removidos do catálogo e do registry
 - `ENCRYPTION_KEY` de 64 caracteres hexadecimais
 - Chaves dos provedores que você pretende usar
 
-## Setup local
+### Instalação local
 
 ```bash
 git clone https://github.com/actus7/modelhub.git
@@ -185,11 +193,13 @@ O campo `model` segue o formato `provider/model`, por exemplo:
 
 ## Interface web
 
-- `/chat`: conversa com provedores configurados.
-- `/setup`: tela de integrações e credenciais por provider.
-- `/dashboard`: API keys, uso, custos, logs e routing.
-- `/account`: informações da conta.
-- `/playground`: comparação/teste de providers.
+| Rota | Descrição |
+|---|---|
+| `/chat` | Conversa com provedores configurados |
+| `/setup` | Integrações e credenciais por provider |
+| `/dashboard` | API keys, uso, custos, logs e routing |
+| `/account` | Informações da conta |
+| `/playground` | Comparação e teste de providers |
 
 Rotas autenticadas são protegidas por `proxy.ts`.
 
@@ -226,17 +236,7 @@ A aplicação usa duas camadas:
 
 O banco é PostgreSQL via Neon, acessado com Prisma 7 e `@prisma/adapter-neon`.
 
-Modelos importantes:
-
-- `User`
-- `ApiKey`
-- `ProviderCredential`
-- `Conversation`
-- `Message`
-- `ConversationAttachment`
-- `UsageLog`
-- `UserMemory`
-- `UserSettings`
+Modelos importantes: `User`, `ApiKey`, `ProviderCredential`, `Conversation`, `Message`, `ConversationAttachment`, `UsageLog`, `UserMemory` e `UserSettings`.
 
 Para mudanças de schema:
 
@@ -293,8 +293,6 @@ docker run --env-file .env -p 3000:3000 modelhub
 
 Veja `CONTRIBUTING.md`.
 
-Fluxo recomendado:
-
 ```bash
 git checkout -b fix/minha-mudanca
 pnpm test
@@ -322,10 +320,4 @@ MIT. Veja `LICENSE`.
 
 ## Agradecimentos
 
-- Next.js
-- Hono
-- Prisma
-- Neon
-- shadcn/ui
-- Vitest
-- Comunidade open-source
+Next.js · Hono · Prisma · Neon · shadcn/ui · Vitest · Comunidade open-source
