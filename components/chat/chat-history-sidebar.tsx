@@ -372,24 +372,12 @@ export function ChatHistorySidebar({
                     tabIndex={0}
                     onClick={() => {
                       if (renamingId === conv.id) return;
-                      if (selectedCount > 0) {
-                        setSelectedIds((current) => {
-                          const next = new Set(current);
-                          if (next.has(conv.id)) {
-                            next.delete(conv.id);
-                          } else {
-                            next.add(conv.id);
-                          }
-                          return next;
-                        });
-                        return;
-                      }
                       onSelectConversation(conv.id);
                       if (isMobile) onMobileSheetOpenChange(false);
                     }}
                     onKeyDown={(e) => {
                       if (renamingId === conv.id) return;
-                      if (e.key === "Enter" || e.key === " ") {
+                      if (e.key === "Enter") {
                         e.preventDefault();
                         onSelectConversation(conv.id);
                         if (isMobile) onMobileSheetOpenChange(false);
