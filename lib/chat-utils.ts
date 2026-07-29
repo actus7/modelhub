@@ -55,6 +55,7 @@ export type ChatMessage = {
   parts?: HydratedConversationMessagePart[];
   role: "assistant" | "user";
   toolCalls: ParsedToolCall[];
+  truncated?: boolean;
 };
 
 export type PersistedConversationMessage = {

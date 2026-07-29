@@ -49,6 +49,34 @@ describe("parseChatStream", () => {
     expect(onToolResult).toHaveBeenCalledWith("tool-1", { ok: true });
   });
 
+  it("reports output truncation from OpenAI finish_reason length", async () => {
+    const response = createStreamResponse([
+      'data: {"choices":[{"delta":{"content":"Parcial"},"finish_reason":null}]}\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n',
+      'data: [DONE]\n',
+    ]);
+
+    const parsed = await parseChatStream(response, {});
+
+    expect(parsed).toEqual({
+      errorMessage: undefined,
+      finishReason: "length",
+      hadPartialOutput: true,
+      text: "Parcial",
+    });
+  });
+
+  it("reports output truncation from Vercel finishReason length", async () => {
+    const response = createStreamResponse([
+      '0:"Parcial"\n',
+      'd:{"finishReason":"length"}\n',
+    ]);
+
+    const parsed = await parseChatStream(response, {});
+
+    expect(parsed.finishReason).toBe("length");
+  });
+
   it("captures stream errors without discarding partial text", async () => {
     const response = createStreamResponse([
       '0:"Parcial"\n',
@@ -60,6 +88,7 @@ describe("parseChatStream", () => {
 
     expect(parsed).toEqual({
       errorMessage: "ERR_CHALLENGE",
+      finishReason: "error",
       hadPartialOutput: true,
       text: "Parcial",
     });

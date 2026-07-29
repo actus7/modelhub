@@ -109,6 +109,7 @@ import {
   providerUsesStoredCredentials,
   sortProvidersByConfiguredCredentials,
 } from "@/lib/provider-credentials";
+import { resolveMaxOutputTokens } from "@/lib/model-output-limits";
 import { cn } from "@/lib/utils";
 import {
   ACCEPTED_DOCUMENT_TYPES,
@@ -783,12 +784,19 @@ export function ChatPage() {
       },
     ];
 
+    const maxOutputTokens = resolveMaxOutputTokens({
+      model: selectedModel,
+      modelId: selectedModelId,
+      providerId: selectedProvider.id,
+    });
     const requestPayload = {
       id: crypto.randomUUID(),
+      max_tokens: maxOutputTokens,
       messages: nextConversation,
       modelId: selectedProvider.hasModels ? selectedModelId : undefined,
       trigger: "submit-message",
     };
+
 
     const estimatedPayloadBytes = estimateSerializedPayloadBytes(requestPayload);
     if (estimatedPayloadBytes > MAX_SERIALIZED_CHAT_REQUEST_BYTES) {
@@ -853,7 +861,7 @@ export function ChatPage() {
         {
           body: JSON.stringify(
             selectedProviderId === AUTO_PROVIDER_ID
-              ? { messages: nextConversation, model: selectedModelId }
+              ? { max_tokens: requestPayload.max_tokens, messages: nextConversation, model: selectedModelId }
               : requestPayload,
           ),
           headers: {
@@ -924,6 +932,14 @@ export function ChatPage() {
         throw new Error("Nenhum stream recebido.");
       }
       fullText = parsedStream.text;
+
+      if (parsedStream.finishReason === "length") {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessageId ? { ...message, truncated: true } : message,
+          ),
+        );
+      }
 
       const errorContent = resolveStreamErrorContent(parsedStream, fullText, selectedProviderId);
       if (errorContent) {
@@ -1793,7 +1809,7 @@ export function ChatPage() {
                       )}
 
                       {/* Continue generation (last assistant, truncated) */}
-                      {message.role === "assistant" && messageIndex === messages.length - 1 && !message.isError && message.content && (
+                      {message.role === "assistant" && messageIndex === messages.length - 1 && message.truncated && !message.isError && message.content && (
                         <Button
                           variant="ghost"
                           size="icon-xs"

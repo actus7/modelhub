@@ -5,6 +5,7 @@ import { isProviderEnabled } from '../lib/catalog'
 import { jsonErrorResponse, vercelStreamToOpenAiSse } from '../lib/provider-core'
 import { withProviderMetadata } from '../lib/observability'
 import { authenticateAccess, getActiveApiKey, protectedCors, securityHeaders } from '../lib/security'
+import { resolveMaxOutputTokens } from '@/lib/model-output-limits'
 import { providerRegistry, getProviderModels, isProviderAvailableViaExternalApi } from '../providers/registry'
 import { resolveRouting, type RoutingResult, type RoutingCandidate } from '../lib/routing/routing-resolver'
 import type { RoutingTier } from '../lib/routing/complexity-scorer'
@@ -325,7 +326,13 @@ app.post('/v1/chat/completions', async (c) => {
     if (!resolved) {
       return jsonErrorResponse(400, 'Routing config not found. Configure your routing at /dashboard/routing or use explicit provider/model format.')
     }
-    return forwardAutoWithFallback(c, body, resolved)
+    return forwardAutoWithFallback(c, {
+      ...body,
+      max_tokens: body.max_tokens ?? resolveMaxOutputTokens({
+        modelId: resolved.modelId,
+        providerId: resolved.providerId,
+      }),
+    }, resolved)
   }
 
   // Modelo explícito provider/model-id — sem fallback (cliente escolheu o modelo).
@@ -337,7 +344,13 @@ app.post('/v1/chat/completions', async (c) => {
   const invalid = validateProviderForForward(parsed.providerId)
   if (invalid) return invalid
 
-  const response = await dispatchToProvider(c, parsed.providerId, parsed.modelId, body, null)
+  const response = await dispatchToProvider(c, parsed.providerId, parsed.modelId, {
+    ...body,
+    max_tokens: body.max_tokens ?? resolveMaxOutputTokens({
+      modelId: parsed.modelId,
+      providerId: parsed.providerId,
+    }),
+  }, null)
   const tagged = withProviderMetadata(response, parsed.providerId)
 
   // Providers return Vercel AI SDK format — convert to OpenAI SSE for external clients
