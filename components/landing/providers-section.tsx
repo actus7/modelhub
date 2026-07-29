@@ -1,21 +1,9 @@
 import { Badge } from "@/components/ui/badge";
+import { PROVIDER_CATALOG } from "@/server/lib/catalog";
 
-const providerNames = [
-  "OpenAI",
-  "Google AI Studio",
-  "Groq",
-  "Mistral",
-  "Cerebras",
-  "Cohere",
-  "NVIDIA NIM",
-  "Hugging Face",
-  "GitHub Models",
-  "OpenRouter",
-  "Cloudflare Workers AI",
-  "Duck AI",
-  "Codestral",
-  "Puter Xiaomi MiMo",
-];
+const providerNames = PROVIDER_CATALOG.filter((provider) => provider.hasModels).map(
+  (provider) => provider.label,
+);
 
 export function ProvidersSection() {
   return (

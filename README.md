@@ -310,6 +310,12 @@ fix(providers): remove integração quebrada
 docs(readme): atualiza instruções de setup
 ```
 
+## Apoie o projeto
+
+O ModelHub exige manutenção contínua, infraestrutura e testes com múltiplas APIs de IA. Seu patrocínio ajuda a cobrir esses custos e a manter o projeto aberto e atualizado.
+
+[Patrocine o ModelHub pelo GitHub Sponsors](https://github.com/sponsors/actus7).
+
 ## Licença
 
 MIT. Veja `LICENSE`.
