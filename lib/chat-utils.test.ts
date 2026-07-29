@@ -65,6 +65,22 @@ describe("resolveModelFallbackFromHeaders", () => {
     expect(fallbackMeta).toBeUndefined();
   });
 
+  it("uses routing headers for auto model labels", () => {
+    const { resolvedLabel, fallbackMeta } = resolveModelFallbackFromHeaders(
+      makeResponse({
+        "x-modelhub-model": "gpt-4o-mini",
+        "x-modelhub-provider": "openai",
+        "x-modelhub-tier": "standard",
+      }),
+      "Auto · Smart Routing (Auto · Smart Routing)",
+      MODELS,
+      "Auto · Smart Routing",
+    );
+
+    expect(resolvedLabel).toBe("Auto · Standard (openai/gpt-4o-mini)");
+    expect(fallbackMeta).toBeUndefined();
+  });
+
   it("builds fallback meta when a model swap happened", () => {
     const { resolvedLabel, fallbackMeta } = resolveModelFallbackFromHeaders(
       makeResponse({
