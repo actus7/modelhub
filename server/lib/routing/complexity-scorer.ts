@@ -87,6 +87,8 @@ const CODE_PATTERN = /```[\s\S]{20,}/
 const INLINE_CODE_PATTERN = /`[^`]+`/g
 const CODE_REQUEST_PATTERN = /\b(c[oó]digo|code|python|typescript|javascript|fun[cç][aã]o|function|script|programa|implemente|implement|escreva|write)\b/i
 const ARCHITECTURE_REQUEST_PATTERN = /\b(arquitetura|architecture|architect|design a system)\b/i
+const DECISION_REQUEST_PATTERN = /\b(como decidir|decidir|escolher|choose|select|selecionar|balancear|otimizar|optimize)\b/i
+const DECISION_OBJECTIVE_PATTERN = /\b(custo|cost|lat[eê]ncia|latency|taxa de erro|error rate|or[cç]amento|budget|fallback|confiabilidade|reliability|qualidade|quality)\b/gi
 
 const PLANNING_KEYWORDS = [
   'design a system', 'architect', 'design pattern', 'best approach', 'best practice',
@@ -246,6 +248,14 @@ export function scoreComplexity(
   if (ARCHITECTURE_REQUEST_PATTERN.test(lastText) && requirementCount >= 3) {
     tier = floorTier(tier, 'complex')
     signals.push('architecture_floor')
+  }
+
+  // Decisão multiobjetivo explícita exige ponderar restrições conflitantes.
+  const decisionObjectives = new Set(lastText.toLowerCase().match(DECISION_OBJECTIVE_PATTERN) ?? [])
+  if (multiStepMatch && DECISION_REQUEST_PATTERN.test(lastText) && decisionObjectives.size >= 3) {
+    tier = 'reasoning'
+    confidence = Math.max(confidence, 0.9)
+    signals.push('multi_objective_reasoning')
   }
 
   // Tools ativas exigem um modelo que saiba usá-las → piso "standard".
