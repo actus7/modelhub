@@ -5,6 +5,10 @@ import {
   MODELHUB_REQUESTED_MODEL_HEADER,
   type ProviderModel,
 } from "@/lib/contracts";
+
+const MODELHUB_ROUTING_TIER_HEADER = "x-modelhub-tier";
+const MODELHUB_ROUTING_PROVIDER_HEADER = "x-modelhub-provider";
+const MODELHUB_ROUTING_MODEL_HEADER = "x-modelhub-model";
 import {
   extractPlainTextFromParts,
   type AttachmentExtractionStatus,
@@ -97,15 +101,21 @@ export function resolveModelFallbackFromHeaders(
   models: ProviderModel[],
   providerLabel: string,
 ) {
+  const routingTier = response.headers.get(MODELHUB_ROUTING_TIER_HEADER)?.trim() ?? "";
+  const routingProvider = response.headers.get(MODELHUB_ROUTING_PROVIDER_HEADER)?.trim() ?? "";
+  const routingModel = response.headers.get(MODELHUB_ROUTING_MODEL_HEADER)?.trim() ?? "";
   const effectiveModelId = response.headers.get(MODELHUB_EFFECTIVE_MODEL_HEADER)?.trim() ?? "";
   const requestedModel = response.headers.get(MODELHUB_REQUESTED_MODEL_HEADER)?.trim() ?? "";
   const fallbackUsed = response.headers.get(MODELHUB_MODEL_FALLBACK_USED_HEADER) === "true";
   const attemptedIds = (response.headers.get(MODELHUB_MODELS_ATTEMPTED_HEADER) ?? "")
     .split(",").map((s) => s.trim()).filter(Boolean);
 
-  const resolvedLabel = effectiveModelId.length > 0
+  const routedLabel = routingTier && routingModel
+    ? `Auto · ${routingTier[0]?.toUpperCase()}${routingTier.slice(1)} (${routingProvider ? `${routingProvider}/` : ""}${routingModel})`
+    : undefined;
+  const resolvedLabel = routedLabel ?? (effectiveModelId.length > 0
     ? resolveAssistantModelLabel({ modelId: effectiveModelId, models, providerLabel })
-    : defaultLabel;
+    : defaultLabel);
 
   const fallbackMeta =
     fallbackUsed && requestedModel.length > 0 && effectiveModelId.length > 0 && attemptedIds.length > 0
