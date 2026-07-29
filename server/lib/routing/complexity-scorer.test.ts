@@ -36,6 +36,18 @@ describe('scoreComplexity', () => {
     expect(result.tier).toBe('complex')
   })
 
+  it('returns reasoning tier for a multi-objective decision request', () => {
+    const result = scoreComplexity(msg(
+      'Resolva passo a passo: tenho 3 provedores com custo, latência e taxa de erro diferentes. Como decidir dinamicamente qual modelo usar por tarefa, mantendo orçamento mensal e fallback seguro?'
+    ))
+    expect(result.tier).toBe('reasoning')
+  })
+
+  it('does not promote a simple step-by-step request to reasoning', () => {
+    const result = scoreComplexity(msg('Explique passo a passo como ferver água.'))
+    expect(result.tier).not.toBe('reasoning')
+  })
+
   it('detects code_block signal for fenced code', () => {
     const result = scoreComplexity(msg(
       'Debug this:\n```typescript\nconst x = 1\nconst y = 2\nconsole.log(x + y)\n```'
