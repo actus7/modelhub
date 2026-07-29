@@ -85,6 +85,8 @@ const MATH_PATTERNS = [
 
 const CODE_PATTERN = /```[\s\S]{20,}/
 const INLINE_CODE_PATTERN = /`[^`]+`/g
+const CODE_REQUEST_PATTERN = /\b(c[oó]digo|code|python|typescript|javascript|fun[cç][aã]o|function|script|programa|implemente|implement|escreva|write)\b/i
+const ARCHITECTURE_REQUEST_PATTERN = /\b(arquitetura|architecture|architect|design a system)\b/i
 
 const PLANNING_KEYWORDS = [
   'design a system', 'architect', 'design pattern', 'best approach', 'best practice',
@@ -228,6 +230,22 @@ export function scoreComplexity(
     tier = 'simple'
     confidence = Math.max(confidence, 0.9)
     signals.push('short_message')
+  }
+
+  // Pedidos de código e análise comparativa exigem ao menos o tier standard.
+  if (
+    !signals.includes('heartbeat') &&
+    (CODE_REQUEST_PATTERN.test(lastText) || reasoningMatch)
+  ) {
+    tier = floorTier(tier, 'standard')
+    signals.push('standard_task_floor')
+  }
+
+  // Arquitetura com múltiplos requisitos exige composição e análise sistêmica.
+  const requirementCount = (lastText.match(/[,;]/g) ?? []).length
+  if (ARCHITECTURE_REQUEST_PATTERN.test(lastText) && requirementCount >= 3) {
+    tier = floorTier(tier, 'complex')
+    signals.push('architecture_floor')
   }
 
   // Tools ativas exigem um modelo que saiba usá-las → piso "standard".

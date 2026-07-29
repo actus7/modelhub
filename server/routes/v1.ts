@@ -42,7 +42,18 @@ async function resolveAutoRouting(
   if (!userId) return null
 
   const messages = Array.isArray(body.messages)
-    ? (body.messages as Array<{ role: string; content: unknown }>)
+    ? (body.messages as Array<{ role?: unknown; content?: unknown; parts?: unknown }>).map((message) => ({
+        role: typeof message.role === 'string' ? message.role : '',
+        content: message.content ?? (Array.isArray(message.parts)
+          ? message.parts
+              .filter((part): part is { text: string; type: string } =>
+                typeof part === 'object' && part !== null &&
+                'type' in part && part.type === 'text' &&
+                'text' in part && typeof part.text === 'string')
+              .map((part) => part.text)
+              .join('\n')
+          : ''),
+      }))
     : []
 
   const tools = Array.isArray(body.tools)

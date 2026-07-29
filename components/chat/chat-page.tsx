@@ -231,7 +231,7 @@ export function ChatPage() {
     category: "gateway",
     hasModels: true,
     id: AUTO_PROVIDER_ID,
-    label: "Auto · Smart Routing",
+    label: "ModelHub",
     localModels: [AUTO_MODEL],
     runtime: {
       authMode: "none",
@@ -1224,7 +1224,7 @@ export function ChatPage() {
                 <SelectLabel>Roteamento</SelectLabel>
                 <SelectItem value={AUTO_PROVIDER_ID}>
                   <span className="flex min-w-0 items-center gap-1.5">
-                    <span className="truncate">Auto · Smart Routing</span>
+                    <span className="truncate">ModelHub</span>
                     <SparklesIcon className="size-3 shrink-0 text-primary" aria-label="Smart Routing" />
                   </span>
                 </SelectItem>
