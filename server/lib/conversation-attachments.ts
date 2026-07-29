@@ -336,6 +336,13 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
     };
   }
 
+  if (
+    rawPart.type === "meta" &&
+    typeof rawPart.modelLabel === "string"
+  ) {
+    return { modelLabel: rawPart.modelLabel, type: "meta" };
+  }
+
   return null;
 }
 
@@ -373,6 +380,11 @@ export function hydrateMessageParts(input: {
   const storedParts = parseStoredMessageParts(input.parts, input.fallbackContent);
   return storedParts.reduce<HydratedConversationMessagePart[]>((result, part) => {
     if (part.type === "text") {
+      result.push(part);
+      return result;
+    }
+
+    if (part.type === "meta") {
       result.push(part);
       return result;
     }

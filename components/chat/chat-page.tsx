@@ -832,6 +832,7 @@ export function ChatPage() {
 
     try {
       let fullText = "";
+      let effectiveModelLabel = assistantModelLabel;
       if (browserProviderAdapter) {
         if (browserProviderAuthState !== "signed-in") {
           setBrowserProviderAuthState("loading");
@@ -882,6 +883,8 @@ export function ChatPage() {
 
       const { resolvedLabel: resolvedAssistantLabel, fallbackMeta: modelFallbackMeta } =
         resolveModelFallbackFromHeaders(response, assistantModelLabel, models, selectedProvider.label);
+
+      effectiveModelLabel = resolvedAssistantLabel ?? assistantModelLabel;
 
       setMessages((current) =>
         current.map((message) => {
@@ -974,7 +977,7 @@ export function ChatPage() {
           }
           const persisted = await persistMessagesForConversation(convId, [
             { parts: messageParts, role: "user" },
-            { content: fullText, parts: [{ text: fullText, type: "text" }], role: "assistant" },
+            { content: fullText, modelLabel: effectiveModelLabel, parts: [{ text: fullText, type: "text" }], role: "assistant" },
           ]);
           const [persistedUserMessage, persistedAssistantMessage] = persisted.messages;
           if (persistedUserMessage && persistedAssistantMessage) {

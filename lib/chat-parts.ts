@@ -27,7 +27,12 @@ type TextPart = {
   type: "text";
 };
 
-export type ConversationMessagePart = AttachmentReferencePart | TextPart;
+type MetaPart = {
+  modelLabel: string;
+  type: "meta";
+};
+
+export type ConversationMessagePart = AttachmentReferencePart | MetaPart | TextPart;
 
 export type ConversationAttachmentDescriptor = {
   byteSize: number;
@@ -41,7 +46,7 @@ export type ConversationAttachmentDescriptor = {
 
 export type HydratedAttachmentPart = AttachmentReferencePart & ConversationAttachmentDescriptor;
 
-export type HydratedConversationMessagePart = HydratedAttachmentPart | TextPart;
+export type HydratedConversationMessagePart = HydratedAttachmentPart | MetaPart | TextPart;
 
 export function createMessageContentFallback(
   parts: readonly ConversationMessagePart[],
@@ -50,6 +55,9 @@ export function createMessageContentFallback(
     .map((part) => {
       if (part.type === "text") {
         return part.text;
+      }
+      if (part.type === "meta") {
+        return "";
       }
 
       return `[${part.kind}] ${part.fileName}`;

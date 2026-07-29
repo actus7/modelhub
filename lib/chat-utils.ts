@@ -240,10 +240,25 @@ export function formatMessageTimestamp(createdAt: string): string {
   return `${day} ${time}`;
 }
 
+function extractMetaModelLabel(parts: HydratedConversationMessagePart[] | undefined): string | undefined {
+  if (!parts) return undefined
+  for (const part of parts) {
+    if (typeof part === 'object' && part !== null && 'type' in part && (part as Record<string, unknown>).type === 'meta') {
+      const label = (part as Record<string, unknown>).modelLabel
+      if (typeof label === 'string' && label.trim()) return label
+    }
+  }
+  return undefined
+}
+
 export function hydrateChatMessage(input: {
   message: PersistedConversationMessage;
   assistantModelLabel?: string;
 }): ChatMessage {
+  const metaLabel = input.message.role === 'assistant'
+    ? extractMetaModelLabel(input.message.parts)
+    : undefined
+
   return {
     content:
       input.message.role === "assistant"
@@ -251,7 +266,7 @@ export function hydrateChatMessage(input: {
         : getUserMessageText({ content: input.message.content, parts: input.message.parts }),
     createdAt: input.message.createdAt,
     id: input.message.id,
-    modelLabel: input.message.role === "assistant" ? input.assistantModelLabel : undefined,
+    modelLabel: input.message.role === "assistant" ? (metaLabel ?? input.assistantModelLabel) : undefined,
     parts: input.message.role === "user" ? input.message.parts : undefined,
     role: input.message.role,
     toolCalls: [],
@@ -283,6 +298,7 @@ export function buildAttachmentLabel(attachment: { extractionStatus: AttachmentE
 
 export async function persistMessagesForConversation(conversationId: string, outgoingMessages: Array<{
   content?: string;
+  modelLabel?: string;
   parts?: ConversationMessagePart[];
   role: "assistant" | "user";
 }>) {

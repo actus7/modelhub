@@ -31,6 +31,7 @@ app.use("*", async (c, next) => {
 
 type CreateMessageInput = {
   content?: string;
+  modelLabel?: string;
   parts?: ConversationMessagePart[];
   role: string;
 };
@@ -152,12 +153,16 @@ async function persistMessages(conversationId: string, messages: CreateMessageIn
       ? createMessageContentFallback(parts)
       : (message.content ?? "").trim();
 
+    const partsWithMeta = message.modelLabel
+      ? [...parts, { modelLabel: message.modelLabel, type: "meta" } as ConversationMessagePart]
+      : parts;
+
     const created = await prisma.message.create({
       data: {
         content: fallbackContent,
         conversationId,
         role: message.role,
-        ...(parts.length > 0 ? { parts: parts as unknown as Prisma.InputJsonValue } : {}),
+        ...(partsWithMeta.length > 0 ? { parts: partsWithMeta as unknown as Prisma.InputJsonValue } : {}),
       },
       select: {
         content: true,
