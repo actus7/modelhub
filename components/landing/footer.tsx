@@ -14,6 +14,13 @@ export function Footer() {
             </div>
             ModelHub
           </div>
+          <iframe
+            src="https://github.com/sponsors/actus7/button"
+            title="Sponsor actus7"
+            height={32}
+            width={114}
+            className="rounded-md border-0"
+          />
           <p className="text-xs text-muted-foreground">
             &copy; {new Date().getFullYear()} ModelHub. Projeto open-source.
           </p>
