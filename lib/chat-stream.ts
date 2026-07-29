@@ -12,6 +12,7 @@ export type ParsedToolCall = {
 
 export type ParsedChatStreamResult = {
   errorMessage?: string;
+  finishReason?: string;
   hadPartialOutput: boolean;
   text: string;
 };
@@ -25,6 +26,7 @@ type ParseStreamHandlers = {
 
 type LineProcessorState = {
   errorMessage?: string;
+  finishReason?: string;
   fullText: string;
 };
 
@@ -83,6 +85,12 @@ function processVercelStreamLine(line: string, handlers: ParseStreamHandlers, st
     return true;
   }
 
+  if (line.startsWith("d:")) {
+    const payload = JSON.parse(line.slice(2)) as { finishReason?: string };
+    state.finishReason = payload.finishReason;
+    return true;
+  }
+
   return false;
 }
 
@@ -129,7 +137,12 @@ function processInternalSsePayload(payload: Record<string, any>, handlers: Parse
 function processRawOpenAiChoices(payload: Record<string, any>, handlers: ParseStreamHandlers, state: LineProcessorState) {
   if (!Array.isArray(payload.choices)) return;
 
-  const delta = payload.choices[0]?.delta;
+  const choice = payload.choices[0];
+  if (typeof choice?.finish_reason === "string") {
+    state.finishReason = choice.finish_reason;
+  }
+
+  const delta = choice?.delta;
   if (!delta) return;
 
   const text = extractDeltaText(delta);
@@ -186,6 +199,7 @@ export async function parseChatStream(
 
   return {
     errorMessage: state.errorMessage,
+    ...(state.finishReason ? { finishReason: state.finishReason } : {}),
     hadPartialOutput: state.fullText.length > 0,
     text: state.fullText,
   };

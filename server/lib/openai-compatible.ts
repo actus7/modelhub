@@ -557,6 +557,14 @@ export async function testViaOpenAiModels(
  * Returns a list of ProviderModel objects with id and name.
  * Requires a valid API key to be configured.
  */
+function readModelOutputLimit(model: Record<string, unknown>): number | undefined {
+  for (const key of ['max_output_tokens', 'max_completion_tokens', 'max_tokens', 'output_token_limit']) {
+    const value = model[key]
+    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
+  }
+  return undefined
+}
+
 export function createOpenAiFetchModels(opts: {
   modelsUrl: string
   apiKeyEnv: string
@@ -597,15 +605,19 @@ export function createOpenAiFetchModels(opts: {
     const filtered = opts.filter ? json.data.filter(opts.filter) : json.data
 
     return dedupeProviderModels(
-      filtered.map((m) => ({
-        capabilities: {
-          documents: true,
-          images: hasImageCapability(m),
-          tools: hasToolCapability(m),
-        },
-        id: m.id,
-        name: `${m.id} (${opts.providerName})`,
-      })),
+      filtered.map((m) => {
+        const maxOutputTokens = readModelOutputLimit(m)
+        return {
+          capabilities: {
+            documents: true,
+            images: hasImageCapability(m),
+            tools: hasToolCapability(m),
+          },
+          id: m.id,
+          ...(maxOutputTokens ? { maxOutputTokens } : {}),
+          name: `${m.id} (${opts.providerName})`,
+        }
+      }),
     )
   }
 }
