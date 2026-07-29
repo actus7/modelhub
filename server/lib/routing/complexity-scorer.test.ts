@@ -15,11 +15,25 @@ describe('scoreComplexity', () => {
     expect(result.rawScore).toBe(0)
   })
 
-  it('returns standard tier for medium-length question', () => {
+  it('returns standard tier for a code generation request', () => {
     const result = scoreComplexity(msg(
-      'Can you write a short Python function to reverse a string and explain what it does?'
+      'Faça um exemplo em Python de pelo menos 10 linhas que envolva bastante custo computacional para executar.'
     ))
-    expect(['simple', 'standard']).toContain(result.tier)
+    expect(result.tier).toBe('standard')
+  })
+
+  it('returns standard tier for a comparison with recommendation', () => {
+    const result = scoreComplexity(msg(
+      'Compare REST e GraphQL para uma aplicação SaaS pequena. Dê prós, contras e recomendação.'
+    ))
+    expect(result.tier).toBe('standard')
+  })
+
+  it('returns complex tier for a multi-component architecture request', () => {
+    const result = scoreComplexity(msg(
+      'Desenhe uma arquitetura para um gateway multi-provider de IA com autenticação, rate limit, fallback, logs de uso e dashboard. Liste componentes, fluxos e riscos.'
+    ))
+    expect(result.tier).toBe('complex')
   })
 
   it('detects code_block signal for fenced code', () => {

@@ -71,7 +71,7 @@ describe('POST /v1/chat/completions auto routing', () => {
   it('authenticates the web session and dispatches the model selected by routing', async () => {
     const response = await v1Fetch(new Request('https://modelhub.test/v1/chat/completions', {
       body: JSON.stringify({
-        messages: [{ content: 'hello', role: 'user' }],
+        messages: [{ parts: [{ text: 'hello', type: 'text' }], role: 'user' }],
         model: 'auto',
       }),
       headers: { 'content-type': 'application/json' },
