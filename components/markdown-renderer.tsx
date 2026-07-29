@@ -61,7 +61,7 @@ export function MarkdownRenderer({ content }: { content: string }) {
   const normalised = normaliseMarkdown(content);
 
   return (
-    <div className="markdown-renderer">
+    <div className="markdown-renderer min-w-0 max-w-full overflow-hidden">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeHighlight, rehypeKatex]}
@@ -84,6 +84,13 @@ export function MarkdownRenderer({ content }: { content: string }) {
             <code className={className} {...props}>
               {children}
             </code>
+          ),
+          table: ({ children, ...props }) => (
+            <div className="my-4 max-w-full overflow-x-auto rounded-lg border border-border">
+              <table className="min-w-max" {...props}>
+                {children}
+              </table>
+            </div>
           ),
         }}
       >

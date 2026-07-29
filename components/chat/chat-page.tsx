@@ -1588,7 +1588,7 @@ export function ChatPage() {
                   ) : null}
                   <div
                     className={cn(
-                      "rounded-2xl px-3.5 py-2.5 text-sm",
+                      "min-w-0 max-w-full overflow-hidden rounded-2xl px-3.5 py-2.5 text-sm",
                       message.role === "user"
                         ? "rounded-tr-md bg-primary text-primary-foreground"
                         : "rounded-tl-md bg-muted",
@@ -1621,7 +1621,7 @@ export function ChatPage() {
                       </div>
                     ) : message.role === "assistant" ? (
                       message.content ? (
-                        <div className="prose-sm">
+                        <div className="min-w-0 max-w-full overflow-hidden prose-sm">
                           <MarkdownRenderer content={message.content} />
                           {/* Blinking cursor during streaming */}
                           {pending && messageIndex === messages.length - 1 && !message.isError && (

@@ -73,16 +73,8 @@ function resetState() {
 }
 
 const mockPrisma = {
-  $transaction: vi.fn(async (input: unknown) => {
-    if (typeof input === "function") {
-      return input(mockPrisma);
-    }
-
-    if (Array.isArray(input)) {
-      return Promise.all(input);
-    }
-
-    return input;
+  $transaction: vi.fn(async () => {
+    throw new Error("Transactions are not supported in HTTP mode");
   }),
   apiKey: {
     findFirst: vi.fn().mockResolvedValue(null),
