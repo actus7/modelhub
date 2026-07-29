@@ -118,7 +118,7 @@ GitHub Actions executa em PRs e pushes para `main`/`develop`:
 - Lint
 - Type check
 - Testes
-- Security audit (`pnpm audit --audit-level=high`)
+- Security audit de dependências de produção (`pnpm audit --prod --audit-level=high`)
 - Build
 - CodeQL
 - Dependency Review opcional via `ENABLE_DEPENDENCY_REVIEW=true`
