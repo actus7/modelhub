@@ -181,6 +181,50 @@ async function dispatchToProvider(
   return entry.handler(internalRequest)
 }
 
+async function requireFirstStreamChunk(response: Response, timeoutMs: number): Promise<Response> {
+  if (!response.body) return response
+
+  const reader = response.body.getReader()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const first = await Promise.race([
+      reader.read(),
+      new Promise<ReadableStreamReadResult<Uint8Array>>((_, reject) => {
+        timer = setTimeout(() => reject(new DOMException('Provider stream did not start', 'AbortError')), timeoutMs)
+      }),
+    ])
+
+    if (first.done) return response
+
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(first.value)
+        try {
+          while (true) {
+            const chunk = await reader.read()
+            if (chunk.done) break
+            controller.enqueue(chunk.value)
+          }
+          controller.close()
+        } catch (error) {
+          controller.error(error)
+        }
+      },
+      cancel(reason) {
+        return reader.cancel(reason)
+      },
+    })
+
+    return new Response(stream, {
+      headers: response.headers,
+      status: response.status,
+      statusText: response.statusText,
+    })
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
 // Executa o roteamento "auto": tenta o modelo primário e, em caso de falha
 // elegível, percorre os fallbacks configurados (pulando os que estão em
 // cooldown de rate-limit). Converte a resposta bem-sucedida para SSE OpenAI.
@@ -250,6 +294,18 @@ async function forwardAutoWithFallback(
       }
     } finally {
       if (timer) clearTimeout(timer)
+    }
+    if (response.ok) {
+      try {
+        response = await requireFirstStreamChunk(response, AUTO_ROUTING_CANDIDATE_TIMEOUT_MS)
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          recordTransientCooldown(cand.providerId, cand.modelId, AUTO_ROUTING_TIMEOUT_COOLDOWN_MS)
+          response = jsonErrorResponse(504, `Provider/model stream timed out: ${cand.providerId}/${cand.modelId}`)
+        } else {
+          response = jsonErrorResponse(503, error instanceof Error ? error.message : 'Provider stream failed')
+        }
+      }
     }
     recordCooldown(cand.providerId, cand.modelId, response.status, response.headers.get('retry-after'))
 
