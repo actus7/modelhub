@@ -99,11 +99,7 @@
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.12",
     "postcss": "^8.5.15",
-<<<<<<< HEAD
     "prisma": "^7.9.1",
-=======
-    "prisma": "^7.8.0",
->>>>>>> origin/main
     "shadcn": "^4.15.0",
     "tailwindcss": "^4.3.0",
     "typescript": "^5.9.3",
