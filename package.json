@@ -98,11 +98,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^9.39.4",
     "eslint-config-next": "16.2.12",
-<<<<<<< HEAD
     "postcss": "^8.5.23",
-=======
-    "postcss": "^8.5.15",
->>>>>>> origin/main
     "prisma": "^7.9.1",
     "shadcn": "^4.15.0",
     "tailwindcss": "^4.3.0",
@@ -117,7 +113,7 @@
       "@better-auth/passkey": "1.6.11",
       "@better-auth/telemetry": "1.6.11",
       "ip-address": "10.2.0",
-      "postcss": "8.5.15",
+      "postcss": "8.5.23",
       "qs": "6.15.2",
       "kysely": "0.28.17",
       "fast-uri": "3.1.2",
