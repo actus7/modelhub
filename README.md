@@ -14,6 +14,8 @@
 [![Next.js](https://img.shields.io/badge/Next.js-16.2-black)](https://nextjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub)
+
 [Sobre](#sobre) • [Funcionalidades](#funcionalidades) • [Setup](#setup-local) • [API](#api) • [Arquitetura](#arquitetura) • [CI/CD](#cicd)
 
 </div>
@@ -270,6 +272,8 @@ A Vercel gera previews automaticamente para PRs.
 ## Deploy
 
 ### Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub)
 
 1. Conecte o repositório na Vercel.
 2. Configure as variáveis de ambiente obrigatórias.
