@@ -23,6 +23,11 @@ const fontMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "ModelHub",
   description: "Proxy multi-provider com chat, credenciais e dashboard de uso.",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export const viewport: Viewport = {
