@@ -832,6 +832,7 @@ export function ChatPage() {
 
     try {
       let fullText = "";
+      let effectiveModelLabel = assistantModelLabel;
       if (browserProviderAdapter) {
         if (browserProviderAuthState !== "signed-in") {
           setBrowserProviderAuthState("loading");
@@ -882,6 +883,8 @@ export function ChatPage() {
 
       const { resolvedLabel: resolvedAssistantLabel, fallbackMeta: modelFallbackMeta } =
         resolveModelFallbackFromHeaders(response, assistantModelLabel, models, selectedProvider.label);
+
+      effectiveModelLabel = resolvedAssistantLabel ?? assistantModelLabel;
 
       setMessages((current) =>
         current.map((message) => {
@@ -974,7 +977,7 @@ export function ChatPage() {
           }
           const persisted = await persistMessagesForConversation(convId, [
             { parts: messageParts, role: "user" },
-            { content: fullText, parts: [{ text: fullText, type: "text" }], role: "assistant" },
+            { content: fullText, modelLabel: effectiveModelLabel, parts: [{ text: fullText, type: "text" }], role: "assistant" },
           ]);
           const [persistedUserMessage, persistedAssistantMessage] = persisted.messages;
           if (persistedUserMessage && persistedAssistantMessage) {
@@ -1588,7 +1591,7 @@ export function ChatPage() {
                   ) : null}
                   <div
                     className={cn(
-                      "rounded-2xl px-3.5 py-2.5 text-sm",
+                      "min-w-0 max-w-full overflow-hidden rounded-2xl px-3.5 py-2.5 text-sm",
                       message.role === "user"
                         ? "rounded-tr-md bg-primary text-primary-foreground"
                         : "rounded-tl-md bg-muted",
@@ -1621,7 +1624,7 @@ export function ChatPage() {
                       </div>
                     ) : message.role === "assistant" ? (
                       message.content ? (
-                        <div className="prose-sm">
+                        <div className="min-w-0 max-w-full overflow-hidden prose-sm">
                           <MarkdownRenderer content={message.content} />
                           {/* Blinking cursor during streaming */}
                           {pending && messageIndex === messages.length - 1 && !message.isError && (

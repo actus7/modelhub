@@ -31,6 +31,7 @@ app.use("*", async (c, next) => {
 
 type CreateMessageInput = {
   content?: string;
+  modelLabel?: string;
   parts?: ConversationMessagePart[];
   role: string;
 };
@@ -138,57 +139,58 @@ async function authorizeConversation(c: Context): Promise<AuthorizedConversation
 }
 
 async function persistMessages(conversationId: string, messages: CreateMessageInput[]) {
-  const createdMessages = await prisma.$transaction(async (tx) => {
-    const output: Array<{
-      content: string;
-      createdAt: Date;
-      id: string;
-      parts: Prisma.JsonValue | null;
-      role: string;
-    }> = [];
+  const createdMessages: Array<{
+    content: string;
+    createdAt: Date;
+    id: string;
+    parts: Prisma.JsonValue | null;
+    role: string;
+  }> = [];
 
-    for (const message of messages) {
-      const parts = normalizeIncomingMessageParts(message.parts);
-      const fallbackContent = parts.length > 0
-        ? createMessageContentFallback(parts)
-        : (message.content ?? "").trim();
+  for (const message of messages) {
+    const parts = normalizeIncomingMessageParts(message.parts);
+    const fallbackContent = parts.length > 0
+      ? createMessageContentFallback(parts)
+      : (message.content ?? "").trim();
 
-      const created = await tx.message.create({
-        data: {
-          content: fallbackContent,
+    const partsWithMeta = message.modelLabel
+      ? [...parts, { modelLabel: message.modelLabel, type: "meta" } as ConversationMessagePart]
+      : parts;
+
+    const created = await prisma.message.create({
+      data: {
+        content: fallbackContent,
+        conversationId,
+        role: message.role,
+        ...(partsWithMeta.length > 0 ? { parts: partsWithMeta as unknown as Prisma.InputJsonValue } : {}),
+      },
+      select: {
+        content: true,
+        createdAt: true,
+        id: true,
+        parts: true,
+        role: true,
+      },
+    });
+
+    const attachmentIds = parts
+      .filter((part) => part.type === "attachment")
+      .map((part) => part.attachmentId);
+
+    if (attachmentIds.length > 0) {
+      await prisma.conversationAttachment.updateMany({
+        data: { messageId: created.id },
+        where: {
           conversationId,
-          role: message.role,
-          ...(parts.length > 0 ? { parts: parts as unknown as Prisma.InputJsonValue } : {}),
-        },
-        select: {
-          content: true,
-          createdAt: true,
-          id: true,
-          parts: true,
-          role: true,
+          id: { in: attachmentIds },
         },
       });
-
-      const attachmentIds = parts
-        .filter((part) => part.type === "attachment")
-        .map((part) => part.attachmentId);
-
-      if (attachmentIds.length > 0) {
-        await tx.conversationAttachment.updateMany({
-          data: { messageId: created.id },
-          where: {
-            conversationId,
-            id: { in: attachmentIds },
-          },
-        });
-      }
-
-      output.push(created);
     }
 
-    await tx.conversation.update({ where: { id: conversationId }, data: {} });
-    return output;
-  });
+    createdMessages.push(created);
+  }
+
+  await prisma.conversation.update({ where: { id: conversationId }, data: {} });
 
   const attachments = await prisma.conversationAttachment.findMany({
     where: { conversationId },
@@ -462,10 +464,8 @@ app.delete("/:id/messages", async (c) => {
     return c.json({ deletedMessageIds: [] });
   }
 
-  await prisma.$transaction([
-    prisma.message.deleteMany({ where: { conversationId, id: { in: idsToDelete } } }),
-    prisma.conversation.update({ where: { id: conversationId }, data: {} }),
-  ]);
+  await prisma.message.deleteMany({ where: { conversationId, id: { in: idsToDelete } } });
+  await prisma.conversation.update({ where: { id: conversationId }, data: {} });
 
   return c.json({ deletedMessageIds: idsToDelete });
 });

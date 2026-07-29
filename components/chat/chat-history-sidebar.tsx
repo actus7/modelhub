@@ -303,7 +303,7 @@ export function ChatHistorySidebar({
         </div>
       </div>
 
-      {filteredConversations.length > 0 && (
+      {selectedCount > 0 && filteredConversations.length > 0 && (
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/40 px-2 py-1.5">
           <button
             type="button"
@@ -372,24 +372,12 @@ export function ChatHistorySidebar({
                     tabIndex={0}
                     onClick={() => {
                       if (renamingId === conv.id) return;
-                      if (selectedCount > 0) {
-                        setSelectedIds((current) => {
-                          const next = new Set(current);
-                          if (next.has(conv.id)) {
-                            next.delete(conv.id);
-                          } else {
-                            next.add(conv.id);
-                          }
-                          return next;
-                        });
-                        return;
-                      }
                       onSelectConversation(conv.id);
                       if (isMobile) onMobileSheetOpenChange(false);
                     }}
                     onKeyDown={(e) => {
                       if (renamingId === conv.id) return;
-                      if (e.key === "Enter" || e.key === " ") {
+                      if (e.key === "Enter") {
                         e.preventDefault();
                         onSelectConversation(conv.id);
                         if (isMobile) onMobileSheetOpenChange(false);
@@ -406,9 +394,11 @@ export function ChatHistorySidebar({
                       aria-label={selected ? "Desmarcar conversa" : "Marcar conversa"}
                       onClick={(e) => toggleConversationSelected(e, conv.id)}
                       className={cn(
-                        "flex size-4 shrink-0 items-center justify-center rounded border border-border bg-background transition-opacity md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100",
-                        selected && "border-primary bg-primary text-primary-foreground opacity-100",
-                        selectedCount > 0 && "opacity-100",
+                        "shrink-0 items-center justify-center rounded border transition-all",
+                        selected || selectedCount > 0
+                          ? "flex size-4 border-border bg-background"
+                          : "hidden h-0 w-0 border-0 md:group-hover:flex md:group-hover:size-4 md:group-hover:border-border md:group-hover:bg-background",
+                        selected && "border-primary bg-primary text-primary-foreground",
                       )}
                     >
                       {selected ? <CheckIcon className="size-3" /> : null}
