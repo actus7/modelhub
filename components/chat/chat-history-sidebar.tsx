@@ -347,7 +347,7 @@ export function ChatHistorySidebar({
         </div>
       )}
 
-      <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-0.5 p-2">
           {loading && conversations.length === 0 ? (
             <div className="flex items-center justify-center py-8">
