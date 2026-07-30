@@ -334,3 +334,34 @@ export function resolveModelSelectPlaceholder(input: {
   if (input.providerReady) return "Modelo";
   return "Credenciais…";
 }
+
+/** Distância do fundo, em px, dentro da qual a área de mensagens é considerada "no fim". */
+export const STICK_TO_BOTTOM_THRESHOLD_PX = 100;
+
+/** Tolerância para ruído subpixel de `scrollTop` ao detectar rolagem para cima. */
+const SCROLL_UP_TOLERANCE_PX = 1;
+
+/**
+ * Decide se a área de mensagens deve continuar colada ao fundo.
+ *
+ * O evento `scroll` sozinho não distingue "o usuário rolou para cima" de "o
+ * conteúdo cresceu durante o streaming": nos dois casos a distância até o fundo
+ * aumenta. Só o primeiro move `scrollTop` para trás — é ele que descola.
+ * Chegar ao fundo recola, então o estado sempre se auto-corrige.
+ */
+export function resolveStickToBottom(input: {
+  clientHeight: number;
+  previousScrollTop: number;
+  scrollHeight: number;
+  scrollTop: number;
+  sticking: boolean;
+}): boolean {
+  const { clientHeight, previousScrollTop, scrollHeight, scrollTop, sticking } = input;
+
+  const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+  if (distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX) return true;
+
+  if (scrollTop < previousScrollTop - SCROLL_UP_TOLERANCE_PX) return false;
+
+  return sticking;
+}
