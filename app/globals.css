@@ -260,3 +260,9 @@
     @apply bg-muted/40 font-medium;
   }
 }
+
+/* Fix Radix ScrollArea thumb position: inner wrapper defaults to
+   display:table which breaks scroll position calculation. */
+[data-slot="scroll-area-viewport"] > div {
+  display: block !important;
+}
