@@ -1731,15 +1731,11 @@ export function ChatPage() {
                     ) : null}
                   </div>
 
-                  {message.role === "assistant" && message.modelLabel ? (
-                    <p className="px-1 text-[10px] text-muted-foreground/80">
-                      {message.modelLabel}
-                    </p>
-                  ) : null}
-
-                  {message.createdAt && (
+                  {(message.createdAt || (message.role === "assistant" && message.modelLabel)) && (
                     <p className="px-1 text-[10px] text-muted-foreground/60">
-                      {formatMessageTimestamp(message.createdAt)}
+                      {message.createdAt && formatMessageTimestamp(message.createdAt)}
+                      {message.createdAt && message.role === "assistant" && message.modelLabel ? " - " : ""}
+                      {message.role === "assistant" && message.modelLabel && message.modelLabel}
                     </p>
                   )}
 
