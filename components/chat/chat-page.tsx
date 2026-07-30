@@ -69,7 +69,7 @@ import {
   InputGroupTextarea,
   InputGroupText,
 } from "@/components/ui/input-group";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import {
   Select,
   SelectContent,
@@ -1516,8 +1516,11 @@ export function ChatPage() {
         </div>
       ) : null}
 
-      {/* Área de mensagens (scroll only here) */}
-      <ScrollArea className="min-h-0 flex-1" viewportRef={scrollViewportRef}>
+      {/* Área de mensagens (scroll nativo para evitar bugs de thumb em produção) */}
+      <div
+        ref={scrollViewportRef}
+        className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden"
+      >
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 md:px-4 md:py-6">
           {messages.length === 0 ? (
             <div className="flex flex-1 items-center justify-center py-16">
@@ -1838,7 +1841,7 @@ export function ChatPage() {
             ))
           )}
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Input fixo no bottom — pb respeita a barra de gestos (safe-area) em celulares */}
       <div className="shrink-0 border-t border-border/60 bg-background px-3 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] md:px-4 md:pt-3 md:pb-3">
