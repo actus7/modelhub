@@ -270,14 +270,14 @@ ALLOWED_ORIGINS="https://seu-dominio.com,https://app.seu-dominio.com"
 - [Guia de API](API.md)
 - [Guia de Deploy](DEPLOYMENT.md)
 - [Arquitetura](ARCHITECTURE.md)
-- [Issues no GitHub](https://github.com/Geeks-Zone/modelhub/issues)
+- [Issues no GitHub](https://github.com/actus7/modelhub/issues)
 
 ## 💬 Ainda tem dúvidas?
 
-- Abra uma [Discussion](https://github.com/Geeks-Zone/modelhub/discussions)
+- Abra uma [Discussion](https://github.com/actus7/modelhub/discussions)
 - Entre no [Discord](https://discord.gg/modelhub)
 - Envie um email para support@modelhub.dev
 
 ---
 
-**Não encontrou sua pergunta?** [Abra uma issue](https://github.com/Geeks-Zone/modelhub/issues/new) ou contribua com esta FAQ!
+**Não encontrou sua pergunta?** [Abra uma issue](https://github.com/actus7/modelhub/issues/new) ou contribua com esta FAQ!

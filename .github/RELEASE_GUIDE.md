@@ -18,7 +18,7 @@ Instruções para preparar e publicar releases do ModelHub.
 - [ ] CHANGELOG.md atualizado
 - [ ] API docs atualizadas
 - [ ] Exemplos funcionando
-- [ ] URLs corretas (sem "Geeks-Zone")
+- [ ] URLs corretas (repositório atus7/modelhub)
 
 ### 3. Testes
 
@@ -91,7 +91,7 @@ O workflow `.github/workflows/release.yml` cria automaticamente:
 
 Ou crie manualmente:
 
-1. Vá para [Releases](https://github.com/Geeks-Zone/modelhub/releases)
+1. Vá para [Releases](https://github.com/actus7/modelhub/releases)
 2. Clique em "Draft a new release"
 3. Escolha a tag (ex: v1.1.0)
 4. Título: "ModelHub v1.1.0"
@@ -104,12 +104,12 @@ Ou crie manualmente:
 
 ```bash
 # Build
-docker build -t Geeks-Zone/modelhub:1.1.0 .
-docker build -t Geeks-Zone/modelhub:latest .
+docker build -t actus7/modelhub:1.1.0 .
+docker build -t actus7/modelhub:latest .
 
 # Push
-docker push Geeks-Zone/modelhub:1.1.0
-docker push Geeks-Zone/modelhub:latest
+docker push actus7/modelhub:1.1.0
+docker push actus7/modelhub:latest
 ```
 
 ### Automático
@@ -136,7 +136,7 @@ O workflow de release faz isso automaticamente quando você cria uma tag.
 - Bug fixes
 
 📦 Instale: npm install modelhub@latest
-📖 Docs: https://github.com/Geeks-Zone/modelhub
+📖 Docs: https://github.com/actus7/modelhub
 
 #OpenSource #AI #LLM
 ```
@@ -153,7 +153,7 @@ Novidades nesta versão:
 ✨ Feature Y
 🐛 Diversos bug fixes
 
-Confira em: https://github.com/Geeks-Zone/modelhub
+Confira em: https://github.com/actus7/modelhub
 
 #OpenSource #AI #MachineLearning #LLM
 ```
@@ -181,7 +181,7 @@ tags: opensource, ai, typescript, nextjs
 
 **Hacker News:**
 - Título: "ModelHub v1.1.0 – Open-source unified AI gateway"
-- URL: https://github.com/Geeks-Zone/modelhub
+- URL: https://github.com/actus7/modelhub
 
 ### 4. Discord/Slack
 
@@ -202,7 +202,7 @@ pnpm prisma:migrate
 pnpm build
 ```
 
-**Changelog completo:** https://github.com/Geeks-Zone/modelhub/releases/tag/v1.1.0
+**Changelog completo:** https://github.com/actus7/modelhub/releases/tag/v1.1.0
 ```
 
 ## 🔄 Hotfix Release
@@ -387,7 +387,7 @@ git push origin main
 ## 📦 Installation
 
 ```bash
-git clone https://github.com/Geeks-Zone/modelhub.git
+git clone https://github.com/actus7/modelhub.git
 cd modelhub
 pnpm install
 ```
@@ -401,7 +401,7 @@ Thanks to all contributors who made this release possible:
 
 ## 📖 Full Changelog
 
-https://github.com/Geeks-Zone/modelhub/compare/v1.0.0...v1.1.0
+https://github.com/actus7/modelhub/compare/v1.0.0...v1.1.0
 ```
 
 ---

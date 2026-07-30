@@ -8,12 +8,12 @@
 
 **Unified hub for multiple AI models with OpenAI-compatible API**
 
-[![CI](https://github.com/Geeks-Zone/modelhub/actions/workflows/ci.yml/badge.svg)](https://github.com/Geeks-Zone/modelhub/actions/workflows/ci.yml)
+[![CI](https://github.com/actus7/modelhub/actions/workflows/ci.yml/badge.svg)](https://github.com/actus7/modelhub/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.2-black)](https://nextjs.org/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/Geeks-Zone/modelhub/pulls)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/actus7/modelhub/pulls)
 
 [Features](#features) |
 [Installation](#installation) |
@@ -67,7 +67,7 @@ ModelHub is an open-source platform that unifies access to multiple AI providers
 
 ```bash
 # Clone the repository
-git clone https://github.com/Geeks-Zone/modelhub.git
+git clone https://github.com/actus7/modelhub.git
 cd modelhub
 
 # Install dependencies
@@ -95,7 +95,7 @@ docker run -p 3000:3000 --env-file .env modelhub
 
 ### Deploy to Vercel
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Geeks-Zone/modelhub)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub)
 
 ## Documentation
 

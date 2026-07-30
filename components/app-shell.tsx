@@ -246,7 +246,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     asChild
                     tooltip="Documentação"
                   >
-                    <a href="https://github.com/Geeks-Zone/modelhub#readme" target="_blank" rel="noreferrer">
+                    <a href="https://github.com/actus7/modelhub#readme" target="_blank" rel="noreferrer">
                       <FileTextIcon />
                       <span>Docs</span>
                     </a>
@@ -257,7 +257,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     asChild
                     tooltip="Suporte"
                   >
-                    <a href="https://github.com/Geeks-Zone/modelhub/issues" target="_blank" rel="noreferrer">
+                    <a href="https://github.com/actus7/modelhub/issues" target="_blank" rel="noreferrer">
                       <CircleHelpIcon />
                       <span>Suporte</span>
                     </a>

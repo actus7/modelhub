@@ -6,12 +6,12 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Geeks-Zone/modelhub.git"
+    "url": "https://github.com/actus7/modelhub.git"
   },
   "bugs": {
-    "url": "https://github.com/Geeks-Zone/modelhub/issues"
+    "url": "https://github.com/actus7/modelhub/issues"
   },
-  "homepage": "https://github.com/Geeks-Zone/modelhub#readme",
+  "homepage": "https://github.com/actus7/modelhub#readme",
   "keywords": [
     "ai",
     "llm",

@@ -53,7 +53,7 @@ Este projeto adota o Contributor Covenant. Ao participar, você concorda em segu
 
 3. **Adicione o repositório original como upstream**
    ```bash
-   git remote add upstream https://github.com/Geeks-Zone/modelhub.git
+   git remote add upstream https://github.com/actus7/modelhub.git
    ```
 
 4. **Instale as dependências**
@@ -356,7 +356,7 @@ pnpm test --coverage
 
 ## ❓ Dúvidas?
 
-- Abra uma [Discussion](https://github.com/Geeks-Zone/modelhub/discussions)
+- Abra uma [Discussion](https://github.com/actus7/modelhub/discussions)
 - Entre no nosso [Discord](https://discord.gg/modelhub)
 - Envie um email para dev@modelhub.dev
 

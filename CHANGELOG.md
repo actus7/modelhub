@@ -64,5 +64,5 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 Veja [CONTRIBUTING.md](CONTRIBUTING.md) para detalhes sobre como contribuir com o projeto.
 
-[Unreleased]: https://github.com/Geeks-Zone/modelhub/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/Geeks-Zone/modelhub/releases/tag/v1.0.0
+[Unreleased]: https://github.com/actus7/modelhub/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/actus7/modelhub/releases/tag/v1.0.0

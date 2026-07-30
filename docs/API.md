@@ -333,7 +333,7 @@ Como a API é compatível com OpenAI, você pode usar qualquer SDK OpenAI:
 ## 🆘 Suporte
 
 - Documentação: https://docs.modelhub.dev
-- Issues: https://github.com/Geeks-Zone/modelhub/issues
+- Issues: https://github.com/actus7/modelhub/issues
 - Email: api@modelhub.dev
 
 ---

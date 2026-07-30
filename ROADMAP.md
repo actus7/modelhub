@@ -9,7 +9,7 @@ Tornar o ModelHub a plataforma open-source líder para unificação de APIs de I
 ## 📊 Status Atual
 
 **Versão:** 1.0.0  
-**Status:** Lançamento Inicial ✅
+**Status:** Beta público — busca adoção e validação da comunidade
 
 ### ✅ Implementado (v1.0.0)
 
@@ -102,11 +102,9 @@ Tornar o ModelHub a plataforma open-source líder para unificação de APIs de I
 **Foco:** Novas capacidades e integrações
 
 - [ ] **Novos Provedores**
-  - [ ] Perplexity AI
-  - [ ] Together AI
-  - [ ] Replicate
-  - [ ] Modelos locais (Ollama)
   - [ ] Azure OpenAI
+  - [ ] Replicate
+  - [ ] Modelos adicionais via comunidade
   
 - [ ] **Embeddings**
   - [ ] API de embeddings
@@ -198,47 +196,42 @@ Tornar o ModelHub a plataforma open-source líder para unificação de APIs de I
   - [ ] Prompt templates
   - [ ] Prompt versioning
 
-## 🎁 Community Requests
+## 🎁 Sugestões da Comunidade
 
-Features mais solicitadas pela comunidade:
+Features que fazem sentido para o projeto. Vote com 👍 nas issues correspondentes:
 
-1. **Suporte a modelos locais** (Ollama, LM Studio) - 🔥 Alta demanda
-2. **Busca em conversas** - 🔥 Alta demanda
-3. **Exportar conversas** - 🔥 Alta demanda
-4. **Temas customizáveis** - 🔥 Alta demanda
-5. **Mobile apps** - 🔥 Alta demanda
-6. **RAG/Vector search** - 🔥 Alta demanda
-7. **Workflow automation** - 🔥 Alta demanda
-8. **Team collaboration** - 🔥 Alta demanda
+1. **Suporte a modelos locais** (Ollama, LM Studio) - já disponível via provider Ollama, melhorar UX
+2. **Busca em conversas** - filtrar histórico por texto
+3. **Exportar conversas** (JSON, Markdown)
+4. **Temas customizáveis** - além do dark/light atual
+5. **RAG/Vector search** - embeddings e busca semântica
+6. **Workflow automation** - pipelines e webhooks
 
 ## 🤝 Como Contribuir
 
 Quer ajudar a construir o futuro do ModelHub?
 
 1. **Vote em features**: Reaja com 👍 nas issues
-2. **Sugira features**: Abra uma [feature request](https://github.com/Geeks-Zone/modelhub/issues/new?template=feature_request.md)
+2. **Sugira features**: Abra uma [feature request](https://github.com/actus7/modelhub/issues/new?template=feature_request.md)
 3. **Contribua com código**: Veja [CONTRIBUTING.md](CONTRIBUTING.md)
-4. **Patrocine**: Ajude a financiar o desenvolvimento
+4. **Patrocine**: [GitHub Sponsors](https://github.com/sponsors/actus7)
 
 ## 📊 Métricas de Sucesso
 
-### Objetivos para 2026
+### Curto prazo (2026)
 
-- [ ] 10,000+ stars no GitHub
-- [ ] 1,000+ instalações ativas
-- [ ] 100+ contribuidores
-- [ ] 50+ plugins da comunidade
-- [ ] 95%+ uptime
-- [ ] <100ms latência média
+- [ ] 100+ stars no GitHub
+- [ ] 10+ instalações ativas
+- [ ] 5+ contribuidores externos
+- [ ] Primeiros issues/PRs da comunidade
+- [ ] Demo público estável (modelhub.com.br)
 
-### Objetivos para 2027
+### Médio prazo (2027)
 
-- [ ] 50,000+ stars no GitHub
-- [ ] 10,000+ instalações ativas
-- [ ] 500+ contribuidores
-- [ ] 200+ plugins da comunidade
-- [ ] 99.9%+ uptime
-- [ ] <50ms latência média
+- [ ] 1.000+ stars no GitHub
+- [ ] 100+ instalações ativas
+- [ ] 20+ contribuidores
+- [ ] Patrocinadores ativos cobrindo custos de infra
 
 ## 🔄 Processo de Desenvolvimento
 
@@ -267,11 +260,11 @@ Quer ajudar a construir o futuro do ModelHub?
 
 Tem sugestões para o roadmap?
 
-- Abra uma [Discussion](https://github.com/Geeks-Zone/modelhub/discussions)
+- Abra uma [Discussion](https://github.com/actus7/modelhub/discussions)
 - Comente em issues existentes
 - Entre no [Discord](https://discord.gg/modelhub)
 
 ---
 
-**Última atualização:** 2026-04-13  
-**Próxima revisão:** 2026-07-01
+**Última atualização:** 2026-07-30  
+**Próxima revisão:** 2026-10-01
