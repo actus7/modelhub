@@ -129,6 +129,7 @@ import {
   resolveAssistantModelLabel,
   resolveModelFallbackFromHeaders,
   resolveModelSelectPlaceholder,
+  resolveStickToBottom,
   resolveStreamErrorContent,
   trimConversation,
   validateAttachmentCompatibility,
@@ -176,8 +177,9 @@ export function ChatPage() {
   // Stop generation
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Smart auto-scroll: only auto-scroll if user is near the bottom
-  const userScrolledUpRef = useRef(false);
+  // Smart auto-scroll: só acompanha o fim enquanto o usuário não rolar para cima
+  const stickToBottomRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
 
   // Copy message feedback
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
@@ -408,8 +410,11 @@ export function ChatPage() {
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
 
-    if (!userScrolledUpRef.current) {
+    if (stickToBottomRef.current) {
       viewport.scrollTop = viewport.scrollHeight;
+      // Mantém a referência em dia para que o `scroll` disparado por esta
+      // escrita não seja lido como rolagem do usuário.
+      lastScrollTopRef.current = viewport.scrollTop;
     }
   }, [messages]);
 
@@ -419,9 +424,14 @@ export function ChatPage() {
     if (!viewport) return;
 
     const handleScroll = () => {
-      const threshold = 100;
-      const distFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
-      userScrolledUpRef.current = distFromBottom > threshold;
+      stickToBottomRef.current = resolveStickToBottom({
+        clientHeight: viewport.clientHeight,
+        previousScrollTop: lastScrollTopRef.current,
+        scrollHeight: viewport.scrollHeight,
+        scrollTop: viewport.scrollTop,
+        sticking: stickToBottomRef.current,
+      });
+      lastScrollTopRef.current = viewport.scrollTop;
     };
 
     viewport.addEventListener("scroll", handleScroll, { passive: true });
@@ -825,7 +835,7 @@ export function ChatPage() {
       setAttachments([]);
     }
     setPending(true);
-    userScrolledUpRef.current = false;
+    stickToBottomRef.current = true;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;

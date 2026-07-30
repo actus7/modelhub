@@ -14,6 +14,7 @@ import {
   resolveAssistantModelLabel,
   resolveModelFallbackFromHeaders,
   resolveModelSelectPlaceholder,
+  resolveStickToBottom,
   resolveStreamErrorContent,
   STREAM_INTERRUPTED_NOTE,
   validateAttachmentCompatibility,
@@ -311,5 +312,70 @@ describe("buildTitleGenerationPrompt", () => {
     const prompt = buildTitleGenerationPrompt("oi", long);
     expect(prompt).toContain(`Assistente: ${"x".repeat(500)}`);
     expect(prompt).not.toContain("x".repeat(501));
+  });
+});
+
+describe("resolveStickToBottom", () => {
+  const VIEWPORT = { clientHeight: 600 };
+
+  it("keeps sticking when streaming grows the content and the user did not move", () => {
+    // Regressão: o conteúdo cresceu 400px além do limiar, mas scrollTop não mudou.
+    expect(
+      resolveStickToBottom({
+        ...VIEWPORT,
+        previousScrollTop: 1000,
+        scrollHeight: 2000,
+        scrollTop: 1000,
+        sticking: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("stops sticking when the user scrolls up away from the bottom", () => {
+    expect(
+      resolveStickToBottom({
+        ...VIEWPORT,
+        previousScrollTop: 1000,
+        scrollHeight: 1600,
+        scrollTop: 400,
+        sticking: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("resumes sticking once the user scrolls back within the threshold", () => {
+    expect(
+      resolveStickToBottom({
+        ...VIEWPORT,
+        previousScrollTop: 400,
+        scrollHeight: 1600,
+        scrollTop: 950,
+        sticking: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("stays detached while the user reads far from the bottom", () => {
+    expect(
+      resolveStickToBottom({
+        ...VIEWPORT,
+        previousScrollTop: 400,
+        scrollHeight: 1600,
+        scrollTop: 400,
+        sticking: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("ignores subpixel jitter of scrollTop", () => {
+    expect(
+      resolveStickToBottom({
+        ...VIEWPORT,
+        previousScrollTop: 400,
+        scrollHeight: 1600,
+        scrollTop: 399.5,
+        sticking: true,
+      }),
+    ).toBe(true);
   });
 });
