@@ -17,7 +17,7 @@ Antes de começar, certifique-se de ter:
 
 ```bash
 # Clone o repositório
-git clone https://github.com/Geeks-Zone/modelhub.git
+git clone https://github.com/actus7/modelhub.git
 cd modelhub
 
 # Instale as dependências
@@ -333,8 +333,8 @@ for chunk in stream:
 ## 🤝 Precisa de Ajuda?
 
 - 💬 [Discord Community](https://discord.gg/modelhub)
-- 🐛 [Report Issues](https://github.com/Geeks-Zone/modelhub/issues)
-- 💡 [Discussions](https://github.com/Geeks-Zone/modelhub/discussions)
+- 🐛 [Report Issues](https://github.com/actus7/modelhub/issues)
+- 💡 [Discussions](https://github.com/actus7/modelhub/discussions)
 - 📧 [Email](mailto:support@modelhub.dev)
 
 ---
@@ -342,7 +342,7 @@ for chunk in stream:
 **Pronto para começar?** 🚀
 
 ```bash
-git clone https://github.com/Geeks-Zone/modelhub.git
+git clone https://github.com/actus7/modelhub.git
 cd modelhub
 pnpm install
 cp .env.example .env

@@ -36,7 +36,7 @@ Antes de fazer deploy, você precisa:
 
 ### Deploy com um Clique
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Geeks-Zone/modelhub)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub)
 
 ### Deploy Manual
 
@@ -221,7 +221,7 @@ CMD ["node", "server.js"]
 1. **Clonar Repositório**
    ```bash
    cd /var/www
-   git clone https://github.com/Geeks-Zone/modelhub.git
+   git clone https://github.com/actus7/modelhub.git
    cd modelhub
    ```
 
@@ -476,4 +476,4 @@ kill -9 PID
 
 ---
 
-**Precisa de ajuda?** Abra uma [issue](https://github.com/Geeks-Zone/modelhub/issues)
+**Precisa de ajuda?** Abra uma [issue](https://github.com/actus7/modelhub/issues)

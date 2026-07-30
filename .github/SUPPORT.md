@@ -19,7 +19,7 @@ Antes de pedir ajuda, verifique nossa documentação:
 
 Para perguntas gerais, discussões e compartilhar ideias:
 
-👉 [Abrir uma Discussion](https://github.com/Geeks-Zone/modelhub/discussions)
+👉 [Abrir uma Discussion](https://github.com/actus7/modelhub/discussions)
 
 **Quando usar:**
 - Perguntas sobre como usar
@@ -31,7 +31,7 @@ Para perguntas gerais, discussões e compartilhar ideias:
 
 Para reportar bugs ou solicitar features:
 
-👉 [Abrir uma Issue](https://github.com/Geeks-Zone/modelhub/issues/new/choose)
+👉 [Abrir uma Issue](https://github.com/actus7/modelhub/issues/new/choose)
 
 **Quando usar:**
 - Bugs confirmados
@@ -83,7 +83,7 @@ Ao reportar um bug, inclua:
    - Browser (se aplicável)
    - ModelHub version
 
-Use o [template de bug report](https://github.com/Geeks-Zone/modelhub/issues/new?template=bug_report.md).
+Use o [template de bug report](https://github.com/actus7/modelhub/issues/new?template=bug_report.md).
 
 ## 💡 Solicitando Features
 
@@ -94,7 +94,7 @@ Ao solicitar uma feature:
 3. **Liste alternativas** consideradas
 4. **Adicione contexto** (mockups, exemplos)
 
-Use o [template de feature request](https://github.com/Geeks-Zone/modelhub/issues/new?template=feature_request.md).
+Use o [template de feature request](https://github.com/actus7/modelhub/issues/new?template=feature_request.md).
 
 ## 🔒 Vulnerabilidades de Segurança
 
@@ -190,4 +190,4 @@ Obrigado por usar o ModelHub! Sua participação na comunidade ajuda a tornar o 
 
 ---
 
-**Não encontrou o que procura?** Abra uma [Discussion](https://github.com/Geeks-Zone/modelhub/discussions) e vamos ajudar!
+**Não encontrou o que procura?** Abra uma [Discussion](https://github.com/actus7/modelhub/discussions) e vamos ajudar!

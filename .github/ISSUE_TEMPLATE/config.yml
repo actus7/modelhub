@@ -1,11 +1,11 @@
 blank_issues_enabled: false
 contact_links:
   - name: 💬 Discussões
-    url: https://github.com/Geeks-Zone/modelhub/discussions
+    url: https://github.com/actus7/modelhub/discussions
     about: Faça perguntas e discuta ideias com a comunidade
   - name: 📖 Documentação
-    url: https://github.com/Geeks-Zone/modelhub#readme
+    url: https://github.com/actus7/modelhub#readme
     about: Leia a documentação completa do projeto
   - name: 🔒 Vulnerabilidade de Segurança
-    url: https://github.com/Geeks-Zone/modelhub/security/policy
+    url: https://github.com/actus7/modelhub/security/policy
     about: Reporte vulnerabilidades de segurança de forma privada
