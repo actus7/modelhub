@@ -1517,7 +1517,7 @@ export function ChatPage() {
       ) : null}
 
       {/* Área de mensagens (scroll only here) */}
-      <ScrollArea className="min-h-0 flex-1" viewportRef={scrollViewportRef}>
+      <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:block!" viewportRef={scrollViewportRef}>
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 md:px-4 md:py-6">
           {messages.length === 0 ? (
             <div className="flex flex-1 items-center justify-center py-16">
