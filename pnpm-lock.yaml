@@ -27,8 +27,8 @@ importers:
   .:
     dependencies:
       '@hono/zod-validator':
-        specifier: ^0.8.0
-        version: 0.8.0(hono@4.12.32)(zod@4.4.3)
+        specifier: ^0.9.0
+        version: 0.9.0(hono@4.12.32)(zod@4.4.3)
       '@neondatabase/auth':
         specifier: 0.2.0-beta.1
         version: 0.2.0-beta.1(2f4bd26032b3c3dbb3bda1c8f1590b69)
@@ -785,10 +785,10 @@ packages:
     peerDependencies:
       hono: ^4
 
-  '@hono/zod-validator@0.8.0':
-    resolution: {integrity: sha512-5uS4S1/LKtZQYvD4BtpPUFkOv8d1wNxHHrChm26buMiEYc1FrHWvDUaKVBwkiVtvSExHSpLGDvcnpI2Copyj9w==}
+  '@hono/zod-validator@0.9.0':
+    resolution: {integrity: sha512-n0ZSXmCiHVIp4Y5wlOOyZCeTd/rsawA/qW1cipB8QOYKZ9N8Tk0nZUZCXho9cu374AN4JpDNKioNKBJ/W+LBug==}
     peerDependencies:
-      hono: '>=4.10.0'
+      hono: '>=4.11.2'
       zod: ^3.25.0 || ^4.0.0
 
   '@hookform/resolvers@5.2.2':
@@ -7574,7 +7574,7 @@ snapshots:
     dependencies:
       hono: 4.12.32
 
-  '@hono/zod-validator@0.8.0(hono@4.12.32)(zod@4.4.3)':
+  '@hono/zod-validator@0.9.0(hono@4.12.32)(zod@4.4.3)':
     dependencies:
       hono: 4.12.32
       zod: 4.4.3
