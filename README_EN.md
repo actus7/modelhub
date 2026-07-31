@@ -1,163 +1,327 @@
-<p align="right"><a href="README.md">Portugues</a></p>
-
-# ModelHub
+<p align="right"><a href="README.md">Português</a></p>
 
 <div align="center">
+  <img src="public/logo.png" alt="ModelHub" width="120" height="120" />
 
-![ModelHub Logo](https://img.shields.io/badge/ModelHub-AI%20Gateway-blue?style=for-the-badge)
+  <h1>ModelHub</h1>
 
-**Unified hub for multiple AI models with OpenAI-compatible API**
+  <p><strong>Unified gateway for multiple AI providers with an OpenAI-compatible API.</strong></p>
 
-[![CI](https://github.com/actus7/modelhub/actions/workflows/ci.yml/badge.svg)](https://github.com/actus7/modelhub/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
-[![Next.js](https://img.shields.io/badge/Next.js-16.2-black)](https://nextjs.org/)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/actus7/modelhub/pulls)
-[![Hono](https://img.shields.io/badge/Hono-4.x-E36002?logo=hono&logoColor=white)](https://hono.dev/)
-[![Prisma](https://img.shields.io/badge/Prisma-7.x-2D3748?logo=prisma&logoColor=white)](https://www.prisma.io/)
-[![Powered by Neon](https://img.shields.io/badge/Powered%20by-Neon-00E599?logo=neon&logoColor=white)](https://neon.tech)
-[![Deployed on Vercel](https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com/)
+  <p>
+    <a href="https://github.com/actus7/modelhub/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/actus7/modelhub/actions/workflows/ci.yml/badge.svg" /></a>
+    <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-yellow.svg" /></a>
+    <a href="https://nodejs.org"><img alt="Node.js >= 22" src="https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen" /></a>
+    <a href="https://nextjs.org/"><img alt="Next.js 16.2" src="https://img.shields.io/badge/Next.js-16.2-black" /></a>
+    <a href="https://www.typescriptlang.org/"><img alt="TypeScript 5" src="https://img.shields.io/badge/TypeScript-5.x-blue" /></a>
+    <a href="https://hono.dev/"><img alt="Hono 4" src="https://img.shields.io/badge/Hono-4.x-E36002?logo=hono&logoColor=white" /></a>
+    <a href="https://www.prisma.io/"><img alt="Prisma 7" src="https://img.shields.io/badge/Prisma-7.x-2D3748?logo=prisma&logoColor=white" /></a>
+    <a href="https://neon.tech"><img alt="Powered by Neon" src="https://img.shields.io/badge/Powered%20by-Neon-00E599?logo=neon&logoColor=white" /></a>
+    <a href="https://vercel.com/"><img alt="Deploy on Vercel" src="https://img.shields.io/badge/Deploy-Vercel-000000?logo=vercel&logoColor=white" /></a>
+  </p>
 
-[Features](#features) |
-[Installation](#installation) |
-[Documentation](#documentation) |
-[Contributing](#contributing) |
-[License](#license)
+  <p>
+    <a href="#overview">Overview</a> ·
+    <a href="#features">Features</a> ·
+    <a href="#quickstart">Quickstart</a> ·
+    <a href="#api">API</a> ·
+    <a href="#architecture">Architecture</a> ·
+    <a href="#deploy">Deploy</a>
+  </p>
 
+  <p>
+    <a href="https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub"><img alt="Deploy with Vercel" src="https://vercel.com/button" /></a>
+  </p>
 </div>
 
 ---
 
-## About
+## Overview
 
-ModelHub is an open-source platform that unifies access to multiple AI providers (OpenAI, Anthropic, Google, Groq, Mistral, and others) through a single OpenAI-compatible API. It includes a built-in chat interface, secure credential management, and a robust authentication system.
+ModelHub centralizes OpenAI, Google, Groq, Mistral, OpenRouter and other providers into a single open-source platform. It delivers an OpenAI-compatible API, authenticated web chat, secure credential management, and a usage dashboard.
 
-### Features
+Instead of each application integrating multiple providers separately, ModelHub standardizes authentication, routing, logs, costs, model catalog, and fallbacks.
 
-- **Unified API Gateway** - OpenAI-compatible interface for multiple providers
-- **Built-in Chat** - Modern web interface for interacting with AI models
-- **Secure Authentication** - Complete system with Neon Auth
-- **Credential Management** - Encrypted storage for API keys
-- **Usage Dashboard** - Monitor consumption and costs in real time
-- **Attachment Support** - Upload images, PDFs, and documents
-- **Multi-tenant** - Support for multiple users and organizations
-- **Easy Deploy** - Ready for Vercel, Docker, and other platforms
-- **TypeScript** - Fully typed for better DX
-- **Tested** - Test coverage with Vitest
+## Features
 
-### Supported Providers
+<table>
+  <tr>
+    <td><strong>OpenAI-compatible API</strong><br />Use <code>/v1/chat/completions</code> and <code>/v1/models</code> with existing clients.</td>
+    <td><strong>Web chat</strong><br />Authenticated interface to chat with configured models.</td>
+  </tr>
+  <tr>
+    <td><strong>Secure credentials</strong><br />ModelHub API keys and provider keys encrypted per user.</td>
+    <td><strong>Usage dashboard</strong><br />Requests, estimated costs, status codes, tokens, and recent logs.</td>
+  </tr>
+  <tr>
+    <td><strong>Smart routing</strong><br />Tiers by complexity, per-task overrides, and automatic fallbacks.</td>
+    <td><strong>Chat attachments</strong><br />Support for images, PDFs, and documents.</td>
+  </tr>
+  <tr>
+    <td><strong>Dynamic catalog</strong><br />Local models and remote search when the provider supports it.</td>
+    <td><strong>Production-ready</strong><br />Rate limiting, cooldown, security headers, CI, and Vercel deploy.</td>
+  </tr>
+</table>
 
-- OpenAI (GPT-4, GPT-3.5, etc.)
-- Anthropic (Claude 3.5, Claude 3, etc.)
-- Google AI (Gemini Pro, Gemini Flash)
-- Groq (Llama, Mixtral)
-- Mistral AI
-- Cohere
-- HuggingFace
-- OpenRouter
-- Vercel AI Gateway
+## Providers
 
-## Installation
+The catalog lives in `server/lib/catalog.ts` and each adapter lives in `server/providers/`.
 
-### Prerequisites
+| Supported | |
+|---|---|
+| OpenAI | Google AI Studio |
+| Groq | Mistral / Codestral |
+| OpenRouter | HuggingFace |
+| DeepSeek | Perplexity |
+| Together AI | Fireworks AI |
+| Cohere | Cloudflare Workers AI |
+| Ollama / Ollama Cloud | GitHub Models |
+| GitHub Copilot | Qwen / Qwen Token Plan |
+| Z.ai / Z.ai Coding Plan | Moonshot / Kimi |
+| NVIDIA NIM | Pollinations / Puter |
 
-- Node.js >= 22.0.0
-- pnpm >= 10.0.0
-- [Neon](https://neon.tech) account (serverless PostgreSQL)
-- API keys for the providers you want to use
+Broken or duplicate providers should be removed from both the catalog and the registry so they don't appear on the integrations screen.
 
-### Quick Start
+## Quickstart
+
+### Requirements
+
+- Node.js >= 22
+- pnpm >= 10
+- PostgreSQL Neon
+- Configured Neon Auth account
+- `ENCRYPTION_KEY` with 64 hex characters
+- Keys for the providers you intend to use
+
+### Local installation
 
 ```bash
-# Clone the repository
 git clone https://github.com/actus7/modelhub.git
 cd modelhub
-
-# Install dependencies
 pnpm install
-
-# Set up environment variables
 cp .env.example .env
-# Edit .env with your credentials
-
-# Run database migrations
 pnpm prisma:migrate
-
-# Start the development server
 pnpm dev
 ```
 
-Visit http://localhost:3000
+Visit `http://localhost:3000`.
 
-### Docker
+`pnpm install` automatically runs `pnpm prisma:generate` via `postinstall`.
 
-```bash
-docker build -t modelhub .
-docker run -p 3000:3000 --env-file .env modelhub
+## Environment variables
+
+See `.env.example` for the full list.
+
+Required:
+
+```env
+DATABASE_URL="postgresql://..."
+DIRECT_URL="postgresql://..."
+NEON_AUTH_BASE_URL="https://..."
+NEON_AUTH_COOKIE_SECRET="..."
+ENCRYPTION_KEY="64_hex_chars"
 ```
 
-### Deploy to Vercel
+Common optional:
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub)
+```env
+OPENAI_API_KEY="sk-..."
+GOOGLE_AI_STUDIO_API_KEY="AIza..."
+OPENROUTER_API_KEY="sk-or-..."
+GROQ_API_KEY="gsk_..."
+MISTRAL_API_KEY="sk-..."
+DEEPSEEK_API_KEY="sk-..."
+```
 
-## Documentation
+Without a global key, users can still register their own credentials on the **Integrations** screen when the provider requires authentication.
 
-| Document | Description |
-|----------|-------------|
-| [Quick Start](docs/QUICKSTART.md) | Get up and running in minutes |
-| [API Reference](docs/API.md) | Complete API documentation |
-| [Architecture](docs/ARCHITECTURE.md) | Technical architecture overview |
-| [Deployment](docs/DEPLOYMENT.md) | Deploy guides (Vercel, Docker, VPS) |
-| [Examples](docs/EXAMPLES.md) | Practical usage examples |
-| [FAQ](docs/FAQ.md) | Frequently asked questions |
+## Commands
 
-### API Usage
+```bash
+pnpm dev              # local server at localhost:3000
+pnpm build            # production build
+pnpm build:vercel     # build used on Vercel
+pnpm start            # runs the generated build
+pnpm lint             # ESLint
+pnpm typecheck        # TypeScript without emit
+pnpm test             # Vitest
+pnpm test:coverage    # Vitest with coverage
+pnpm prisma:generate  # generates Prisma Client
+pnpm prisma:migrate   # local Prisma migration
+pnpm prisma:push      # push schema in development
+```
+
+## API
+
+### Chat completions
 
 ```bash
 curl -X POST http://localhost:3000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Authorization: Bearer YOUR_MODELHUB_API_KEY" \
   -d '{
-    "model": "openrouter/openai/gpt-oss-20b:free",
-    "messages": [{"role": "user", "content": "Hello!"}]
+    "model": "openai/gpt-4o-mini",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
   }'
+```
+
+### Streaming
+
+```bash
+curl -N -X POST http://localhost:3000/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_MODELHUB_API_KEY" \
+  -d '{
+    "model": "mistral/codestral-latest",
+    "stream": true,
+    "messages": [
+      {"role": "user", "content": "Explain a debounce function in TypeScript."}
+    ]
+  }'
+```
+
+### List models
+
+```bash
+curl http://localhost:3000/v1/models \
+  -H "Authorization: Bearer YOUR_MODELHUB_API_KEY"
+```
+
+The `model` field follows the `provider/model` format, for example:
+
+- `openai/gpt-4o-mini`
+- `googleaistudio/gemini-2.5-flash`
+- `mistral/codestral-latest`
+- `openrouter/openai/gpt-oss-20b:free`
+
+## Web interface
+
+| Route | Description |
+|---|---|
+| `/chat` | Chat with configured providers |
+| `/setup` | Integrations and credentials per provider |
+| `/dashboard` | API keys, usage, costs, logs, and routing |
+| `/account` | Account information |
+| `/playground` | Compare and test providers |
+
+Authenticated routes are protected by `proxy.ts`.
+
+## Architecture
+
+```text
+app/                         Next.js App Router
+app/(app)/                   authenticated routes
+components/                  React components
+components/chat/             chat UI
+components/dashboard/        dashboard, API keys, routing, and analytics
+components/setup/            integrations screen
+components/ui/               shadcn/ui and base components
+lib/                         shared helpers
+lib/auth/                    Neon Auth client/server
+server/app.ts                main Hono app
+server/route-handler.ts      bridge between Next.js and Hono
+server/routes/               /user, /v1, conversations, etc. routes
+server/providers/            provider adapters
+server/lib/openai-compatible.ts utility for OpenAI-compatible providers
+server/lib/routing/          routing, tiers, health, and suggestions
+server/lib/security.ts       CORS, rate limit, and headers
+server/lib/db.ts             Prisma + Neon adapter
+prisma/schema.prisma         database schema
+prisma/migrations/           migrations
+```
+
+The application uses two layers:
+
+1. **Next.js 16 App Router** for pages, layouts, frontend authentication, and Vercel integration.
+2. **Hono** for the gateway API, providers, user, and OpenAI-compatible routes.
+
+## Database
+
+The database is PostgreSQL via Neon, accessed with Prisma 7 and `@prisma/adapter-neon`.
+
+Key models: `User`, `ApiKey`, `ProviderCredential`, `Conversation`, `Message`, `ConversationAttachment`, `UsageLog`, `UserMemory`, and `UserSettings`.
+
+For schema changes:
+
+```bash
+pnpm prisma:migrate
+pnpm prisma:generate
+```
+
+## Security
+
+- ModelHub API keys are stored by hash/prefix.
+- Provider credentials are encrypted with `ENCRYPTION_KEY`.
+- Error logs are scrubbed to prevent secret leakage.
+- Rate limiting and cooldown reduce abuse and failure loops.
+- Never commit `.env`, tokens, or real keys.
+
+To report vulnerabilities, see `SECURITY.md`.
+
+## CI/CD
+
+GitHub Actions runs on PRs and pushes to `main`/`develop`:
+
+- Lint (`pnpm lint`)
+- Type check (`pnpm typecheck`)
+- Tests (`pnpm test`)
+- Production dependency security audit (`pnpm audit --prod --audit-level=high`)
+- Build (`pnpm build`)
+- CodeQL
+- Optional Dependency Review via the `ENABLE_DEPENDENCY_REVIEW=true` variable
+
+Vercel automatically generates previews for PRs.
+
+## Deploy
+
+### Vercel
+
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/actus7/modelhub)
+
+1. Connect the repository on Vercel.
+2. Configure the required environment variables.
+3. Ensure the build uses `pnpm build` or `pnpm build:vercel`, depending on the Vercel project.
+4. Run database migrations before promoting to production when there are changes in `prisma/migrations/`.
+
+### Docker
+
+If using Docker, pass `.env` at runtime:
+
+```bash
+docker build -t modelhub .
+docker run --env-file .env -p 3000:3000 modelhub
 ```
 
 ## Contributing
 
-Contributions are very welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+See `CONTRIBUTING.md`.
 
-1. Fork the project
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'feat: add AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+```bash
+git checkout -b fix/my-change
+pnpm test
+pnpm lint
+pnpm typecheck
+```
 
-This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md) code of conduct.
+Use Conventional Commits:
 
-## Security
+```text
+feat(chat): add support for new attachment
+fix(providers): remove broken integration
+docs(readme): update setup instructions
+```
 
-To report security vulnerabilities, see [SECURITY.md](SECURITY.md).
+## Support the project
+
+ModelHub requires continuous maintenance, infrastructure, and testing with multiple AI APIs. Your sponsorship helps cover these costs and keeps the project open and up to date.
+
+[Sponsor ModelHub on GitHub Sponsors](https://github.com/sponsors/actus7).
 
 ## License
 
-This project is licensed under the MIT License - see [LICENSE](LICENSE) for details.
+MIT. See `LICENSE`.
 
 ## Acknowledgements
 
-- [Next.js](https://nextjs.org/) - React Framework
-- [Prisma](https://www.prisma.io/) - ORM
-- [Neon](https://neon.tech/) - PostgreSQL Serverless
-- [shadcn/ui](https://ui.shadcn.com/) - UI Components
-- [Hono](https://hono.dev/) - Web Framework
-
----
-
-<div align="center">
-
-**[Back to top](#modelhub)**
-
-Made with care by the ModelHub community
-
-</div>
+Next.js · Hono · Prisma · Neon · shadcn/ui · Vitest · Open-source community
