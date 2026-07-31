@@ -57,7 +57,7 @@
     "vercel:env:sync": "node scripts/vercel-env-sync.mjs --pull"
   },
   "dependencies": {
-    "@hono/zod-validator": "^0.8.0",
+    "@hono/zod-validator": "^0.9.0",
     "@neondatabase/auth": "0.2.0-beta.1",
     "@neondatabase/serverless": "^1.1.0",
     "@prisma/adapter-neon": "^7.9.1",
@@ -69,17 +69,17 @@
     "hono": "^4.12.32",
     "jsdom": "^30.0.0",
     "jszip": "^3.10.1",
-    "katex": "^0.17.0",
+    "katex": "^0.18.1",
     "lucide-react": "^1.27.0",
     "next": "16.2.12",
     "next-themes": "^0.4.6",
     "pdfjs-dist": "^6.1.200",
-    "puppeteer": "^25.1.0",
+    "puppeteer": "^25.4.0",
     "radix-ui": "^1.6.7",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-markdown": "^10.1.0",
-    "recharts": "^3.8.1",
+    "recharts": "^3.10.1",
     "rehype-highlight": "^7.0.2",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",
@@ -90,7 +90,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.0",
+    "@tailwindcss/postcss": "^4.3.3",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^26.1.1",
     "@types/react": "^19.2.17",
@@ -102,7 +102,7 @@
     "postcss": "^8.5.23",
     "prisma": "^7.9.1",
     "shadcn": "^4.15.0",
-    "tailwindcss": "^4.3.0",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
     "vite": "7.3.2",
     "vitest": "^4.1.4"
