@@ -14,6 +14,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue)](https://www.typescriptlang.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16.2-black)](https://nextjs.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/actus7/modelhub/pulls)
+[![Powered by Neon](https://img.shields.io/badge/Powered%20by-Neon-00E599?logo=neon&logoColor=white)](https://neon.tech)
 
 [Features](#features) |
 [Installation](#installation) |

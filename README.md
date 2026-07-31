@@ -13,6 +13,7 @@
     <a href="https://nodejs.org"><img alt="Node.js >= 22" src="https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen" /></a>
     <a href="https://nextjs.org/"><img alt="Next.js 16.2" src="https://img.shields.io/badge/Next.js-16.2-black" /></a>
     <a href="https://www.typescriptlang.org/"><img alt="TypeScript 5" src="https://img.shields.io/badge/TypeScript-5.x-blue" /></a>
+    <a href="https://neon.tech"><img alt="Powered by Neon" src="https://img.shields.io/badge/Powered%20by-Neon-00E599?logo=neon&logoColor=white" /></a>
   </p>
 
   <p>
