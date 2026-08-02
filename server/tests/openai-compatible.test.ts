@@ -11,7 +11,7 @@ vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
 
 const { chatViaOpenAiCompatible, createOpenAiFetchModels } = await import("../lib/openai-compatible");
-const { isNvidiaNimChatModel } = await import("../providers/nvidianim");
+const { buildNvidiaNimBody, isNvidiaNimChatModel } = await import("../providers/nvidianim");
 
 describe("OpenAI-compatible provider helpers", () => {
   const originalFetch = globalThis.fetch;
@@ -129,5 +129,13 @@ describe("OpenAI-compatible provider helpers", () => {
       "nvidia/llama-3.3-nemotron-super-49b-v1.5",
       "openai/gpt-oss-20b",
     ]);
+  });
+
+  it("does not send stream_options to NVIDIA NIM chat", () => {
+    expect(buildNvidiaNimBody({
+      messages: [{ content: "Oi", role: "user" }],
+      modelId: "nvidia/nemotron-3-ultra-550b-a55b",
+      rawBody: {},
+    })).not.toHaveProperty("stream_options");
   });
 });
