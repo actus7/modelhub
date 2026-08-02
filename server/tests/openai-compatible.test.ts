@@ -11,7 +11,7 @@ vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
 
 const { chatViaOpenAiCompatible, createOpenAiFetchModels } = await import("../lib/openai-compatible");
-const { buildNvidiaNimBody, isNvidiaNimChatModel } = await import("../providers/nvidianim");
+const { buildNvidiaNimBody, isNvidiaNimChatModel, isNvidiaNimModelUnavailableError, testNvidiaNimCredentials } = await import("../providers/nvidianim");
 
 describe("OpenAI-compatible provider helpers", () => {
   const originalFetch = globalThis.fetch;
@@ -22,6 +22,79 @@ describe("OpenAI-compatible provider helpers", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it("falls back when NVIDIA NIM returns a plain 404 for a listed model", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("404 page not found", { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "fallback ok" } }],
+      }), { headers: { "content-type": "application/json" }, status: 200 }));
+    globalThis.fetch = fetchMock;
+
+    const response = await chatViaOpenAiCompatible(
+      {
+        apiKeyEnv: "NVIDIA_NIM_API_KEY",
+        chatUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
+        fallbackModelIds: ["openai/gpt-oss-120b"],
+        isModelUnavailableError: isNvidiaNimModelUnavailableError,
+        providerName: "NVIDIA NIM",
+      },
+      {
+        messages: [{ content: "Oi", role: "user" }],
+        modelId: "nvidia/nemotron-nano-9b-v2",
+        rawBody: {},
+      },
+      { NVIDIA_NIM_API_KEY: "nvapi-test" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("fallback ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fall back when NVIDIA NIM rejects the credential", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      detail: "Authorization failed",
+      status: 403,
+      title: "Forbidden",
+    }), { status: 403 }));
+    globalThis.fetch = fetchMock;
+
+    const response = await chatViaOpenAiCompatible(
+      {
+        apiKeyEnv: "NVIDIA_NIM_API_KEY",
+        chatUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
+        fallbackModelIds: ["nvidia/nemotron-3-super-120b-a12b"],
+        isModelUnavailableError: isNvidiaNimModelUnavailableError,
+        providerName: "NVIDIA NIM",
+      },
+      {
+        messages: [{ content: "Oi", role: "user" }],
+        modelId: "nvidia/nemotron-3-ultra-550b-a55b",
+        rawBody: {},
+      },
+      { NVIDIA_NIM_API_KEY: "nvapi-test" },
+    );
+
+    expect(response.status).toBe(403);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tests NVIDIA credentials against chat instead of the global model catalog", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      detail: "Authorization failed",
+      status: 403,
+      title: "Forbidden",
+    }), { status: 403 }));
+    globalThis.fetch = fetchMock;
+
+    await expect(testNvidiaNimCredentials({ NVIDIA_NIM_API_KEY: "nvapi-test" })).resolves.toEqual({
+      error: "Chat NVIDIA NIM retornou 403. Gere uma nova chave.",
+      ok: false,
+    });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).model).toBe("nvidia/nemotron-3-ultra-550b-a55b");
   });
 
   it("falls back when NVIDIA NIM returns function-not-found for a listed model", async () => {
@@ -106,11 +179,14 @@ describe("OpenAI-compatible provider helpers", () => {
     ]);
   });
 
-  it("filters NVIDIA NIM utility models out of chat model discovery", async () => {
+  it("filters NVIDIA NIM utility and unavailable models out of chat discovery", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       data: [
         { id: "nvidia/llama-nemotron-embed-vl-1b-v2" },
         { id: "nvidia/nemotron-content-safety-reasoning-4b" },
+        { id: "nvidia/nemotron-4-340b-reward" },
+        { id: "nvidia/nemotron-4-340b-instruct" },
+        { id: "01-ai/yi-large" },
         { id: "nvidia/llama-3.3-nemotron-super-49b-v1.5" },
         { id: "openai/gpt-oss-20b" },
       ],

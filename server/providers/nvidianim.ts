@@ -1,8 +1,9 @@
-import { createProviderApp } from '../lib/provider-core'
-import { buildOpenAiCompatibleChatBody, chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
+import { createProviderApp, postJsonWithTimeout, resolveEnv } from '../lib/provider-core'
+import { buildOpenAiCompatibleChatBody, chatViaOpenAiCompatible, createOpenAiFetchModels } from '../lib/openai-compatible'
 
+const NVIDIA_NIM_CHAT_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
 const NVIDIA_NIM_MODELS_URL = 'https://integrate.api.nvidia.com/v1/models'
-const NON_CHAT_MODEL_RE = /(^|[/-])(embed|embedding|rerank|retrieval|retriever)([/-]|$)|content-safety|guardrail|moderation/i
+const NON_CHAT_MODEL_RE = /(^|[/-])(embed|embedding|rerank|retrieval|retriever|reward)([/-]|$)|content-safety|guardrail|moderation|^01-ai\/yi-large$|^nvidia\/nemotron-4-/i
 
 export function isNvidiaNimChatModel(model: { id: string }): boolean {
   return !NON_CHAT_MODEL_RE.test(model.id)
@@ -35,18 +36,39 @@ export const models = [
 ]
 
 const FALLBACK_MODEL_IDS = [
+  'nvidia/nemotron-3-ultra-550b-a55b',
   'nvidia/nemotron-3-super-120b-a12b',
-  'nvidia/llama-3.3-nemotron-super-49b-v1.5',
-  'nvidia/nemotron-nano-9b-v2',
-  'openai/gpt-oss-120b',
+  'nvidia/nemotron-3-nano-30b-a3b',
   'openai/gpt-oss-20b',
-  'meta/llama-3.3-70b-instruct',
 ]
 
 export function buildNvidiaNimBody(input: Parameters<typeof buildOpenAiCompatibleChatBody>[0]) {
   const body = buildOpenAiCompatibleChatBody(input)
   delete body.stream_options
   return body
+}
+
+export function isNvidiaNimModelUnavailableError(status: number): boolean {
+  return status === 404
+}
+
+export async function testNvidiaNimCredentials(
+  credentials: Record<string, string>,
+): Promise<{ ok: boolean; error?: string }> {
+  const apiKey = resolveEnv('NVIDIA_NIM_API_KEY', credentials)
+  const response = await postJsonWithTimeout(NVIDIA_NIM_CHAT_URL, {
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: {
+      model: FALLBACK_MODEL_IDS[0],
+      messages: [{ role: 'user', content: 'Hi' }],
+      max_tokens: 1,
+      stream: false,
+    },
+    timeoutMs: 15000,
+  })
+
+  if (response.ok) return { ok: true }
+  return { ok: false, error: `Chat NVIDIA NIM retornou ${response.status}. Gere uma nova chave.` }
 }
 
 const app = createProviderApp({
@@ -58,11 +80,11 @@ const app = createProviderApp({
     chatViaOpenAiCompatible(
       {
         providerName: 'NVIDIA NIM',
-        chatUrl:
-          process.env.NVIDIA_NIM_CHAT_URL || 'https://integrate.api.nvidia.com/v1/chat/completions',
+        chatUrl: NVIDIA_NIM_CHAT_URL,
         apiKeyEnv: 'NVIDIA_NIM_API_KEY',
         bodyTransform: buildNvidiaNimBody,
         fallbackModelIds: FALLBACK_MODEL_IDS,
+        isModelUnavailableError: isNvidiaNimModelUnavailableError,
       },
       { messages, modelId, rawBody },
       credentials,
@@ -73,11 +95,7 @@ const app = createProviderApp({
     providerName: 'NVIDIA NIM',
     filter: isNvidiaNimChatModel,
   }),
-  testCredentials: (credentials) =>
-    testViaOpenAiModels(
-      { modelsUrl: NVIDIA_NIM_MODELS_URL, apiKeyEnv: 'NVIDIA_NIM_API_KEY', providerName: 'NVIDIA NIM' },
-      credentials,
-    ),
+  testCredentials: testNvidiaNimCredentials,
 })
 
 export default app.fetch
