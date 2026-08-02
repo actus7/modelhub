@@ -1,6 +1,7 @@
 import { createProviderApp } from '../lib/provider-core'
 import { buildOpenAiCompatibleChatBody, chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
 
+const NVIDIA_NIM_CHAT_URL = 'https://integrate.api.nvidia.com/v1/chat/completions'
 const NVIDIA_NIM_MODELS_URL = 'https://integrate.api.nvidia.com/v1/models'
 const NON_CHAT_MODEL_RE = /(^|[/-])(embed|embedding|rerank|retrieval|retriever|reward)([/-]|$)|content-safety|guardrail|moderation/i
 
@@ -62,8 +63,7 @@ const app = createProviderApp({
     chatViaOpenAiCompatible(
       {
         providerName: 'NVIDIA NIM',
-        chatUrl:
-          process.env.NVIDIA_NIM_CHAT_URL || 'https://integrate.api.nvidia.com/v1/chat/completions',
+        chatUrl: NVIDIA_NIM_CHAT_URL,
         apiKeyEnv: 'NVIDIA_NIM_API_KEY',
         bodyTransform: buildNvidiaNimBody,
         fallbackModelIds: FALLBACK_MODEL_IDS,
