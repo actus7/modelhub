@@ -24,6 +24,36 @@ describe("OpenAI-compatible provider helpers", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("falls back when NVIDIA NIM returns a plain 404 for a listed model", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("404 page not found", { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "fallback ok" } }],
+      }), { headers: { "content-type": "application/json" }, status: 200 }));
+    globalThis.fetch = fetchMock;
+
+    const response = await chatViaOpenAiCompatible(
+      {
+        apiKeyEnv: "NVIDIA_NIM_API_KEY",
+        chatUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
+        fallbackModelIds: ["openai/gpt-oss-120b"],
+        isModelUnavailableError: isNvidiaNimModelUnavailableError,
+        providerName: "NVIDIA NIM",
+      },
+      {
+        messages: [{ content: "Oi", role: "user" }],
+        modelId: "nvidia/nemotron-nano-9b-v2",
+        rawBody: {},
+      },
+      { NVIDIA_NIM_API_KEY: "nvapi-test" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("fallback ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("falls back when NVIDIA NIM returns authorization failed for a listed model", async () => {
     const fetchMock = vi
       .fn()

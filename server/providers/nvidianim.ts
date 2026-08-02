@@ -51,7 +51,7 @@ export function buildNvidiaNimBody(input: Parameters<typeof buildOpenAiCompatibl
 }
 
 export function isNvidiaNimModelUnavailableError(status: number, errorText: string): boolean {
-  return status === 403 && /"detail"\s*:\s*"Authorization failed"/.test(errorText)
+  return status === 404 || (status === 403 && /"detail"\s*:\s*"Authorization failed"/.test(errorText))
 }
 
 const app = createProviderApp({
