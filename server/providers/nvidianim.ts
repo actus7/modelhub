@@ -2,7 +2,7 @@ import { createProviderApp } from '../lib/provider-core'
 import { buildOpenAiCompatibleChatBody, chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
 
 const NVIDIA_NIM_MODELS_URL = 'https://integrate.api.nvidia.com/v1/models'
-const NON_CHAT_MODEL_RE = /(^|[/-])(embed|embedding|rerank|retrieval|retriever)([/-]|$)|content-safety|guardrail|moderation/i
+const NON_CHAT_MODEL_RE = /(^|[/-])(embed|embedding|rerank|retrieval|retriever|reward)([/-]|$)|content-safety|guardrail|moderation/i
 
 export function isNvidiaNimChatModel(model: { id: string }): boolean {
   return !NON_CHAT_MODEL_RE.test(model.id)
@@ -49,6 +49,10 @@ export function buildNvidiaNimBody(input: Parameters<typeof buildOpenAiCompatibl
   return body
 }
 
+export function isNvidiaNimModelUnavailableError(status: number, errorText: string): boolean {
+  return status === 403 && /"detail"\s*:\s*"Authorization failed"/.test(errorText)
+}
+
 const app = createProviderApp({
   providerId: 'nvidianim',
   basePath: '/nvidianim',
@@ -63,6 +67,7 @@ const app = createProviderApp({
         apiKeyEnv: 'NVIDIA_NIM_API_KEY',
         bodyTransform: buildNvidiaNimBody,
         fallbackModelIds: FALLBACK_MODEL_IDS,
+        isModelUnavailableError: isNvidiaNimModelUnavailableError,
       },
       { messages, modelId, rawBody },
       credentials,

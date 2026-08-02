@@ -88,6 +88,7 @@ type OpenAiCompatibleConfig = {
    * (after the user-selected model). Skips duplicates. Used e.g. when catalog ≠ entitlement (Cerebras).
    */
   fallbackModelIds?: string[]
+  isModelUnavailableError?: (status: number, errorText: string) => boolean
 }
 
 /**
@@ -437,10 +438,10 @@ export async function chatViaOpenAiCompatible(
         )
       }
 
-      if (
-        isUpstreamModelNotFound(response.status, errorText) &&
-        idx < modelChain.length - 1
-      ) {
+      const modelUnavailable =
+        isUpstreamModelNotFound(response.status, errorText) ||
+        config.isModelUnavailableError?.(response.status, errorText) === true
+      if (modelUnavailable && idx < modelChain.length - 1) {
         fallbackFailures.push({
           modelId,
           status: response.status,

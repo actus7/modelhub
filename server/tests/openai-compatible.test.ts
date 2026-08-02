@@ -11,7 +11,7 @@ vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
 
 const { chatViaOpenAiCompatible, createOpenAiFetchModels } = await import("../lib/openai-compatible");
-const { buildNvidiaNimBody, isNvidiaNimChatModel } = await import("../providers/nvidianim");
+const { buildNvidiaNimBody, isNvidiaNimChatModel, isNvidiaNimModelUnavailableError } = await import("../providers/nvidianim");
 
 describe("OpenAI-compatible provider helpers", () => {
   const originalFetch = globalThis.fetch;
@@ -22,6 +22,40 @@ describe("OpenAI-compatible provider helpers", () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+  });
+
+  it("falls back when NVIDIA NIM returns authorization failed for a listed model", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        detail: "Authorization failed",
+        status: 403,
+        title: "Forbidden",
+      }), { status: 403 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        choices: [{ message: { content: "fallback ok" } }],
+      }), { headers: { "content-type": "application/json" }, status: 200 }));
+    globalThis.fetch = fetchMock;
+
+    const response = await chatViaOpenAiCompatible(
+      {
+        apiKeyEnv: "NVIDIA_NIM_API_KEY",
+        chatUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
+        fallbackModelIds: ["nvidia/nemotron-3-super-120b-a12b"],
+        isModelUnavailableError: isNvidiaNimModelUnavailableError,
+        providerName: "NVIDIA NIM",
+      },
+      {
+        messages: [{ content: "Oi", role: "user" }],
+        modelId: "01-ai/yi-large",
+        rawBody: {},
+      },
+      { NVIDIA_NIM_API_KEY: "nvapi-test" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("fallback ok");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("falls back when NVIDIA NIM returns function-not-found for a listed model", async () => {
@@ -111,6 +145,7 @@ describe("OpenAI-compatible provider helpers", () => {
       data: [
         { id: "nvidia/llama-nemotron-embed-vl-1b-v2" },
         { id: "nvidia/nemotron-content-safety-reasoning-4b" },
+        { id: "nvidia/nemotron-4-340b-reward" },
         { id: "nvidia/llama-3.3-nemotron-super-49b-v1.5" },
         { id: "openai/gpt-oss-20b" },
       ],
