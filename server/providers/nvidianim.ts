@@ -1,5 +1,5 @@
 import { createProviderApp } from '../lib/provider-core'
-import { chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
+import { buildOpenAiCompatibleChatBody, chatViaOpenAiCompatible, createOpenAiFetchModels, testViaOpenAiModels } from '../lib/openai-compatible'
 
 const NVIDIA_NIM_MODELS_URL = 'https://integrate.api.nvidia.com/v1/models'
 const NON_CHAT_MODEL_RE = /(^|[/-])(embed|embedding|rerank|retrieval|retriever)([/-]|$)|content-safety|guardrail|moderation/i
@@ -43,6 +43,12 @@ const FALLBACK_MODEL_IDS = [
   'meta/llama-3.3-70b-instruct',
 ]
 
+export function buildNvidiaNimBody(input: Parameters<typeof buildOpenAiCompatibleChatBody>[0]) {
+  const body = buildOpenAiCompatibleChatBody(input)
+  delete body.stream_options
+  return body
+}
+
 const app = createProviderApp({
   providerId: 'nvidianim',
   basePath: '/nvidianim',
@@ -55,6 +61,7 @@ const app = createProviderApp({
         chatUrl:
           process.env.NVIDIA_NIM_CHAT_URL || 'https://integrate.api.nvidia.com/v1/chat/completions',
         apiKeyEnv: 'NVIDIA_NIM_API_KEY',
+        bodyTransform: buildNvidiaNimBody,
         fallbackModelIds: FALLBACK_MODEL_IDS,
       },
       { messages, modelId, rawBody },
