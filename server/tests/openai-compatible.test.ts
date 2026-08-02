@@ -179,7 +179,7 @@ describe("OpenAI-compatible provider helpers", () => {
     ]);
   });
 
-  it("filters NVIDIA NIM utility models out of chat model discovery", async () => {
+  it("filters NVIDIA NIM utility and unavailable models out of chat discovery", async () => {
     globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       data: [
         { id: "nvidia/llama-nemotron-embed-vl-1b-v2" },
