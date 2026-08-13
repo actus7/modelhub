@@ -312,6 +312,27 @@ fix(providers): remove integração quebrada
 docs(readme): atualiza instruções de setup
 ```
 
+## Patrocinadores
+
+<div align="center">
+  <a href="https://www.mi.com">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/a/ae/Xiaomi_logo_%282021-%29.svg" alt="Xiaomi" width="120" />
+  </a>
+
+  <h3>Xiaomi · Programa MiMo</h3>
+
+  <p>
+    O ModelHub é um projeto selecionado pelo <strong>Programa de Colaboração MiMo</strong> da Xiaomi, recebendo suporte operacional, créditos de API e acesso antecipado a novos modelos para acelerar o desenvolvimento de casos de uso reais com IA.
+  </p>
+
+  <p>
+    <a href="https://mimo.xiaomi.com"><img alt="MiMo" src="https://img.shields.io/badge/Powered_by-MiMo-FF6900?logo=xiaomi&logoColor=white" /></a>
+    <a href="https://www.mi.com"><img alt="Xiaomi" src="https://img.shields.io/badge/Sponsor-Xiaomi-FF6900?logo=xiaomi&logoColor=white" /></a>
+  </p>
+</div>
+
+---
+
 ## Apoie o projeto
 
 O ModelHub exige manutenção contínua, infraestrutura e testes com múltiplas APIs de IA. Seu patrocínio ajuda a cobrir esses custos e a manter o projeto aberto e atualizado.
@@ -324,4 +345,4 @@ MIT. Veja `LICENSE`.
 
 ## Agradecimentos
 
-Next.js · Hono · Prisma · Neon · shadcn/ui · Vitest · Comunidade open-source
+Xiaomi MiMo · Next.js · Hono · Prisma · Neon · shadcn/ui · Vitest · Comunidade open-source
