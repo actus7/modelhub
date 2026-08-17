@@ -1,10 +1,11 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import {
   AlertCircleIcon,
   CheckCircle2Icon,
+  ChevronDownIcon,
   CloudIcon,
   ExternalLinkIcon,
   EyeIcon,
@@ -14,6 +15,7 @@ import {
   Loader2Icon,
   MessageSquareTextIcon,
   PlayIcon,
+  RefreshCwIcon,
   SaveIcon,
   SearchIcon,
   ServerIcon,
@@ -40,7 +42,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 
-import { apiJsonRequest, testProviderCredentials } from "@/lib/api"
+import { apiJson, apiJsonRequest, testProviderCredentials } from "@/lib/api"
 import type { UiProvider } from "@/lib/contracts"
 import {
   providerAuthMode,
@@ -50,10 +52,18 @@ import {
   providerUsesStoredCredentials,
   sortProvidersByConfiguredCredentials,
 } from "@/lib/provider-credentials"
+import { cn } from "@/lib/utils"
 
 type IntegrationTab =
   "all" | "connected" | "api" | "subscription" | "free" | "local"
 type IntegrationKind = "api" | "browser" | "free" | "local" | "subscription"
+
+type OllamaStatus = {
+  baseUrl: string
+  modelCount: number | null
+  online: boolean
+  version: string | null
+}
 
 const TAB_ITEMS: Array<{
   value: IntegrationTab
@@ -196,6 +206,39 @@ export function SetupPage() {
   )
   const [activeTab, setActiveTab] = useState<IntegrationTab>("all")
   const [query, setQuery] = useState("")
+
+  // Ollama local status (issue #180): consultado ao montar e sob demanda.
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null)
+  const [ollamaChecking, setOllamaChecking] = useState(false)
+  const [ollamaModels, setOllamaModels] = useState<string[] | null>(null)
+  const [ollamaGuideOpen, setOllamaGuideOpen] = useState(false)
+
+  const checkOllama = useCallback(async () => {
+    setOllamaChecking(true)
+    try {
+      const status = await apiJson<OllamaStatus>("/ollama/api/status?force=1")
+      setOllamaStatus(status)
+      if (status.online) {
+        try {
+          const data = await apiJson<{ models: Array<{ id: string }> }>("/ollama/api/models")
+          setOllamaModels(data.models.map((m) => m.id))
+        } catch {
+          setOllamaModels(null)
+        }
+      } else {
+        setOllamaModels(null)
+      }
+    } catch {
+      setOllamaStatus(null)
+      setOllamaModels(null)
+    } finally {
+      setOllamaChecking(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void checkOllama()
+  }, [checkOllama])
 
   const sortedProviders = useMemo(
     () => sortProvidersByConfiguredCredentials(providers, credentials),
@@ -653,6 +696,191 @@ export function SetupPage() {
     )
   }
 
+  function renderOllamaCard(provider: UiProvider) {
+    const Icon = integrationKindIcon("local")
+    const checking = ollamaChecking || ollamaStatus === null
+    const online = ollamaStatus?.online === true
+    const offline = ollamaStatus?.online === false
+
+    return (
+      <Card
+        key={provider.id}
+        className={cn(
+          "border bg-card/80 shadow-none transition-colors",
+          online ? "border-green-500/30" : "border-border/70 hover:border-foreground/20",
+        )}
+      >
+        <CardContent className="flex flex-col gap-3 py-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="relative flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted/70">
+                <span className="text-[11px] font-semibold tracking-normal text-foreground">
+                  {providerInitials(provider.label)}
+                </span>
+                <span className="absolute -bottom-1 -right-1 flex size-5 items-center justify-center rounded-full border bg-background">
+                  <Icon className="size-3 text-muted-foreground" />
+                </span>
+              </div>
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 truncate text-sm font-medium">
+                  {provider.label}
+                  {checking ? (
+                    <span className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                      <Loader2Icon className="size-3 animate-spin" />
+                      Verificando…
+                    </span>
+                  ) : online ? (
+                    <span className="flex items-center gap-1.5 text-xs font-normal text-green-600 dark:text-green-400">
+                      <span className="relative flex size-2">
+                        <span className="absolute inline-flex size-2 animate-ping rounded-full bg-green-500/60" />
+                        <span className="relative inline-flex size-2 rounded-full bg-green-500" />
+                      </span>
+                      Online
+                      {ollamaStatus?.version ? (
+                        <span className="text-muted-foreground">
+                          (v{ollamaStatus.version})
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : offline ? (
+                    <span className="flex items-center gap-1.5 text-xs font-normal text-muted-foreground">
+                      <span className="size-2 rounded-full bg-red-500" />
+                      Offline
+                    </span>
+                  ) : null}
+                </p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {online
+                    ? `${ollamaStatus?.modelCount ?? 0} modelo${ollamaStatus?.modelCount === 1 ? "" : "s"} instalado${ollamaStatus?.modelCount === 1 ? "" : "s"} · ${ollamaStatus?.baseUrl}`
+                    : `Servidor local em ${ollamaStatus?.baseUrl ?? "http://localhost:11434"} não detectado`}
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void checkOllama()}
+                disabled={ollamaChecking}
+                className="gap-1.5"
+              >
+                {ollamaChecking ? (
+                  <Loader2Icon className="size-3 animate-spin" />
+                ) : (
+                  <RefreshCwIcon className="size-3" />
+                )}
+                Verificar novamente
+              </Button>
+              <Badge variant="outline" className="gap-1.5 rounded-md">
+                <Icon className="size-3" />
+                Local
+              </Badge>
+            </div>
+          </div>
+
+          {online && ollamaModels && ollamaModels.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {ollamaModels.slice(0, 12).map((modelId) => (
+                <Badge
+                  key={modelId}
+                  variant="secondary"
+                  className="max-w-full truncate rounded-md font-mono text-[11px] font-normal"
+                >
+                  {modelId}
+                </Badge>
+              ))}
+              {ollamaModels.length > 12 ? (
+                <span className="self-center text-[11px] text-muted-foreground">
+                  +{ollamaModels.length - 12} outros
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          {!online && ollamaModels === null && !checking ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              Nenhum servidor Ollama respondendo. Veja o guia de configuração
+              rápida abaixo para colocar o Ollama no ar.
+            </div>
+          ) : null}
+
+          <div className="rounded-lg border border-border/60">
+            <button
+              type="button"
+              onClick={() => setOllamaGuideOpen((v) => !v)}
+              className="flex w-full items-center justify-between gap-2 px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              aria-expanded={ollamaGuideOpen}
+            >
+              Guia de configuração rápida
+              <ChevronDownIcon
+                className={cn(
+                  "size-3.5 transition-transform",
+                  ollamaGuideOpen && "rotate-180",
+                )}
+              />
+            </button>
+            {ollamaGuideOpen ? (
+              <ol className="flex flex-col gap-2 border-t border-border/60 px-3 py-3 text-xs text-muted-foreground">
+                <li className="flex gap-2">
+                  <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">1</span>
+                  <span>
+                    Instale o Ollama em{" "}
+                    <a
+                      href="https://ollama.com"
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-0.5 text-primary hover:underline"
+                    >
+                      ollama.com
+                      <ExternalLinkIcon className="size-3" />
+                    </a>{" "}
+                    (Windows, macOS ou Linux).
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">2</span>
+                  <span>
+                    Execute <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">ollama serve</code>{" "}
+                    no terminal — ou abra o app desktop do Ollama.
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">3</span>
+                  <span>
+                    Baixe um modelo:{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">ollama pull llama3.2</code>
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">4</span>
+                  <span>
+                    Endereço padrão{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px] text-foreground">
+                      {ollamaStatus?.baseUrl ?? "http://localhost:11434"}
+                    </code>
+                    {ollamaStatus?.baseUrl && ollamaStatus.baseUrl !== "http://localhost:11434" ? (
+                      " (configurado via OLLAMA_BASE_URL)"
+                    ) : (
+                      " — ajuste com a variável OLLAMA_BASE_URL se necessário."
+                    )}
+                  </span>
+                </li>
+                <li className="flex gap-2">
+                  <span className="flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-foreground">5</span>
+                  <span>
+                    Depois de iniciar, clique em{" "}
+                    <span className="font-medium text-foreground">Verificar novamente</span>{" "}
+                    acima para confirmar a conexão.
+                  </span>
+                </li>
+              </ol>
+            ) : null}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   function renderInformationalProviderCard(provider: UiProvider) {
     const kind = getIntegrationKind(provider)
     const Icon = integrationKindIcon(kind)
@@ -698,7 +926,9 @@ export function SetupPage() {
   function renderProviderCard(provider: UiProvider) {
     return providerUsesStoredCredentials(provider)
       ? renderPaidProviderCard(provider)
-      : renderInformationalProviderCard(provider)
+      : provider.id === "ollama"
+        ? renderOllamaCard(provider)
+        : renderInformationalProviderCard(provider)
   }
 
   return (

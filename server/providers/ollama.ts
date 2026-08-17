@@ -29,6 +29,58 @@ export async function fetchOllamaModels(): Promise<ProviderModel[]> {
   }
 }
 
+export type OllamaStatus = {
+  baseUrl: string
+  modelCount: number | null
+  online: boolean
+  version: string | null
+}
+
+const STATUS_CACHE_TTL_MS = 15_000
+let statusCache: { at: number; value: OllamaStatus } | null = null
+
+/**
+ * Verifica o servidor Ollama local (GET /api/tags + /api/version) e devolve um
+ * snapshot com online/baseUrl/modelCount/version. Resultado é cacheado por 15s
+ * para aguentar polling da UI sem martelar o servidor local.
+ */
+export async function fetchOllamaStatus(force = false): Promise<OllamaStatus> {
+  const now = Date.now()
+  if (!force && statusCache && now - statusCache.at < STATUS_CACHE_TTL_MS) {
+    return statusCache.value
+  }
+
+  let value: OllamaStatus
+  try {
+    const res = await fetch(`${OLLAMA_BASE_URL}/api/tags`, { signal: AbortSignal.timeout(5000) })
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+    const json = (await res.json()) as { models?: unknown[] }
+
+    let version: string | null = null
+    try {
+      const versionRes = await fetch(`${OLLAMA_BASE_URL}/api/version`, { signal: AbortSignal.timeout(3000) })
+      if (versionRes.ok) {
+        const versionJson = (await versionRes.json()) as { version?: string }
+        version = versionJson.version ?? null
+      }
+    } catch {
+      // /api/version é opcional em builds antigas; segue sem ela.
+    }
+
+    value = {
+      baseUrl: OLLAMA_BASE_URL,
+      modelCount: Array.isArray(json.models) ? json.models.length : null,
+      online: true,
+      version,
+    }
+  } catch {
+    value = { baseUrl: OLLAMA_BASE_URL, modelCount: null, online: false, version: null }
+  }
+
+  statusCache = { at: now, value }
+  return value
+}
+
 function toOpenAiMessages(messages: Array<{ role: string; content: unknown }>) {
   return messages.map((m) => ({
     role: m.role,
@@ -70,6 +122,14 @@ const app = createProviderApp({
 
     return toVercelStreamFromOpenAiSse(res)
   },
+})
+
+// GET /ollama/api/status — snapshot do servidor local (online, baseUrl,
+// modelCount, version) com cache de 15s; `?force=1` ignora o cache.
+app.get('/api/status', async (c) => {
+  const force = c.req.query('force') === '1'
+  const status = await fetchOllamaStatus(force)
+  return c.json(status)
 })
 
 export default app.fetch
