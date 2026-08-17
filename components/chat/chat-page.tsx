@@ -47,6 +47,12 @@ import { useAppState } from "@/components/app-state-provider";
 import { ChatHistorySidebar } from "@/components/chat/chat-history-sidebar";
 import { SettingsDialog } from "@/components/chat/settings-dialog";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import {
+  buildExportFilename,
+  conversationToJson,
+  conversationToMarkdown,
+  downloadTextFile,
+} from "@/lib/conversation-export";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -1215,27 +1221,40 @@ export function ChatPage() {
 
 
   // Export conversation
+  function getExportableContent(m: ChatMessage): string {
+    return m.role === "user" && m.parts?.length
+      ? createMessageContentFallback(m.parts)
+      : m.content;
+  }
+
   function handleExportMarkdown() {
     if (messages.length === 0) return;
 
-    const mdContent = messages
-      .map((m) => {
-        const renderedContent =
-          m.role === "user" && m.parts?.length
-            ? createMessageContentFallback(m.parts)
-            : m.content;
-        return `## ${m.role === "user" ? "Você" : "Assistente"}\n\n${renderedContent}`;
-      })
-      .join("\n\n---\n\n");
+    const mdContent = conversationToMarkdown(
+      null,
+      messages.map((m) => ({ content: getExportableContent(m), role: m.role })),
+    );
 
-    const blob = new Blob([mdContent], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `conversa-${new Date().toISOString().slice(0, 10)}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadTextFile(buildExportFilename(null, "md"), "text/markdown", mdContent);
     toast.success("Conversa exportada como Markdown.");
+  }
+
+  function handleExportJson() {
+    if (messages.length === 0) return;
+
+    const jsonContent = conversationToJson(
+      null,
+      messages.map((m) => ({
+        content: getExportableContent(m),
+        createdAt: m.createdAt ?? null,
+        id: m.id,
+        modelLabel: m.modelLabel ?? null,
+        role: m.role,
+      })),
+    );
+
+    downloadTextFile(buildExportFilename(null, "json"), "application/json", jsonContent);
+    toast.success("Conversa exportada como JSON.");
   }
 
   return (
@@ -1495,10 +1514,16 @@ export function ChatPage() {
               ) : null}
 
               {messages.length > 0 ? (
-                <DropdownMenuItem onSelect={handleExportMarkdown}>
-                  <DownloadIcon />
-                  Exportar (Markdown)
-                </DropdownMenuItem>
+                <>
+                  <DropdownMenuItem onSelect={handleExportMarkdown}>
+                    <DownloadIcon />
+                    Exportar (Markdown)
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={handleExportJson}>
+                    <DownloadIcon />
+                    Exportar (JSON)
+                  </DropdownMenuItem>
+                </>
               ) : null}
             </DropdownMenuContent>
           </DropdownMenu>

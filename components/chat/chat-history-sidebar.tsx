@@ -5,6 +5,7 @@ import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   CheckIcon,
+  DownloadIcon,
   HistoryIcon,
   Loader2Icon,
   MessageSquarePlusIcon,
@@ -13,6 +14,7 @@ import {
   Trash2Icon,
   XIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -25,6 +27,12 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -35,7 +43,14 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiJson, apiJsonRequest } from "@/lib/api";
+import {
+  buildExportFilename,
+  conversationToJson,
+  conversationToMarkdown,
+  downloadTextFile,
+} from "@/lib/conversation-export";
 import { cn } from "@/lib/utils";
 
 type ConversationSummary = {
@@ -78,11 +93,20 @@ export function ChatHistorySidebar({
   const [bulkWorking, setBulkWorking] = useState(false);
   const renameInputRef = useRef<HTMLInputElement>(null);
 
-  const fetchConversations = useCallback(async () => {
+  // Busca server-side (título + conteúdo das mensagens) com debounce.
+  const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
+  const isSearching = debouncedSearch.length >= 2;
+
+  const fetchConversations = useCallback(async (search: string) => {
     setLoading(true);
     try {
-      const query = showArchived ? "?archived=true" : "";
-      const data = await apiJson<{ conversations: ConversationSummary[] }>(`/conversations${query}`);
+      const params = new URLSearchParams();
+      if (showArchived) params.set("archived", "true");
+      if (search) params.set("q", search);
+      const qs = params.toString();
+      const data = await apiJson<{ conversations: ConversationSummary[] }>(
+        `/conversations${qs ? `?${qs}` : ""}`,
+      );
       setConversations(data.conversations);
       setSelectedIds(new Set());
     } catch {
@@ -93,8 +117,8 @@ export function ChatHistorySidebar({
   }, [showArchived]);
 
   useEffect(() => {
-    void fetchConversations();
-  }, [fetchConversations, refreshKey]);
+    void fetchConversations(isSearching ? debouncedSearch : "");
+  }, [fetchConversations, refreshKey, debouncedSearch, isSearching]);
 
   // Focus rename input when editing
   useEffect(() => {
@@ -216,12 +240,37 @@ export function ChatHistorySidebar({
     return title.replace(/^t[ií]tulo:\s*/i, "").trim() || "Nova conversa";
   }
 
+  async function handleExportConversation(
+    conv: ConversationSummary,
+    format: "json" | "md",
+  ) {
+    try {
+      const data = await apiJson<{
+        conversation: ConversationSummary;
+        messages: Array<{ content: string; createdAt: string; id: string; role: string }>;
+      }>(`/conversations/${conv.id}/messages`);
+
+      const filename = buildExportFilename(getConversationTitle(conv.title), format);
+      if (format === "json") {
+        downloadTextFile(filename, "application/json", conversationToJson(data.conversation, data.messages));
+        toast.success("Conversa exportada como JSON.");
+      } else {
+        downloadTextFile(filename, "text/markdown", conversationToMarkdown(data.conversation, data.messages));
+        toast.success("Conversa exportada como Markdown.");
+      }
+    } catch {
+      toast.error("Falha ao exportar a conversa.");
+    }
+  }
+
   // Filter + group conversations
   const filteredConversations = useMemo(() => {
+    // Busca ativa: o servidor já filtrou por título E conteúdo das mensagens.
+    if (isSearching) return conversations;
     if (!searchQuery.trim()) return conversations;
     const q = searchQuery.toLowerCase();
     return conversations.filter((c) => (c.title ?? "").toLowerCase().includes(q));
-  }, [conversations, searchQuery]);
+  }, [conversations, searchQuery, isSearching]);
 
   const selectedCount = selectedIds.size;
   const allVisibleSelected = filteredConversations.length > 0 && filteredConversations.every((c) => selectedIds.has(c.id));
@@ -301,6 +350,13 @@ export function ChatHistorySidebar({
             className="h-9 pl-7 text-base md:h-7 md:text-xs"
           />
         </div>
+        {isSearching && (
+          <p className="pt-1 text-[10px] text-muted-foreground" aria-live="polite">
+            {loading
+              ? "Buscando..."
+              : `${filteredConversations.length} conversa${filteredConversations.length === 1 ? "" : "s"} encontrada${filteredConversations.length === 1 ? "" : "s"} — título e conteúdo das mensagens`}
+          </p>
+        )}
       </div>
 
       {selectedCount > 0 && filteredConversations.length > 0 && (
@@ -452,6 +508,27 @@ export function ChatHistorySidebar({
                     </div>
                     {renamingId !== conv.id && (
                       <div className="flex shrink-0 gap-0.5 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="size-8 md:size-6"
+                              onClick={(e) => e.stopPropagation()}
+                              title="Exportar conversa"
+                            >
+                              <DownloadIcon className="size-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuItem onSelect={() => void handleExportConversation(conv, "json")}>
+                              Exportar (JSON)
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onSelect={() => void handleExportConversation(conv, "md")}>
+                              Exportar (Markdown)
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                         <Button
                           variant="ghost"
                           size="icon-xs"
