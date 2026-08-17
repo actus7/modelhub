@@ -105,10 +105,38 @@ const mockPrisma = {
         (!where.id || conversation.id === where.id) &&
         (!where.userId || conversation.userId === where.userId),
       ) ?? null),
-    findMany: vi.fn(async ({ where }: { where: { userId: string } }) =>
-      state.conversations
+    findMany: vi.fn(async ({ where }: {
+      userId: string;
+      OR?: Array<{
+        title?: { contains: string; mode: string };
+        messages?: { some: { content: { contains: string; mode: string } } };
+      }>;
+    }) => {
+      const matchesSearch = (conversation: ConversationRecord) => {
+        if (!where.OR?.length) return true;
+        return where.OR.some((condition) => {
+          if (condition.title) {
+            return conversation.title
+              .toLowerCase()
+              .includes(condition.title.contains.toLowerCase());
+          }
+          if (condition.messages) {
+            const needle = condition.messages.some.content.contains.toLowerCase();
+            return state.messages.some(
+              (message) =>
+                message.conversationId === conversation.id &&
+                message.content.toLowerCase().includes(needle),
+            );
+          }
+          return false;
+        });
+      };
+
+      return state.conversations
         .filter((conversation) => conversation.userId === where.userId)
-        .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime())),
+        .filter(matchesSearch)
+        .sort((left, right) => right.updatedAt.getTime() - left.updatedAt.getTime());
+    }),
     update: vi.fn(async ({ where: { id }, data, select }: {
       data: Partial<ConversationRecord>;
       select?: Record<string, boolean>;
@@ -350,5 +378,70 @@ describe("conversation routes with attachments", () => {
 
     expect(response.status).toBe(200);
     expect(state.messages.map((message) => message.id)).toEqual(["msg-a"]);
+  });
+
+  it("lista conversas sem filtro quando ?q= esta ausente", async () => {
+    state.conversations.push({
+      createdAt: now(),
+      id: "conv-2",
+      modelId: null,
+      providerId: null,
+      title: "Deploy na Vercel",
+      updatedAt: now(),
+      userId: "user-1",
+    });
+
+    const response = await conversationsFetch(new Request("http://localhost/conversations"));
+    const payload = await response.json() as { conversations: Array<{ id: string }> };
+
+    expect(response.status).toBe(200);
+    expect(payload.conversations.map((c) => c.id)).toEqual(["conv-1", "conv-2"]);
+  });
+
+  it("filtra conversas por titulo e por conteudo das mensagens via ?q= (case-insensitive)", async () => {
+    state.conversations.push(
+      {
+        createdAt: now(),
+        id: "conv-2",
+        modelId: null,
+        providerId: null,
+        title: "Deploy na Vercel",
+        updatedAt: now(),
+        userId: "user-1",
+      },
+      {
+        createdAt: now(),
+        id: "conv-other-user",
+        modelId: null,
+        providerId: null,
+        title: "Deploy privado de outro usuario",
+        updatedAt: now(),
+        userId: "user-2",
+      },
+    );
+    state.messages.push({
+      content: "Como configurar Postgres no Neon?",
+      conversationId: "conv-1",
+      createdAt: now(),
+      id: "msg-search",
+      parts: null,
+      role: "user",
+    });
+
+    // Match por titulo (e nao vaza conversas de outro usuario).
+    const byTitle = await conversationsFetch(new Request("http://localhost/conversations?q=DEPLOY"));
+    const titlePayload = await byTitle.json() as { conversations: Array<{ id: string }> };
+    expect(byTitle.status).toBe(200);
+    expect(titlePayload.conversations.map((c) => c.id)).toEqual(["conv-2"]);
+
+    // Match por conteudo de mensagem de outra conversa.
+    const byContent = await conversationsFetch(new Request("http://localhost/conversations?q=postgres"));
+    const contentPayload = await byContent.json() as { conversations: Array<{ id: string }> };
+    expect(contentPayload.conversations.map((c) => c.id)).toEqual(["conv-1"]);
+
+    // Sem correspondencias.
+    const none = await conversationsFetch(new Request("http://localhost/conversations?q=zzz-inexistente"));
+    const nonePayload = await none.json() as { conversations: Array<{ id: string }> };
+    expect(nonePayload.conversations).toEqual([]);
   });
 });
