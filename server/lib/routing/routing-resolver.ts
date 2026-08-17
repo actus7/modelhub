@@ -46,6 +46,8 @@ export interface RoutingResult {
     | "scored"
     | "momentum_bias"
     | "config_default"
+    /** Sem config salva: tiers sintetizados das sugestões automáticas. */
+    | "auto_default"
     /** O primário configurado estava em cooldown ou com histórico ruim; promovemos um fallback. */
     | "health_skip"
   taskCategory: TaskCategory | null
@@ -257,6 +259,11 @@ const configCache = new Map<
   string,
   { data: RoutingConfigData | null; expiresAt: number }
 >()
+// Cache separado para a config sintetizada (contas sem routing salvo).
+const syntheticConfigCache = new Map<
+  string,
+  { data: RoutingConfigData | null; expiresAt: number }
+>()
 const CONFIG_CACHE_TTL_MS = 60_000
 
 export async function getRoutingConfig(
@@ -303,6 +310,76 @@ export async function getRoutingConfig(
 
 export function invalidateRoutingCache(userId: string): void {
   configCache.delete(userId)
+  syntheticConfigCache.delete(userId)
+}
+
+/**
+ * Config sintetizada para contas que nunca salvaram roteamento: derivada das
+ * sugestões automáticas de tier (providers prontos do usuário). Faz `auto`
+ * funcionar out-of-the-box; o dashboard segue mostrando "não configurado"
+ * até o usuário salvar algo explícito.
+ */
+async function getSyntheticRoutingConfig(
+  userId: string,
+): Promise<RoutingConfigData | null> {
+  const cached = syntheticConfigCache.get(userId)
+  if (cached && cached.expiresAt > Date.now()) return cached.data
+
+  const { getConfiguredRoutingProviderSources } = await import(
+    "./provider-readiness"
+  )
+  const sources = await getConfiguredRoutingProviderSources(userId)
+  let data: RoutingConfigData | null = null
+
+  if (sources.length > 0) {
+    const { suggestTierAssignments } = await import("./tier-suggest")
+    const health = await getModelHealth(userId).catch(() => undefined)
+    const tiers = await suggestTierAssignments({ sources, health })
+    data = synthConfigFromSuggestions(tiers)
+  }
+
+  syntheticConfigCache.set(userId, {
+    data,
+    expiresAt: Date.now() + CONFIG_CACHE_TTL_MS,
+  })
+  return data
+}
+
+function synthConfigFromSuggestions(
+  tiers: Partial<Record<RoutingTier, Array<{ providerId: string; modelId: string }>>>,
+): RoutingConfigData | null {
+  const mapped: RoutingConfigData["tiers"] = {}
+  const order: RoutingTier[] = ["simple", "standard", "complex", "reasoning"]
+
+  for (const tier of order) {
+    const slots = tiers[tier]
+    if (!slots?.length) continue
+    const [primary, ...rest] = slots
+    mapped[tier] = {
+      providerId: primary.providerId,
+      modelId: primary.modelId,
+      ...(rest.length > 0
+        ? {
+            fallbacks: rest.map((slot) => ({
+              modelId: slot.modelId,
+              providerId: slot.providerId,
+            })),
+          }
+        : {}),
+    }
+  }
+
+  if (Object.keys(mapped).length === 0) return null
+
+  // Sem complexityEnabled a resolução cai no default tier; garantir um.
+  mapped.default = mapped.standard ?? mapped.complex ?? mapped.reasoning ?? mapped.simple
+
+  return {
+    complexityEnabled: false,
+    taskRoutingEnabled: false,
+    tiers: mapped,
+    taskOverrides: {},
+  }
 }
 
 export async function resolveRouting(input: {
@@ -313,7 +390,12 @@ export async function resolveRouting(input: {
 }): Promise<RoutingResult | null> {
   const { userId, messages, forcedTier, toolNames } = input
 
-  const config = await getRoutingConfig(userId)
+  let config = await getRoutingConfig(userId)
+  let synthetic = false
+  if (!config) {
+    config = await getSyntheticRoutingConfig(userId)
+    synthetic = true
+  }
   if (!config) return null
 
   // Depois do early-return: usuários sem routing não pagam a agregação.
@@ -436,7 +518,7 @@ export async function resolveRouting(input: {
         providerId: defaultConfig.providerId,
         modelId: defaultConfig.modelId,
         tier: "default",
-        reason: "config_default",
+        reason: synthetic ? "auto_default" : "config_default",
         taskCategory: null,
       },
       config,

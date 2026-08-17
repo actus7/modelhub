@@ -436,7 +436,7 @@ app.post('/v1/chat/completions', async (c) => {
     const forcedTier = VALID_TIERS.includes(tierPrefix as RoutingTier) ? (tierPrefix as RoutingTier) : undefined
     const resolved = await resolveAutoRouting(c, body, forcedTier)
     if (!resolved) {
-      return jsonErrorResponse(400, 'Routing config not found. Configure your routing at /dashboard/routing or use explicit provider/model format.')
+      return jsonErrorResponse(400, 'No routing config and no ready providers for auto routing. Configure credentials at /setup and routing at /dashboard/routing, or use the explicit provider/model format.')
     }
     return forwardAutoWithFallback(c, {
       ...body,
