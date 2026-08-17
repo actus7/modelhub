@@ -195,6 +195,7 @@ model UserSettings {
   userId                String  @unique
   customInstructionsAbout String? // "What should the AI know about you?"
   customInstructionsStyle String? // "How should the AI respond?"
+  accentColor           String? // accent preset id (lib/accent-colors.ts); null = default theme
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

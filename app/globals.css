@@ -204,6 +204,133 @@
   }
 }
 
+/*
+ * Accent color presets (issue #177).
+ * Selecionados via atributo data-accent no <html>. "default" (sem atributo)
+ * mantém o tema two-tone atual: navy no claro, âmbar no escuro.
+ * Cada preset sobrescreve --primary/--ring/--accent para dar destaque
+ * consistente em ambos os modos; o restante das vars segue o tema base.
+ */
+[data-accent="blue"] {
+  --primary: oklch(0.48 0.19 262.5);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.62 0.19 262.5);
+  --accent: oklch(0.93 0.03 255);
+  --accent-foreground: oklch(0.38 0.13 265);
+  --sidebar-primary: oklch(0.62 0.19 262.5);
+  --sidebar-ring: oklch(0.62 0.19 262.5);
+}
+
+.dark[data-accent="blue"] {
+  --primary: oklch(0.68 0.16 262.5);
+  --primary-foreground: oklch(0.16 0.03 262);
+  --ring: oklch(0.68 0.16 262.5);
+  --accent: oklch(0.33 0.06 262);
+  --accent-foreground: oklch(0.78 0.12 262.5);
+  --sidebar-primary: oklch(0.68 0.16 262.5);
+  --sidebar-ring: oklch(0.68 0.16 262.5);
+}
+
+[data-accent="violet"] {
+  --primary: oklch(0.51 0.25 293);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.62 0.23 293);
+  --accent: oklch(0.94 0.03 300);
+  --accent-foreground: oklch(0.4 0.16 293);
+  --sidebar-primary: oklch(0.62 0.23 293);
+  --sidebar-ring: oklch(0.62 0.23 293);
+}
+
+.dark[data-accent="violet"] {
+  --primary: oklch(0.7 0.19 293);
+  --primary-foreground: oklch(0.17 0.05 293);
+  --ring: oklch(0.7 0.19 293);
+  --accent: oklch(0.34 0.07 293);
+  --accent-foreground: oklch(0.8 0.12 293);
+  --sidebar-primary: oklch(0.7 0.19 293);
+  --sidebar-ring: oklch(0.7 0.19 293);
+}
+
+[data-accent="emerald"] {
+  --primary: oklch(0.5 0.14 163);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.62 0.14 163);
+  --accent: oklch(0.94 0.03 163);
+  --accent-foreground: oklch(0.35 0.09 163);
+  --sidebar-primary: oklch(0.62 0.14 163);
+  --sidebar-ring: oklch(0.62 0.14 163);
+}
+
+.dark[data-accent="emerald"] {
+  --primary: oklch(0.71 0.15 163);
+  --primary-foreground: oklch(0.17 0.04 163);
+  --ring: oklch(0.71 0.15 163);
+  --accent: oklch(0.33 0.05 163);
+  --accent-foreground: oklch(0.8 0.12 163);
+  --sidebar-primary: oklch(0.71 0.15 163);
+  --sidebar-ring: oklch(0.71 0.15 163);
+}
+
+[data-accent="orange"] {
+  --primary: oklch(0.6 0.2 41);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.68 0.18 41);
+  --accent: oklch(0.95 0.03 55);
+  --accent-foreground: oklch(0.42 0.14 41);
+  --sidebar-primary: oklch(0.68 0.18 41);
+  --sidebar-ring: oklch(0.68 0.18 41);
+}
+
+.dark[data-accent="orange"] {
+  --primary: oklch(0.74 0.16 48);
+  --primary-foreground: oklch(0.19 0.05 48);
+  --ring: oklch(0.74 0.16 48);
+  --accent: oklch(0.35 0.06 48);
+  --accent-foreground: oklch(0.82 0.12 48);
+  --sidebar-primary: oklch(0.74 0.16 48);
+  --sidebar-ring: oklch(0.74 0.16 48);
+}
+
+[data-accent="rose"] {
+  --primary: oklch(0.53 0.21 17);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.64 0.19 17);
+  --accent: oklch(0.94 0.03 17);
+  --accent-foreground: oklch(0.42 0.15 17);
+  --sidebar-primary: oklch(0.64 0.19 17);
+  --sidebar-ring: oklch(0.64 0.19 17);
+}
+
+.dark[data-accent="rose"] {
+  --primary: oklch(0.71 0.17 17);
+  --primary-foreground: oklch(0.18 0.04 17);
+  --ring: oklch(0.71 0.17 17);
+  --accent: oklch(0.34 0.06 17);
+  --accent-foreground: oklch(0.8 0.11 17);
+  --sidebar-primary: oklch(0.71 0.17 17);
+  --sidebar-ring: oklch(0.71 0.17 17);
+}
+
+[data-accent="teal"] {
+  --primary: oklch(0.5 0.1 185);
+  --primary-foreground: oklch(0.985 0 0);
+  --ring: oklch(0.62 0.1 185);
+  --accent: oklch(0.94 0.02 185);
+  --accent-foreground: oklch(0.36 0.07 185);
+  --sidebar-primary: oklch(0.62 0.1 185);
+  --sidebar-ring: oklch(0.62 0.1 185);
+}
+
+.dark[data-accent="teal"] {
+  --primary: oklch(0.72 0.11 185);
+  --primary-foreground: oklch(0.17 0.03 185);
+  --ring: oklch(0.72 0.11 185);
+  --accent: oklch(0.33 0.04 185);
+  --accent-foreground: oklch(0.8 0.09 185);
+  --sidebar-primary: oklch(0.72 0.11 185);
+  --sidebar-ring: oklch(0.72 0.11 185);
+}
+
 @layer components {
   .markdown-renderer {
     @apply text-sm leading-7 text-foreground;

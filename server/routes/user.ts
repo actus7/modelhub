@@ -1,5 +1,6 @@
 import { Hono } from "hono"
 import { apiKeyLabelSchema, providerCredentialSchema } from "@/lib/contracts"
+import { isValidAccentColor } from "@/lib/accent-colors"
 
 import { encryptCredential, generateApiKey } from "../lib/crypto"
 import { prisma } from "../lib/db"
@@ -621,11 +622,19 @@ app.get("/settings", async (c) => {
   const userId = requireAuth(c)
   if (typeof userId !== "string") return userId
 
-  const settings = await prisma.userSettings.findUnique({ where: { userId } })
+  const settings = await prisma.userSettings.findUnique({
+    where: { userId },
+    select: {
+      customInstructionsAbout: true,
+      customInstructionsStyle: true,
+      accentColor: true,
+    },
+  })
   return c.json({
     settings: settings ?? {
       customInstructionsAbout: null,
       customInstructionsStyle: null,
+      accentColor: null,
     },
   })
 })
@@ -637,6 +646,11 @@ app.patch("/settings", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     customInstructionsAbout?: string | null
     customInstructionsStyle?: string | null
+    accentColor?: string | null
+  }
+
+  if (body.accentColor !== undefined && body.accentColor !== null && !isValidAccentColor(body.accentColor)) {
+    return c.json({ error: "Cor de destaque inválida." }, 400)
   }
 
   const settings = await prisma.userSettings.upsert({
@@ -644,11 +658,18 @@ app.patch("/settings", async (c) => {
     update: {
       customInstructionsAbout: body.customInstructionsAbout ?? null,
       customInstructionsStyle: body.customInstructionsStyle ?? null,
+      ...(body.accentColor !== undefined ? { accentColor: body.accentColor } : {}),
     },
     create: {
       userId,
       customInstructionsAbout: body.customInstructionsAbout ?? null,
       customInstructionsStyle: body.customInstructionsStyle ?? null,
+      ...(body.accentColor !== undefined ? { accentColor: body.accentColor } : {}),
+    },
+    select: {
+      customInstructionsAbout: true,
+      customInstructionsStyle: true,
+      accentColor: true,
     },
   })
 

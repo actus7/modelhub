@@ -53,6 +53,14 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${fontSans.variable} ${fontSerif.variable} ${fontMono.variable} antialiased`}
     >
+      <head>
+        {/* Aplica o accent salvo antes da hidratação para evitar flash (issue #177). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var a=localStorage.getItem("modelhub-accent");var v=["blue","violet","emerald","orange","rose","teal"];if(a&&v.indexOf(a)!==-1){document.documentElement.setAttribute("data-accent",a)}}catch(e){}})();`,
+          }}
+        />
+      </head>
       <body className="min-h-svh bg-background text-foreground">
         <Providers>{children}</Providers>
         <Analytics />

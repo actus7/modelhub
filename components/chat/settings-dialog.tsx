@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { BrainIcon, Loader2Icon, SaveIcon, Trash2Icon, UserIcon } from "lucide-react";
+import { BrainIcon, CheckIcon, Loader2Icon, PaletteIcon, SaveIcon, Trash2Icon, UserIcon } from "lucide-react";
 import { toast } from "sonner";
 
+import { useAccent } from "@/app/accent-provider";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -16,10 +17,13 @@ import {
 } from "@/components/ui/sheet";
 
 import { apiJson, apiJsonRequest } from "@/lib/api";
+import { ACCENT_COLOR_OPTIONS, ACCENT_SWATCH, type AccentColorId } from "@/lib/accent-colors";
+import { cn } from "@/lib/utils";
 
 type UserSettings = {
   customInstructionsAbout: string | null;
   customInstructionsStyle: string | null;
+  accentColor: string | null;
 };
 
 type UserMemory = {
@@ -34,13 +38,16 @@ type Props = {
 };
 
 export function SettingsDialog({ open, onOpenChange }: Props) {
-  const [tab, setTab] = useState<"instructions" | "memory">("instructions");
+  const [tab, setTab] = useState<"instructions" | "appearance" | "memory">("instructions");
   const [loading, setLoading] = useState(false);
 
   // Custom instructions state
   const [about, setAbout] = useState("");
   const [style, setStyle] = useState("");
   const [savingInstructions, setSavingInstructions] = useState(false);
+
+  // Appearance state
+  const { accent: currentAccent, setAccent } = useAccent();
 
   // Memory state
   const [memories, setMemories] = useState<UserMemory[]>([]);
@@ -94,6 +101,15 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
     }
   }
 
+  async function handleAccentChange(next: AccentColorId) {
+    setAccent(next);
+    try {
+      await apiJsonRequest("/user/settings", "PATCH", { accentColor: next });
+    } catch {
+      toast.error("Falha ao salvar a cor de destaque.");
+    }
+  }
+
   async function handleAddMemory() {
     if (!newMemory.trim()) return;
     try {
@@ -138,6 +154,16 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             >
               <UserIcon className="mr-1 inline-block size-3" />
               Instruções
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("appearance")}
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                tab === "appearance" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <PaletteIcon className="mr-1 inline-block size-3" />
+              Aparência
             </button>
             <button
               type="button"
@@ -189,6 +215,45 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                   </div>
                 </>
               )
+            ) : tab === "appearance" ? (
+              <div className="flex flex-col gap-4">
+                <div>
+                  <p className="text-xs font-medium">Cor de destaque</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Personaliza botões, links e foco. Aplicado na hora e salvo na sua conta.
+                  </p>
+                </div>
+                <div className="grid grid-cols-4 gap-3 sm:grid-cols-7">
+                  {ACCENT_COLOR_OPTIONS.map((option) => {
+                    const active = (currentAccent ?? "default") === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => void handleAccentChange(option.id)}
+                        aria-pressed={active}
+                        aria-label={`Cor de destaque: ${option.label}`}
+                        className="group flex flex-col items-center gap-1.5 rounded-lg p-1.5 transition-colors hover:bg-muted"
+                      >
+                        <span
+                          className={cn(
+                            "relative flex size-8 items-center justify-center rounded-full ring-offset-2 ring-offset-background transition-all",
+                            active
+                              ? "ring-2 ring-ring"
+                              : "group-hover:ring-2 group-hover:ring-ring/60",
+                          )}
+                          style={{ backgroundColor: ACCENT_SWATCH[option.id] }}
+                        >
+                          {active ? <CheckIcon className="size-4 text-white" strokeWidth={3} /> : null}
+                        </span>
+                        <span className="text-[10px] font-medium text-muted-foreground group-hover:text-foreground">
+                          {option.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             ) : (
               <div className="flex flex-col gap-3">
                 <p className="text-xs text-muted-foreground">
