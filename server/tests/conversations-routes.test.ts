@@ -106,11 +106,13 @@ const mockPrisma = {
         (!where.userId || conversation.userId === where.userId),
       ) ?? null),
     findMany: vi.fn(async ({ where }: {
-      userId: string;
-      OR?: Array<{
-        title?: { contains: string; mode: string };
-        messages?: { some: { content: { contains: string; mode: string } } };
-      }>;
+      where: {
+        userId: string;
+        OR?: Array<{
+          title?: { contains: string; mode: string };
+          messages?: { some: { content: { contains: string; mode: string } } };
+        }>;
+      };
     }) => {
       const matchesSearch = (conversation: ConversationRecord) => {
         if (!where.OR?.length) return true;
