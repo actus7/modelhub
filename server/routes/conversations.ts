@@ -209,14 +209,24 @@ async function persistMessages(conversationId: string, messages: CreateMessageIn
 }
 
 // GET /conversations — lista conversas do usuário
+// `q` (opcional) busca por título da conversa E conteúdo das mensagens.
 app.get("/", async (c) => {
   const userId = requireAuth(c);
   if (typeof userId !== "string") return userId;
 
   const archived = c.req.query("archived") === "true";
+  const q = c.req.query("q")?.trim() ?? "";
+
+  const where: Prisma.ConversationWhereInput = { userId, archived };
+  if (q) {
+    where.OR = [
+      { title: { contains: q, mode: "insensitive" } },
+      { messages: { some: { content: { contains: q, mode: "insensitive" } } } },
+    ];
+  }
 
   const conversations = await prisma.conversation.findMany({
-    where: { userId, archived },
+    where,
     select: {
       id: true,
       title: true,
