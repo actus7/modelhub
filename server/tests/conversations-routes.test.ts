@@ -325,14 +325,14 @@ const mockPrisma = {
         data,
         select,
       }: {
-        data: Omit<MessageRecord, "createdAt" | "id">
+        data: Omit<MessageRecord, "createdAt" | "id"> & { id?: string }
         select?: Record<string, boolean>
       }) => {
         const message: MessageRecord = {
           content: data.content,
           conversationId: data.conversationId,
           createdAt: now(),
-          id: `msg-${(messageCounter += 1)}`,
+          id: data.id ?? `msg-${(messageCounter += 1)}`,
           parts: data.parts ?? null,
           role: data.role,
         }
@@ -670,6 +670,54 @@ describe("conversation routes with attachments", () => {
     expect(assistantMessage?.backstage?.attempts).toMatchObject([
       { modelId: "amazon/nova-micro", providerId: "gateway", status: 503 },
     ])
+  })
+
+  it("ja retorna os bastidores no POST de mensagens (nao so no GET seguinte)", async () => {
+    const clientMessageId = "client-generated-id-1"
+    state.usageLogs.push({
+      attempts: null,
+      costUsd: 0.0004,
+      durationMs: 3120,
+      errorDetail: null,
+      inputTokens: null,
+      messageId: clientMessageId,
+      modelId: "quillbot-ai",
+      outputTokens: null,
+      providerId: "quillbot",
+      routingReason: "auto_default",
+      routingTier: "default",
+      statusCode: 200,
+      ttftMs: 3277,
+    })
+
+    const saveResponse = await conversationsFetch(
+      new Request("http://localhost/conversations/conv-1/messages", {
+        body: JSON.stringify({
+          messages: [
+            {
+              content: "Oi!",
+              id: clientMessageId,
+              parts: [{ text: "Oi!", type: "text" }],
+              role: "assistant",
+            },
+          ],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+    )
+    const savedPayload = (await saveResponse.json()) as {
+      messages: Array<{
+        id: string
+        backstage?: { providerId: string; ttftMs: number }
+      }>
+    }
+
+    expect(savedPayload.messages[0]?.id).toBe(clientMessageId)
+    expect(savedPayload.messages[0]?.backstage).toMatchObject({
+      providerId: "quillbot",
+      ttftMs: 3277,
+    })
   })
 
   it("trims persisted messages from a target id onward", async () => {

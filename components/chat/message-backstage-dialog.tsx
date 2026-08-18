@@ -170,7 +170,9 @@ export function MessageBackstageDialog({
               </TableCell>
               <TableCell className="text-right">
                 {formatTokens(backstage.inputTokens)} /{" "}
-                {isEstimated ? `~${outputTokens}` : formatTokens(backstage.outputTokens)}
+                {isEstimated
+                  ? `~${outputTokens}`
+                  : formatTokens(backstage.outputTokens)}
               </TableCell>
             </TableRow>
             <TableRow>

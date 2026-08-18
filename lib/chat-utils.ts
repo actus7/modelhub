@@ -351,9 +351,7 @@ export function formatBackstageInline(
         : backstage.durationMs
     if (decodeMs > 0) {
       const tokensPerSecond = outputTokens / (decodeMs / 1000)
-      parts.push(
-        `${isEstimated ? "~" : ""}${tokensPerSecond.toFixed(1)} tok/s`,
-      )
+      parts.push(`${isEstimated ? "~" : ""}${tokensPerSecond.toFixed(1)} tok/s`)
     }
   }
 

@@ -324,7 +324,39 @@ async function persistMessages(
     },
   })
 
-  return hydrateMessages(createdMessages, attachments, conversationId)
+  const assistantMessageIds = createdMessages
+    .filter((m) => m.role === "assistant")
+    .map((m) => m.id)
+  const usageLogs =
+    assistantMessageIds.length > 0
+      ? await prisma.usageLog.findMany({
+          where: { messageId: { in: assistantMessageIds } },
+          orderBy: { createdAt: "asc" },
+          select: {
+            messageId: true,
+            providerId: true,
+            modelId: true,
+            statusCode: true,
+            errorDetail: true,
+            routingTier: true,
+            routingReason: true,
+            durationMs: true,
+            ttftMs: true,
+            inputTokens: true,
+            outputTokens: true,
+            costUsd: true,
+            attempts: true,
+          },
+        })
+      : []
+  const backstageByMessageId = buildBackstageByMessageId(usageLogs)
+
+  return hydrateMessages(
+    createdMessages,
+    attachments,
+    conversationId,
+    backstageByMessageId,
+  )
 }
 
 // GET /conversations — lista conversas do usuário
