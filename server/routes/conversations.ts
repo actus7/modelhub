@@ -588,6 +588,8 @@ app.post("/:id/canvases", async (c) => {
     return jsonErrorResponse(400, "Invalid canvas payload");
   }
 
+  // Adapter Neon HTTP não suporta writes aninhados ($transaction interno):
+  // cria o canvas e a versão 1 sequencialmente, com ação compensatória.
   const canvas = await prisma.canvas.create({
     data: {
       content: parsed.data.content,
@@ -595,18 +597,28 @@ app.post("/:id/canvases", async (c) => {
       kind: parsed.data.kind,
       language: parsed.data.language ?? null,
       title: parsed.data.title ?? "Canvas",
-      versions: {
-        create: {
-          content: parsed.data.content,
-          kind: parsed.data.kind,
-          language: parsed.data.language ?? null,
-          version: 1,
-        },
+    },
+  });
+
+  try {
+    await prisma.canvasVersion.create({
+      data: {
+        canvasId: canvas.id,
+        content: parsed.data.content,
+        kind: parsed.data.kind,
+        language: parsed.data.language ?? null,
+        version: 1,
       },
-    },
-    include: {
-      versions: { orderBy: { version: "desc" }, select: { createdAt: true, kind: true, language: true, version: true } },
-    },
+    });
+  } catch (error) {
+    await prisma.canvas.delete({ where: { id: canvas.id } }).catch(() => undefined);
+    throw error;
+  }
+
+  const versions = await prisma.canvasVersion.findMany({
+    where: { canvasId: canvas.id },
+    orderBy: { version: "desc" },
+    select: { createdAt: true, kind: true, language: true, version: true },
   });
 
   return c.json(
@@ -622,7 +634,7 @@ app.post("/:id/canvases", async (c) => {
         shareToken: canvas.shareToken,
         title: canvas.title,
         updatedAt: canvas.updatedAt,
-        versions: canvas.versions,
+        versions,
       },
     },
     201,
