@@ -22,10 +22,109 @@ model User {
   cloudDeployments    CloudDeployment[]
   usageLogs           UsageLog[]
   conversations       Conversation[]
+  projects            Project[]
   settings            UserSettings?
   memories            UserMemory[]
   routingConfig       RoutingConfig?
   budget              UserBudget?
+}
+
+model Project {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  description  String?
+  instructions String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversations Conversation[]
+  files         ProjectFile[]
+  artifacts     ProjectArtifact[]
+
+  @@index([userId, updatedAt])
+}
+
+model ProjectFile {
+  id            String   @id @default(cuid())
+  projectId     String
+  fileName      String
+  mimeType      String
+  byteSize      Int
+  blob          Bytes
+  extractedText String?
+  createdAt     DateTime @default(now())
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}
+
+model ProjectArtifact {
+  id                   String   @id @default(cuid())
+  projectId            String
+  sourceConversationId String?
+  sourceCanvasId       String?
+  title                String
+  kind                 String // CanvasKind: markdown | code | html | react | mermaid
+  language             String?
+  currentVersion       Int      @default(1)
+  shareToken           String?  @unique
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversation  Conversation?     @relation("ArtifactSourceConversation", fields: [sourceConversationId], references: [id], onDelete: SetNull)
+  sourceCanvas  Canvas?           @relation("ArtifactSourceCanvas", fields: [sourceCanvasId], references: [id], onDelete: SetNull)
+  versions      ArtifactVersion[]
+
+  @@index([projectId, updatedAt])
+}
+
+model ArtifactVersion {
+  id         String   @id @default(cuid())
+  artifactId String
+  version    Int
+  content    String
+  createdAt  DateTime @default(now())
+
+  artifact ProjectArtifact @relation(fields: [artifactId], references: [id], onDelete: Cascade)
+
+  @@unique([artifactId, version])
+}
+
+model Canvas {
+  id             String   @id @default(cuid())
+  conversationId String
+  title          String
+  kind           String // CanvasKind: markdown | code | html | react | mermaid
+  language       String?
+  content        String
+  activeVersion  Int      @default(1)
+  shareToken     String?  @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversation    Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  versions        CanvasVersion[]
+  pinnedArtifacts ProjectArtifact[]  @relation("ArtifactSourceCanvas")
+
+  @@index([conversationId, updatedAt])
+}
+
+model CanvasVersion {
+  id        String   @id @default(cuid())
+  canvasId  String
+  version   Int
+  kind      String
+  language  String?
+  content   String
+  createdAt DateTime @default(now())
+
+  canvas Canvas @relation(fields: [canvasId], references: [id], onDelete: Cascade)
+
+  @@unique([canvasId, version])
 }
 
 model ApiKey {
@@ -145,16 +244,21 @@ model Conversation {
   title      String   @default("Nova conversa")
   providerId String?
   modelId    String?
+  projectId  String?
   archived   Boolean  @default(false)
   shareToken String?  @unique
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  messages Message[]
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages  Message[]
   attachments ConversationAttachment[]
+  canvases  Canvas[]
+  artifacts ProjectArtifact[] @relation("ArtifactSourceConversation")
 
   @@index([userId, updatedAt])
+  @@index([projectId, updatedAt])
 }
 
 model Message {

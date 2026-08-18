@@ -1,6 +1,7 @@
 import type { Context } from "hono";
 import { Hono } from "hono";
 import type { Prisma } from "../../generated/prisma/client.ts";
+import { z } from "zod";
 
 import {
   createMessageContentFallback,
@@ -232,6 +233,7 @@ app.get("/", async (c) => {
       title: true,
       providerId: true,
       modelId: true,
+      projectId: true,
       archived: true,
       createdAt: true,
       updatedAt: true,
@@ -250,23 +252,36 @@ app.post("/", async (c) => {
 
   const body = await c.req.json().catch(() => ({})) as {
     modelId?: string;
+    projectId?: string;
     providerId?: string;
     title?: string;
   };
 
+  let projectId: string | null = null;
+  if (body.projectId) {
+    const project = await prisma.project.findFirst({
+      where: { id: body.projectId, userId },
+      select: { id: true },
+    });
+    if (!project) return jsonErrorResponse(404, "Project not found");
+    projectId = project.id;
+  }
+
   const conversation = await prisma.conversation.create({
     data: {
       modelId: body.modelId ?? null,
+      projectId,
       providerId: body.providerId ?? null,
       title: body.title ?? "Nova conversa",
       userId,
     },
     select: {
-      id: true,
-      title: true,
-      providerId: true,
-      modelId: true,
       createdAt: true,
+      id: true,
+      modelId: true,
+      projectId: true,
+      providerId: true,
+      title: true,
       updatedAt: true,
     },
   });
@@ -274,22 +289,34 @@ app.post("/", async (c) => {
   return c.json({ conversation }, 201);
 });
 
-// PATCH /conversations/:id — atualiza título
+// PATCH /conversations/:id — atualiza título/projeto
 app.patch("/:id", async (c) => {
   const auth = await authorizeConversation(c);
   if (auth instanceof Response) return auth;
-  const { conversationId: id } = auth;
+  const { conversationId: id, userId } = auth;
 
-  const body = await c.req.json().catch(() => ({})) as { title?: string; archived?: boolean };
+  const body = await c.req.json().catch(() => ({})) as { title?: string; archived?: boolean; projectId?: string | null };
 
   const data: Record<string, unknown> = {};
   if (body.title !== undefined) data.title = body.title;
   if (body.archived !== undefined) data.archived = body.archived;
+  if (body.projectId !== undefined) {
+    if (body.projectId === null) {
+      data.projectId = null;
+    } else {
+      const project = await prisma.project.findFirst({
+        where: { id: body.projectId, userId },
+        select: { id: true },
+      });
+      if (!project) return jsonErrorResponse(404, "Project not found");
+      data.projectId = project.id;
+    }
+  }
 
   const conversation = await prisma.conversation.update({
     where: { id },
     data,
-    select: { id: true, title: true, archived: true, updatedAt: true },
+    select: { archived: true, id: true, projectId: true, title: true, updatedAt: true },
   });
 
   return c.json({ conversation });
@@ -515,6 +542,91 @@ app.post("/:id/messages/:messageId/reaction", async (c) => {
     data: { messageId, userId, type },
   });
   return c.json({ reaction }, 201);
+});
+
+// GET /conversations/:id/canvases — lista canvases da conversa
+app.get("/:id/canvases", async (c) => {
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId } = auth;
+
+  const canvases = await prisma.canvas.findMany({
+    where: { conversationId },
+    select: {
+      activeVersion: true,
+      conversationId: true,
+      createdAt: true,
+      id: true,
+      kind: true,
+      language: true,
+      shareToken: true,
+      title: true,
+      updatedAt: true,
+    },
+    orderBy: { updatedAt: "desc" },
+  });
+
+  return c.json({ canvases });
+});
+
+// POST /conversations/:id/canvases — cria canvas na conversa (v1)
+app.post("/:id/canvases", async (c) => {
+  const auth = await authorizeConversation(c);
+  if (auth instanceof Response) return auth;
+  const { conversationId } = auth;
+
+  const parsed = z
+    .object({
+      content: z.string().min(1).max(2_000_000),
+      kind: z.enum(["markdown", "code", "html", "react", "mermaid"]),
+      language: z.string().max(64).nullable().optional(),
+      title: z.string().trim().min(1).max(200).optional(),
+    })
+    .safeParse(await c.req.json().catch(() => ({})));
+
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Invalid canvas payload");
+  }
+
+  const canvas = await prisma.canvas.create({
+    data: {
+      content: parsed.data.content,
+      conversationId,
+      kind: parsed.data.kind,
+      language: parsed.data.language ?? null,
+      title: parsed.data.title ?? "Canvas",
+      versions: {
+        create: {
+          content: parsed.data.content,
+          kind: parsed.data.kind,
+          language: parsed.data.language ?? null,
+          version: 1,
+        },
+      },
+    },
+    include: {
+      versions: { orderBy: { version: "desc" }, select: { createdAt: true, kind: true, language: true, version: true } },
+    },
+  });
+
+  return c.json(
+    {
+      canvas: {
+        activeVersion: canvas.activeVersion,
+        content: canvas.content,
+        conversationId: canvas.conversationId,
+        createdAt: canvas.createdAt,
+        id: canvas.id,
+        kind: canvas.kind,
+        language: canvas.language,
+        shareToken: canvas.shareToken,
+        title: canvas.title,
+        updatedAt: canvas.updatedAt,
+        versions: canvas.versions,
+      },
+    },
+    201,
+  );
 });
 
 // POST /conversations/:id/share — generate share token

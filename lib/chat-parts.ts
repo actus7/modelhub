@@ -32,7 +32,19 @@ type MetaPart = {
   type: "meta";
 };
 
-export type ConversationMessagePart = AttachmentReferencePart | MetaPart | TextPart;
+type CanvasReferencePart = {
+  canvasId: string;
+  /** CanvasKind: markdown | code | html | react | mermaid */
+  kind: string;
+  title: string;
+  type: "canvas";
+};
+
+export type ConversationMessagePart =
+  | AttachmentReferencePart
+  | CanvasReferencePart
+  | MetaPart
+  | TextPart;
 
 export type ConversationAttachmentDescriptor = {
   byteSize: number;
@@ -46,7 +58,11 @@ export type ConversationAttachmentDescriptor = {
 
 export type HydratedAttachmentPart = AttachmentReferencePart & ConversationAttachmentDescriptor;
 
-export type HydratedConversationMessagePart = HydratedAttachmentPart | MetaPart | TextPart;
+export type HydratedConversationMessagePart =
+  | CanvasReferencePart
+  | HydratedAttachmentPart
+  | MetaPart
+  | TextPart;
 
 export function createMessageContentFallback(
   parts: readonly ConversationMessagePart[],
@@ -58,6 +74,9 @@ export function createMessageContentFallback(
       }
       if (part.type === "meta") {
         return "";
+      }
+      if (part.type === "canvas") {
+        return `[canvas] ${part.title}`;
       }
 
       return `[${part.kind}] ${part.fileName}`;
