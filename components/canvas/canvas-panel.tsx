@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  CodeIcon,
   CopyIcon,
   DownloadIcon,
+  EyeIcon,
   HistoryIcon,
   Loader2Icon,
   PinIcon,
@@ -30,6 +32,15 @@ import {
   updateCanvas,
 } from "@/lib/canvas-client";
 import { CanvasPreview } from "./canvas-preview";
+
+/** Linguagem usada ao exibir o código-fonte de um canvas que normalmente é renderizado. */
+function sourceLanguage(kind: CanvasKind, language: string | null | undefined): string {
+  if (kind === "code") return language ?? "text";
+  if (kind === "react") return language ?? "tsx";
+  if (kind === "html") return "html";
+  if (kind === "markdown") return "markdown";
+  return "text";
+}
 
 const KIND_LABEL: Record<CanvasKind, string> = {
   code: "Código",
@@ -70,6 +81,7 @@ export function CanvasPanel({
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [pinOpen, setPinOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
+  const [showSource, setShowSource] = useState(false);
 
   useEffect(() => {
     setTitle(canvas?.title ?? "");
@@ -194,6 +206,22 @@ export function CanvasPanel({
 
       {/* Ações */}
       <div className="flex shrink-0 flex-wrap items-center gap-0.5 border-b border-border/60 px-2 py-1.5">
+        {canvas.kind !== "code" ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                aria-label={showSource ? "Ver resultado renderizado" : "Ver código-fonte"}
+                aria-pressed={showSource}
+                size="icon-sm"
+                variant={showSource ? "secondary" : "ghost"}
+                onClick={() => setShowSource((current) => !current)}
+              >
+                {showSource ? <EyeIcon className="size-3.5" /> : <CodeIcon className="size-3.5" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{showSource ? "Ver resultado" : "Ver código"}</TooltipContent>
+          </Tooltip>
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button aria-label="Copiar conteúdo" size="icon-sm" variant="ghost" onClick={() => void handleCopy()}>
@@ -259,7 +287,15 @@ export function CanvasPanel({
 
       {/* Conteúdo */}
       <div className="min-h-0 flex-1 overflow-auto">
-        <CanvasPreview content={canvas.content} kind={canvas.kind} language={canvas.language} />
+        {showSource ? (
+          <CanvasPreview
+            content={canvas.content}
+            kind="code"
+            language={sourceLanguage(canvas.kind, canvas.language)}
+          />
+        ) : (
+          <CanvasPreview content={canvas.content} kind={canvas.kind} language={canvas.language} />
+        )}
       </div>
 
       <VersionsDialog

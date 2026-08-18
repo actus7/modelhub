@@ -1476,6 +1476,7 @@ export function ChatPage() {
                   if (message.id === assistantMessageId) {
                     return {
                       ...message,
+                      backstage: persistedAssistantMessage.backstage,
                       content: persistedAssistantMessage.content,
                       id: persistedAssistantMessage.id,
                     }
