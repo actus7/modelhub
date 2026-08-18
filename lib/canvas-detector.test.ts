@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDisplayText, detectCanvas } from "./canvas-detector";
+import { buildDisplayText, detectCanvas, shouldRequestCanvasGuidance } from "./canvas-detector";
 
 function fence(language: string, content: string): string {
   return `\`\`\`${language}\n${content}\n\`\`\``;
@@ -77,6 +77,17 @@ describe("detectCanvas", () => {
     expect(suggestion).toBeNull();
   });
 
+  it("aceita fence menor quando o usuário pediu canvas explicitamente", () => {
+    const text = fence("html", '<main><h1>Clone do jogo</h1><button>Jogar</button></main>');
+    const suggestion = detectCanvas(text, { explicitIntent: true });
+    expect(suggestion).toMatchObject({ kind: "html", language: "html" });
+  });
+
+  it("limiares normais seguem valendo sem intenção explícita", () => {
+    const text = fence("html", '<main><h1>Clone do jogo</h1><button>Jogar</button></main>');
+    expect(detectCanvas(text)).toBeNull();
+  });
+
   it("detecta markdown quando a mensagem inteira passa de 1500 chars", () => {
     const text = `# Relatório\n\n${"parágrafo com conteúdo suficiente. ".repeat(80)}`;
     const suggestion = detectCanvas(text);
@@ -107,6 +118,28 @@ describe("detectCanvas", () => {
 
     const long = detectCanvas(`# ${"a".repeat(100)}\n\n${"b".repeat(1500)}`);
     expect(long?.title.length).toBeLessThanOrEqual(60);
+  });
+});
+
+describe("shouldRequestCanvasGuidance", () => {
+  it.each([
+    "Não pode fazer o canva?",
+    "Eu quero ver o canvas",
+    "Abra um canvas para isso",
+    "Quero um clone de um jogo",
+    "Crie uma landing page",
+    "Monte um diagrama",
+  ])("ativa para intenção visual: %s", (text) => {
+    expect(shouldRequestCanvasGuidance(text)).toBe(true);
+  });
+
+  it.each([
+    "oi",
+    "Explique o que é Python",
+    "Resuma esse texto",
+    "Qual a previsão do tempo?",
+  ])("não ativa para conversa comum: %s", (text) => {
+    expect(shouldRequestCanvasGuidance(text)).toBe(false);
   });
 });
 

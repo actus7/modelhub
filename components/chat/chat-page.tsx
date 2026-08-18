@@ -91,7 +91,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 
 import { apiFetch, apiJson, apiJsonRequest } from "@/lib/api";
 import { createCanvas, getCanvas, listCanvases, listProjects, updateCanvas } from "@/lib/canvas-client";
-import { buildDisplayText, detectCanvas } from "@/lib/canvas-detector";
+import {
+  buildDisplayText,
+  CANVAS_ASSISTANT_GUIDANCE,
+  detectCanvas,
+  shouldRequestCanvasGuidance,
+} from "@/lib/canvas-detector";
 import { saveProviderCredentials } from "@/lib/save-provider-credentials";
 import {
   getBrowserChatProviderAdapter,
@@ -916,8 +921,21 @@ export function ChatPage() {
             role: "user" as const,
           }
         : null;
-    const messagesToSend: ConversationMessage[] = canvasContextMessage
-      ? [...nextConversation.slice(0, -1), canvasContextMessage, nextConversation.at(-1)!]
+    // Intenção explícita de canvas: instrui o modelo a produzir formato elegível
+    const canvasIntent = shouldRequestCanvasGuidance(text);
+    const canvasGuidanceMessage: ConversationMessage | null = canvasIntent
+      ? {
+          id: crypto.randomUUID(),
+          parts: [{ text: CANVAS_ASSISTANT_GUIDANCE, type: "text" as const }],
+          role: "user" as const,
+        }
+      : null;
+    const contextualPrepend: ConversationMessage[] = [
+      ...(canvasGuidanceMessage ? [canvasGuidanceMessage] : []),
+      ...(canvasContextMessage ? [canvasContextMessage] : []),
+    ];
+    const messagesToSend: ConversationMessage[] = contextualPrepend.length > 0
+      ? [...nextConversation.slice(0, -1), ...contextualPrepend, nextConversation.at(-1)!]
       : nextConversation;
     const projectHeaders: Record<string, string> = activeProjectId
       ? { [MODELHUB_PROJECT_HEADER]: activeProjectId }
@@ -1105,7 +1123,9 @@ export function ChatPage() {
         let convIdEarly = activeConversationId;
         let createdConversation = false;
 
-        const suggestion = temporaryChat ? null : detectCanvas(fullText);
+        const suggestion = temporaryChat
+          ? null
+          : detectCanvas(fullText, { explicitIntent: canvasIntent });
         if (suggestion) {
           try {
             if (!convIdEarly) {
@@ -1142,7 +1162,9 @@ export function ChatPage() {
               : [canvasPart];
             setMessages((current) =>
               current.map((message) =>
-                message.id === assistantMessageId ? { ...message, content: displayContent } : message,
+                message.id === assistantMessageId
+                  ? { ...message, content: displayContent, parts: assistantParts }
+                  : message,
               ),
             );
           } catch {
@@ -1341,6 +1363,62 @@ export function ChatPage() {
       toast.success("Link de compartilhamento copiado!");
     } catch {
       toast.error("Falha ao gerar link de compartilhamento.");
+    }
+  }
+
+  // Converte manualmente uma resposta existente em Canvas.
+  // Útil para mensagens anteriores à detecção automática ou respostas de modelos
+  // que produziram um fence menor que os limiares normais.
+  async function handleOpenMessageInCanvas(message: ChatMessage) {
+    if (message.role !== "assistant" || !message.content.trim()) return;
+
+    try {
+      const convId = activeConversationId ?? await ensureConversationId("Canvas");
+      const suggestion = detectCanvas(message.content, { explicitIntent: true });
+      const fallbackTitle = message.content
+        .split("\n")
+        .map((line) => line.replace(/^#+\s*/, "").trim())
+        .find(Boolean)
+        ?.slice(0, 60) || "Canvas";
+      const candidate = suggestion ?? {
+        content: message.content,
+        kind: "markdown" as const,
+        language: null,
+        title: fallbackTitle,
+      };
+      const canvas = await createCanvas(convId, {
+        content: candidate.content,
+        kind: candidate.kind,
+        language: candidate.language,
+        title: candidate.title,
+      });
+      const canvasPart: CanvasReferencePart = {
+        canvasId: canvas.id,
+        kind: canvas.kind,
+        title: canvas.title,
+        type: "canvas",
+      };
+      const displayContent = suggestion
+        ? buildDisplayText(message.content, suggestion)
+        : message.content;
+
+      setActiveCanvas(canvas);
+      setCanvasPanelOpen(true);
+      setMessages((current) => current.map((entry) =>
+        entry.id === message.id
+          ? {
+              ...entry,
+              content: displayContent,
+              parts: [
+                ...(entry.parts?.filter((part) => part.type !== "canvas") ?? []),
+                canvasPart,
+              ],
+            }
+          : entry,
+      ));
+      toast.success("Canvas aberto.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao abrir o Canvas.");
     }
   }
 
@@ -2020,6 +2098,23 @@ export function ChatPage() {
                           </Button>
                         </>
                       )}
+
+                      {/* Abrir uma resposta existente no Canvas */}
+                      {message.role === "assistant" &&
+                        !message.isError &&
+                        message.content.trim().length >= 40 &&
+                        !message.parts?.some((part) => part.type === "canvas") ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 gap-1 text-xs md:h-6 md:text-[10px]"
+                            onClick={() => void handleOpenMessageInCanvas(message)}
+                            title="Abrir esta resposta no Canvas"
+                          >
+                            <FrameIcon className="size-3" />
+                            Canvas
+                          </Button>
+                        ) : null}
 
                       {/* Regenerate (last assistant only) */}
                       {message.role === "assistant" && messageIndex === messages.length - 1 && (
