@@ -142,7 +142,7 @@ app.patch("/:id", async (c) => {
         canvasId,
         content,
         kind: kind ?? canvas.kind,
-        language: language ?? canvas.language,
+        language: language !== undefined ? language : canvas.language,
         version: nextVersion,
       },
     });

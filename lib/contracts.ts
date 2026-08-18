@@ -324,7 +324,7 @@ export const MODELHUB_PROJECT_HEADER = "x-modelhub-project-id" as const
 export const MODELHUB_CONVERSATION_HEADER =
   "x-modelhub-conversation-id" as const
 
-/** Mensagem do assistente que essa requisição está gerando, para amarrar UsageLog 1:1. */
+/** Mensagem do assistente que essa requisição está gerando; fallbacks podem gerar vários UsageLogs. */
 export const MODELHUB_MESSAGE_HEADER = "x-modelhub-message-id" as const
 
 export type CanvasKind = "markdown" | "code" | "html" | "react" | "mermaid"

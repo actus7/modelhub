@@ -1485,17 +1485,70 @@ function logUsage(data: {
     })
 }
 
+const MAX_USAGE_CORRELATION_ID_LENGTH = 64
+
+function sanitizeUsageCorrelationId(value: string | undefined): string | null {
+  const normalized = value?.trim()
+  if (
+    !normalized ||
+    normalized.length > MAX_USAGE_CORRELATION_ID_LENGTH ||
+    !/^[A-Za-z0-9_-]+$/.test(normalized)
+  ) {
+    return null
+  }
+  return normalized
+}
+
+async function resolveUsageCorrelation(
+  userId: string | undefined,
+  conversationHeader: string | undefined,
+  messageHeader: string | undefined,
+): Promise<{ conversationId: string | null; messageId: string | null }> {
+  if (!userId) return { conversationId: null, messageId: null }
+
+  const conversationId = sanitizeUsageCorrelationId(conversationHeader)
+  const messageId = sanitizeUsageCorrelationId(messageHeader)
+  if (!conversationId) return { conversationId: null, messageId: null }
+
+  try {
+    const conversation = await prisma.conversation.findFirst({
+      where: { id: conversationId, userId },
+      select: { id: true },
+    })
+    return conversation
+      ? { conversationId, messageId }
+      : { conversationId: null, messageId: null }
+  } catch (error) {
+    console.warn("[usage-log] Failed to validate correlation headers", error)
+    return { conversationId: null, messageId: null }
+  }
+}
+
 async function updateUsageLogTiming(
   logId: string,
   ttftMs: number,
 ): Promise<void> {
-  prisma.usageLog
+  await prisma.usageLog
     .update({
       where: { id: logId },
       data: { ttftMs },
     })
     .catch((err: unknown) => {
       console.error("[usage-log] Failed to update TTFT", err)
+    })
+}
+
+async function updateUsageLogDuration(
+  logId: string,
+  durationMs: number,
+): Promise<void> {
+  await prisma.usageLog
+    .update({
+      where: { id: logId },
+      data: { durationMs },
+    })
+    .catch((err: unknown) => {
+      console.error("[usage-log] Failed to update stream duration", err)
     })
 }
 
@@ -1520,7 +1573,7 @@ async function updateUsageLogTokens(
       )
     : null
 
-  prisma.usageLog
+  await prisma.usageLog
     .update({
       where: { id: logId },
       data: {
@@ -1849,13 +1902,15 @@ export function createProviderApp(config: ProviderConfig) {
         }
       }
 
+      const { conversationId, messageId } = await resolveUsageCorrelation(
+        userId,
+        c.req.header(MODELHUB_CONVERSATION_HEADER),
+        c.req.header(MODELHUB_MESSAGE_HEADER),
+      )
       const startedAt = Date.now()
       const routingTier = c.req.header("x-modelhub-routing-tier") ?? null
       const routingReason = c.req.header("x-modelhub-routing-reason") ?? null
       const taskCategory = c.req.header("x-modelhub-task-category") ?? null
-      const conversationId = c.req.header(MODELHUB_CONVERSATION_HEADER) ?? null
-      const messageId = c.req.header(MODELHUB_MESSAGE_HEADER) ?? null
-
       const response = await config.chat(
         resolvedMessages,
         modelId,
@@ -1933,39 +1988,43 @@ export function createProviderApp(config: ProviderConfig) {
             const reader = streamForMonitor.getReader()
             const decoder = new TextDecoder()
             let buffer = ""
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
-              if (firstChunkAt === null) {
-                firstChunkAt = Date.now()
-                void updateUsageLogTiming(logId, firstChunkAt - startedAt)
-              }
-              buffer += decoder.decode(value, { stream: true })
-              const lines = buffer.split("\n")
-              buffer = lines.pop() || ""
-              for (const line of lines) {
-                if (!line.startsWith("d:")) continue
-                try {
-                  const data = JSON.parse(line.slice(2)) as {
-                    finishReason?: string
-                    usage?: { promptTokens: number; completionTokens: number }
+            try {
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+                if (firstChunkAt === null) {
+                  firstChunkAt = Date.now()
+                  void updateUsageLogTiming(logId, firstChunkAt - startedAt)
+                }
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split("\n")
+                buffer = lines.pop() || ""
+                for (const line of lines) {
+                  if (!line.startsWith("d:")) continue
+                  try {
+                    const data = JSON.parse(line.slice(2)) as {
+                      finishReason?: string
+                      usage?: { promptTokens: number; completionTokens: number }
+                    }
+                    if (data.usage) {
+                      await updateUsageLogTokens(
+                        logId,
+                        {
+                          inputTokens: data.usage.promptTokens,
+                          completionTokens: data.usage.completionTokens,
+                        },
+                        config.providerId,
+                        modelId,
+                      )
+                      return
+                    }
+                  } catch {
+                    /* ignore parse errors */
                   }
-                  if (data.usage) {
-                    await updateUsageLogTokens(
-                      logId,
-                      {
-                        inputTokens: data.usage.promptTokens,
-                        completionTokens: data.usage.completionTokens,
-                      },
-                      config.providerId,
-                      modelId,
-                    )
-                    return
-                  }
-                } catch {
-                  /* ignore parse errors */
                 }
               }
+            } finally {
+              await updateUsageLogDuration(logId, Date.now() - startedAt)
             }
           } catch {
             /* ignore monitor errors */

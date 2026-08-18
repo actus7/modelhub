@@ -11,7 +11,7 @@
     <a href="https://github.com/actus7/modelhub/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/actus7/modelhub/actions/workflows/ci.yml/badge.svg" /></a>
     <a href="LICENSE"><img alt="MIT License" src="https://img.shields.io/badge/License-MIT-yellow.svg" /></a>
     <a href="https://nodejs.org"><img alt="Node.js >= 22" src="https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen" /></a>
-    <a href="https://nextjs.org/"><img alt="Next.js 16.2" src="https://img.shields.io/badge/Next.js-16.2-black" /></a>
+    <a href="https://nextjs.org/"><img alt="Next.js 16.3" src="https://img.shields.io/badge/Next.js-16.3-black" /></a>
     <a href="https://www.typescriptlang.org/"><img alt="TypeScript 5" src="https://img.shields.io/badge/TypeScript-5.x-blue" /></a>
     <a href="https://hono.dev/"><img alt="Hono 4" src="https://img.shields.io/badge/Hono-4.x-E36002?logo=hono&logoColor=white" /></a>
     <a href="https://www.prisma.io/"><img alt="Prisma 7" src="https://img.shields.io/badge/Prisma-7.x-2D3748?logo=prisma&logoColor=white" /></a>
@@ -55,6 +55,10 @@ Instead of each application integrating multiple providers separately, ModelHub 
   <tr>
     <td><strong>Smart routing</strong><br />Tiers by complexity, per-task overrides, and automatic fallbacks.</td>
     <td><strong>Chat attachments</strong><br />Support for images, PDFs, and documents.</td>
+  </tr>
+  <tr>
+    <td><strong>Versioned canvas</strong><br />Edit, preview, restore, and share Markdown, code, HTML, React, and Mermaid content.</td>
+    <td><strong>Projects</strong><br />Group conversations, instructions, knowledge files, and reusable artifacts.</td>
   </tr>
   <tr>
     <td><strong>Dynamic catalog</strong><br />Local models and remote search when the provider supports it.</td>
@@ -200,6 +204,7 @@ The `model` field follows the `provider/model` format, for example:
 | Route | Description |
 |---|---|
 | `/chat` | Chat with configured providers |
+| `/projects` | Projects, knowledge files, and canvas artifacts |
 | `/setup` | Integrations and credentials per provider |
 | `/dashboard` | API keys, usage, costs, logs, and routing |
 | `/account` | Account information |
@@ -240,7 +245,7 @@ The application uses two layers:
 
 The database is PostgreSQL via Neon, accessed with Prisma 7 and `@prisma/adapter-neon`.
 
-Key models: `User`, `ApiKey`, `ProviderCredential`, `Conversation`, `Message`, `ConversationAttachment`, `UsageLog`, `UserMemory`, and `UserSettings`.
+Key models: `User`, `ApiKey`, `ProviderCredential`, `Conversation`, `Message`, `ConversationAttachment`, `Project`, `ProjectFile`, `ProjectArtifact`, `Canvas`, `UsageLog`, `UserMemory`, and `UserSettings`.
 
 For schema changes:
 

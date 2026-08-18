@@ -99,6 +99,7 @@ export function ChatHistorySidebar({
   const [bulkWorking, setBulkWorking] = useState(false);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const fetchRequestRef = useRef(0);
 
   // Seção Projetos: carrega uma vez (e quando a sidebar reabre em mobile).
   useEffect(() => {
@@ -120,6 +121,7 @@ export function ChatHistorySidebar({
   const isSearching = debouncedSearch.length >= 2;
 
   const fetchConversations = useCallback(async (search: string) => {
+    const requestId = ++fetchRequestRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -129,14 +131,21 @@ export function ChatHistorySidebar({
       const data = await apiJson<{ conversations: ConversationSummary[] }>(
         `/conversations${qs ? `?${qs}` : ""}`,
       );
+      if (requestId !== fetchRequestRef.current) return;
       setConversations(data.conversations);
       setSelectedIds(new Set());
     } catch {
       // silently fail
     } finally {
-      setLoading(false);
+      if (requestId === fetchRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, [showArchived]);
+
+  useEffect(() => () => {
+    fetchRequestRef.current += 1;
+  }, []);
 
   useEffect(() => {
     void fetchConversations(isSearching ? debouncedSearch : "");
@@ -418,8 +427,9 @@ export function ChatHistorySidebar({
       {/* Search bar */}
       <div className="shrink-0 border-b border-border/40 px-2 py-1.5">
         <div className="relative">
-          <SearchIcon className="absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon aria-hidden="true" className="absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
           <Input
+            aria-label="Buscar conversas"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar conversas..."

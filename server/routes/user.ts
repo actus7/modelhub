@@ -1,4 +1,5 @@
 import { Hono } from "hono"
+import { z } from "zod"
 import { apiKeyLabelSchema, providerCredentialSchema } from "@/lib/contracts"
 import { isValidAccentColor } from "@/lib/accent-colors"
 
@@ -643,23 +644,35 @@ app.patch("/settings", async (c) => {
   const userId = requireAuth(c)
   if (typeof userId !== "string") return userId
 
-  const body = (await c.req.json().catch(() => ({}))) as {
-    customInstructionsAbout?: string | null
-    customInstructionsStyle?: string | null
-    accentColor?: string | null
+  const parsed = z
+    .object({
+      customInstructionsAbout: z.string().max(20_000).nullable().optional(),
+      customInstructionsStyle: z.string().max(20_000).nullable().optional(),
+      accentColor: z.string().max(32).nullable().optional(),
+    })
+    .safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) {
+    return c.json({ error: "Configurações inválidas." }, 400)
   }
+  const body = parsed.data
 
   if (body.accentColor !== undefined && body.accentColor !== null && !isValidAccentColor(body.accentColor)) {
     return c.json({ error: "Cor de destaque inválida." }, 400)
   }
 
+  const settingsData = {
+    ...(body.customInstructionsAbout !== undefined
+      ? { customInstructionsAbout: body.customInstructionsAbout }
+      : {}),
+    ...(body.customInstructionsStyle !== undefined
+      ? { customInstructionsStyle: body.customInstructionsStyle }
+      : {}),
+    ...(body.accentColor !== undefined ? { accentColor: body.accentColor } : {}),
+  }
+
   const settings = await prisma.userSettings.upsert({
     where: { userId },
-    update: {
-      customInstructionsAbout: body.customInstructionsAbout ?? null,
-      customInstructionsStyle: body.customInstructionsStyle ?? null,
-      ...(body.accentColor !== undefined ? { accentColor: body.accentColor } : {}),
-    },
+    update: settingsData,
     create: {
       userId,
       customInstructionsAbout: body.customInstructionsAbout ?? null,

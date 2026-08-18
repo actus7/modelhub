@@ -26,6 +26,8 @@ import {
 import { requireAuth } from "./route-helpers"
 
 const MAX_REACTION_NOTE_LENGTH = 500
+const MAX_PERSISTED_MESSAGE_CONTENT_LENGTH = 2_000_000
+const MAX_CLIENT_MESSAGE_ID_LENGTH = 64
 
 const app = new Hono().basePath("/conversations")
 app.use("*", securityHeaders)
@@ -40,11 +42,35 @@ type CreateMessageInput = {
   content?: string
   id?: string
   modelLabel?: string
-  parts?: ConversationMessagePart[]
+  parts?: unknown[]
   role: string
 }
 
-const MAX_CLIENT_MESSAGE_ID_LENGTH = 64
+const createMessageSchema = z.object({
+  content: z.string().max(MAX_PERSISTED_MESSAGE_CONTENT_LENGTH).optional(),
+  id: z
+    .string()
+    .min(1)
+    .max(MAX_CLIENT_MESSAGE_ID_LENGTH)
+    .regex(/^[A-Za-z0-9_-]+$/)
+    .optional(),
+  modelLabel: z.string().max(200).optional(),
+  parts: z.array(z.unknown()).max(64).optional(),
+  role: z.enum(["assistant", "user"]),
+})
+
+const createConversationSchema = z.object({
+  modelId: z.string().trim().min(1).max(200).optional(),
+  projectId: z.string().trim().min(1).max(64).optional(),
+  providerId: z.string().trim().min(1).max(64).optional(),
+  title: z.string().trim().min(1).max(200).optional(),
+})
+
+const updateConversationSchema = z.object({
+  archived: z.boolean().optional(),
+  projectId: z.string().trim().min(1).max(64).nullable().optional(),
+  title: z.string().trim().min(1).max(200).optional(),
+})
 
 /** Aceita o id gerado no cliente (ex.: usado no header de correlação com UsageLog) quando plausível. */
 function sanitizeClientMessageId(id: string | undefined): string | undefined {
@@ -147,6 +173,7 @@ function buildBackstageByMessageId(
     const otherAttempts = group
       .filter((row) => row !== primary)
       .map((row) => ({
+        durationMs: row.durationMs ?? undefined,
         errorSnippet: row.errorDetail?.slice(0, 300) ?? undefined,
         modelId: row.modelId ?? row.providerId,
         providerId: row.providerId,
@@ -244,6 +271,7 @@ async function authorizeConversation(
 
 async function persistMessages(
   conversationId: string,
+  userId: string,
   messages: CreateMessageInput[],
 ) {
   const createdMessages: Array<{
@@ -254,62 +282,79 @@ async function persistMessages(
     role: string
   }> = []
 
-  for (const message of messages) {
-    const parts = normalizeIncomingMessageParts(message.parts)
-    const fallbackContent =
-      parts.length > 0
-        ? createMessageContentFallback(parts)
-        : (message.content ?? "").trim()
+  try {
+    for (const message of messages) {
+      const parts = normalizeIncomingMessageParts(message.parts)
+      const fallbackContent =
+        parts.length > 0
+          ? createMessageContentFallback(parts)
+          : (message.content ?? "").trim()
 
-    const partsWithMeta = message.modelLabel
-      ? [
-          ...parts,
-          {
-            modelLabel: message.modelLabel,
-            type: "meta",
-          } as ConversationMessagePart,
-        ]
-      : parts
+      const partsWithMeta = message.modelLabel
+        ? [
+            ...parts,
+            {
+              modelLabel: message.modelLabel,
+              type: "meta",
+            } as ConversationMessagePart,
+          ]
+        : parts
 
-    const clientId = sanitizeClientMessageId(message.id)
+      const clientId = sanitizeClientMessageId(message.id)
 
-    const created = await prisma.message.create({
-      data: {
-        content: fallbackContent,
-        conversationId,
-        role: message.role,
-        ...(clientId ? { id: clientId } : {}),
-        ...(partsWithMeta.length > 0
-          ? { parts: partsWithMeta as unknown as Prisma.InputJsonValue }
-          : {}),
-      },
-      select: {
-        content: true,
-        createdAt: true,
-        id: true,
-        parts: true,
-        role: true,
-      },
-    })
-
-    const attachmentIds = parts
-      .filter((part) => part.type === "attachment")
-      .map((part) => part.attachmentId)
-
-    if (attachmentIds.length > 0) {
-      await prisma.conversationAttachment.updateMany({
-        data: { messageId: created.id },
-        where: {
+      const created = await prisma.message.create({
+        data: {
+          content: fallbackContent,
           conversationId,
-          id: { in: attachmentIds },
+          role: message.role,
+          ...(clientId ? { id: clientId } : {}),
+          ...(partsWithMeta.length > 0
+            ? { parts: partsWithMeta as unknown as Prisma.InputJsonValue }
+            : {}),
+        },
+        select: {
+          content: true,
+          createdAt: true,
+          id: true,
+          parts: true,
+          role: true,
         },
       })
+
+      createdMessages.push(created)
+
+      const attachmentIds = parts
+        .filter((part) => part.type === "attachment")
+        .map((part) => part.attachmentId)
+
+      if (attachmentIds.length > 0) {
+        await prisma.conversationAttachment.updateMany({
+          data: { messageId: created.id },
+          where: {
+            conversationId,
+            id: { in: attachmentIds },
+          },
+        })
+      }
     }
 
-    createdMessages.push(created)
+    await prisma.conversation.update({ where: { id: conversationId }, data: {} })
+  } catch (error) {
+    const createdIds = createdMessages.map((message) => message.id)
+    if (createdIds.length > 0) {
+      await prisma.message
+        .deleteMany({
+          where: { conversationId, id: { in: createdIds } },
+        })
+        .catch((cleanupError: unknown) => {
+          console.error(
+            "[conversations] Failed to compensate message persistence",
+            cleanupError,
+          )
+        })
+    }
+    throw error
   }
-
-  await prisma.conversation.update({ where: { id: conversationId }, data: {} })
 
   const attachments = await prisma.conversationAttachment.findMany({
     where: { conversationId },
@@ -330,7 +375,7 @@ async function persistMessages(
   const usageLogs =
     assistantMessageIds.length > 0
       ? await prisma.usageLog.findMany({
-          where: { messageId: { in: assistantMessageIds } },
+          where: { messageId: { in: assistantMessageIds }, userId },
           orderBy: { createdAt: "asc" },
           select: {
             messageId: true,
@@ -367,6 +412,9 @@ app.get("/", async (c) => {
 
   const archived = c.req.query("archived") === "true"
   const q = c.req.query("q")?.trim() ?? ""
+  if (q.length > 200) {
+    return jsonErrorResponse(400, "Search query is too long")
+  }
 
   const where: Prisma.ConversationWhereInput = { userId, archived }
   if (q) {
@@ -400,12 +448,13 @@ app.post("/", async (c) => {
   const userId = requireAuth(c)
   if (typeof userId !== "string") return userId
 
-  const body = (await c.req.json().catch(() => ({}))) as {
-    modelId?: string
-    projectId?: string
-    providerId?: string
-    title?: string
+  const parsed = createConversationSchema.safeParse(
+    await c.req.json().catch(() => null),
+  )
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Invalid conversation payload")
   }
+  const body = parsed.data
 
   let projectId: string | null = null
   if (body.projectId) {
@@ -445,11 +494,13 @@ app.patch("/:id", async (c) => {
   if (auth instanceof Response) return auth
   const { conversationId: id, userId } = auth
 
-  const body = (await c.req.json().catch(() => ({}))) as {
-    title?: string
-    archived?: boolean
-    projectId?: string | null
+  const parsed = updateConversationSchema.safeParse(
+    await c.req.json().catch(() => null),
+  )
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Invalid conversation payload")
   }
+  const body = parsed.data
 
   const data: Record<string, unknown> = {}
   if (body.title !== undefined) data.title = body.title
@@ -529,7 +580,7 @@ app.get("/:id/messages", async (c) => {
   const usageLogs =
     assistantMessageIds.length > 0
       ? await prisma.usageLog.findMany({
-          where: { messageId: { in: assistantMessageIds } },
+          where: { messageId: { in: assistantMessageIds }, userId: auth.userId },
           orderBy: { createdAt: "asc" },
           select: {
             messageId: true,
@@ -653,17 +704,16 @@ app.get("/:id/attachments/:attachmentId/content", async (c) => {
 app.post("/:id/messages", async (c) => {
   const auth = await authorizeConversation(c)
   if (auth instanceof Response) return auth
-  const { conversationId: id } = auth
+  const { conversationId: id, userId } = auth
 
-  const body = (await c.req.json().catch(() => ({}))) as {
-    messages?: CreateMessageInput[]
+  const parsed = z
+    .object({ messages: z.array(createMessageSchema).min(1).max(50) })
+    .safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Invalid messages payload")
   }
 
-  if (!body.messages?.length) {
-    return jsonErrorResponse(400, "No messages provided")
-  }
-
-  const messages = await persistMessages(id, body.messages)
+  const messages = await persistMessages(id, userId, parsed.data.messages)
   return c.json({ messages }, 201)
 })
 
@@ -716,18 +766,26 @@ app.post("/:id/messages/:messageId/reaction", async (c) => {
   const { userId } = auth
   const messageId = c.req.param("messageId")
 
-  const body = (await c.req.json().catch(() => ({}))) as {
-    type?: string
-    note?: string
+  const parsed = z
+    .object({
+      note: z.string().max(MAX_REACTION_NOTE_LENGTH).optional(),
+      type: z.enum(["thumbs_up", "thumbs_down"]),
+    })
+    .safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Invalid reaction payload")
   }
-  const type = body.type
-  if (type !== "thumbs_up" && type !== "thumbs_down") {
-    return jsonErrorResponse(400, "type must be 'thumbs_up' or 'thumbs_down'")
-  }
+  const { type } = parsed.data
   const note =
-    body.note === undefined
+    parsed.data.note === undefined
       ? undefined
-      : body.note.slice(0, MAX_REACTION_NOTE_LENGTH).trim() || null
+      : parsed.data.note.trim() || null
+
+  const message = await prisma.message.findFirst({
+    where: { conversationId: auth.conversationId, id: messageId },
+    select: { id: true },
+  })
+  if (!message) return jsonErrorResponse(404, "Message not found")
 
   const existingReaction = await prisma.messageReaction.findUnique({
     where: { messageId_userId: { messageId, userId } },

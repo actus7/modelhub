@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono, Source_Serif_4 } from "next/font/google";
+import Script from "next/script";
 import { Analytics } from "@vercel/analytics/next";
 
 import { Providers } from "./providers";
@@ -55,7 +56,9 @@ export default function RootLayout({
     >
       <head>
         {/* Aplica o accent salvo antes da hidratação para evitar flash (issue #177). */}
-        <script
+        <Script
+          id="modelhub-accent"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var a=localStorage.getItem("modelhub-accent");var v=["blue","violet","emerald","orange","rose","teal"];if(a&&v.indexOf(a)!==-1){document.documentElement.setAttribute("data-accent",a)}}catch(e){}})();`,
           }}

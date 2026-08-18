@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { BrainIcon, CheckIcon, Loader2Icon, PaletteIcon, SaveIcon, Trash2Icon, UserIcon } from "lucide-react";
 import { toast } from "sonner";
 
@@ -48,6 +48,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
 
   // Appearance state
   const { accent: currentAccent, setAccent } = useAccent();
+  const [savingAccent, setSavingAccent] = useState(false);
+  const accentSaveInFlightRef = useRef(false);
 
   // Memory state
   const [memories, setMemories] = useState<UserMemory[]>([]);
@@ -102,11 +104,21 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   }
 
   async function handleAccentChange(next: AccentColorId) {
+    if (accentSaveInFlightRef.current) return;
+    const previous = currentAccent ?? "default";
+    if (next === previous) return;
+
+    accentSaveInFlightRef.current = true;
+    setSavingAccent(true);
     setAccent(next);
     try {
       await apiJsonRequest("/user/settings", "PATCH", { accentColor: next });
     } catch {
+      setAccent(previous);
       toast.error("Falha ao salvar a cor de destaque.");
+    } finally {
+      accentSaveInFlightRef.current = false;
+      setSavingAccent(false);
     }
   }
 
@@ -231,6 +243,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                         key={option.id}
                         type="button"
                         onClick={() => void handleAccentChange(option.id)}
+                        disabled={savingAccent}
                         aria-pressed={active}
                         aria-label={`Cor de destaque: ${option.label}`}
                         className="group flex flex-col items-center gap-1.5 rounded-lg p-1.5 transition-colors hover:bg-muted"

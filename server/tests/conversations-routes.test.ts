@@ -37,6 +37,7 @@ type UsageLogRecord = {
   routingTier: string | null
   statusCode?: number
   ttftMs: number | null
+  userId?: string
 }
 
 type AttachmentRecord = {
@@ -365,6 +366,24 @@ const mockPrisma = {
         return { count: beforeCount - state.messages.length }
       },
     ),
+    findFirst: vi.fn(
+      async ({
+        where,
+        select,
+      }: {
+        select?: Record<string, boolean>
+        where: { conversationId?: string; id?: string }
+      }) => {
+        const message =
+          state.messages.find(
+            (entry) =>
+              (!where.conversationId ||
+                entry.conversationId === where.conversationId) &&
+              (!where.id || entry.id === where.id),
+          ) ?? null
+        return message && select ? project(message, select) : message
+      },
+    ),
     findMany: vi.fn(
       async ({
         where,
@@ -386,6 +405,15 @@ const mockPrisma = {
       },
     ),
   },
+  messageReaction: {
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: "reaction-1",
+      ...data,
+    })),
+    delete: vi.fn().mockResolvedValue({}),
+    findUnique: vi.fn().mockResolvedValue(null),
+    update: vi.fn().mockResolvedValue({}),
+  },
   providerCredential: { findMany: vi.fn().mockResolvedValue([]) },
   usageLog: {
     create: vi.fn().mockReturnValue({ catch: vi.fn() }),
@@ -395,11 +423,14 @@ const mockPrisma = {
         select,
       }: {
         select?: Record<string, boolean>
-        where: { messageId: { in: string[] } }
+        where: { messageId: { in: string[] }; userId: string }
       }) => {
         const ids = new Set(where.messageId.in)
         const logs = state.usageLogs.filter(
-          (log) => log.messageId !== null && ids.has(log.messageId),
+          (log) =>
+            log.messageId !== null &&
+            ids.has(log.messageId) &&
+            (log.userId ?? "user-1") === where.userId,
         )
         return select ? logs.map((log) => project(log, select)) : logs
       },
@@ -668,8 +699,145 @@ describe("conversation routes with attachments", () => {
 
     expect(assistantMessage?.backstage?.providerId).toBe("quillbot")
     expect(assistantMessage?.backstage?.attempts).toMatchObject([
-      { modelId: "amazon/nova-micro", providerId: "gateway", status: 503 },
+      {
+        durationMs: 251,
+        modelId: "amazon/nova-micro",
+        providerId: "gateway",
+        status: 503,
+      },
     ])
+  })
+
+  it("nao expoe UsageLog de outro usuario mesmo com messageId correlacionado", async () => {
+    state.messages.push({
+      content: "Resposta",
+      conversationId: "conv-1",
+      createdAt: now(),
+      id: "shared-correlation-id",
+      parts: null,
+      role: "assistant",
+    })
+    state.usageLogs.push({
+      attempts: null,
+      costUsd: null,
+      durationMs: 100,
+      inputTokens: null,
+      messageId: "shared-correlation-id",
+      modelId: "private-model",
+      outputTokens: null,
+      providerId: "private-provider",
+      routingReason: null,
+      routingTier: null,
+      statusCode: 500,
+      ttftMs: null,
+      userId: "user-2",
+    })
+
+    const response = await conversationsFetch(
+      new Request("http://localhost/conversations/conv-1/messages"),
+    )
+    const payload = (await response.json()) as {
+      messages: Array<{ id: string; backstage?: unknown }>
+    }
+    expect(payload.messages.find((message) => message.id === "shared-correlation-id"))
+      .not.toHaveProperty("backstage")
+  })
+
+  it("rejeita reacao para mensagem fora da conversa autorizada", async () => {
+    state.conversations.push({
+      createdAt: now(),
+      id: "conv-2",
+      modelId: null,
+      providerId: null,
+      title: "Outra",
+      updatedAt: now(),
+      userId: "user-1",
+    })
+    state.messages.push({
+      content: "Fora",
+      conversationId: "conv-2",
+      createdAt: now(),
+      id: "msg-other-conversation",
+      parts: null,
+      role: "assistant",
+    })
+
+    const response = await conversationsFetch(
+      new Request(
+        "http://localhost/conversations/conv-1/messages/msg-other-conversation/reaction",
+        {
+          body: JSON.stringify({ type: "thumbs_down" }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        },
+      ),
+    )
+
+    expect(response.status).toBe(404)
+    expect(mockPrisma.messageReaction.create).not.toHaveBeenCalled()
+  })
+
+  it("valida role de mensagens persistidas e tipo da nota de reacao", async () => {
+    const invalidMessage = await conversationsFetch(
+      new Request("http://localhost/conversations/conv-1/messages", {
+        body: JSON.stringify({ messages: [{ content: "x", role: "system" }] }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+    )
+    expect(invalidMessage.status).toBe(400)
+
+    state.messages.push({
+      content: "Resposta",
+      conversationId: "conv-1",
+      createdAt: now(),
+      id: "msg-reaction",
+      parts: null,
+      role: "assistant",
+    })
+    const invalidReaction = await conversationsFetch(
+      new Request(
+        "http://localhost/conversations/conv-1/messages/msg-reaction/reaction",
+        {
+          body: JSON.stringify({ note: 123, type: "thumbs_down" }),
+          headers: { "content-type": "application/json" },
+          method: "POST",
+        },
+      ),
+    )
+    expect(invalidReaction.status).toBe(400)
+  })
+
+  it("compensa mensagens criadas quando uma escrita subsequente falha", async () => {
+    mockPrisma.conversationAttachment.updateMany.mockRejectedValueOnce(
+      new Error("attachment update failed"),
+    )
+
+    const response = await conversationsFetch(
+      new Request("http://localhost/conversations/conv-1/messages", {
+        body: JSON.stringify({
+          messages: [
+            {
+              parts: [
+                {
+                  attachmentId: "att-missing",
+                  fileName: "file.pdf",
+                  kind: "document",
+                  mimeType: "application/pdf",
+                  type: "attachment",
+                },
+              ],
+              role: "user",
+            },
+          ],
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+    )
+
+    expect(response.status).toBe(500)
+    expect(state.messages).toEqual([])
   })
 
   it("ja retorna os bastidores no POST de mensagens (nao so no GET seguinte)", async () => {

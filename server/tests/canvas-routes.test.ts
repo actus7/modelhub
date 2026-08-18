@@ -430,6 +430,23 @@ describe("canvas routes", () => {
     expect(state.canvasVersions.filter((version) => version.canvasId === canvas.id)).toHaveLength(2);
   });
 
+  it("registra language null na nova versao quando o cliente limpa a linguagem", async () => {
+    const canvas = seedCanvas({ kind: "code", language: "typescript" });
+
+    const response = await canvasFetch(new Request(`http://localhost/canvas/${canvas.id}`, {
+      body: JSON.stringify({ content: "const value = 2", language: null }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    }));
+
+    expect(response.status).toBe(200);
+    const latest = state.canvasVersions
+      .filter((version) => version.canvasId === canvas.id)
+      .sort((left, right) => right.version - left.version)[0];
+    expect(latest?.language).toBeNull();
+    expect(state.canvases.find((entry) => entry.id === canvas.id)?.language).toBeNull();
+  });
+
   it("restaura uma versão anterior como nova versão ativa", async () => {
     const canvas = seedCanvas();
 

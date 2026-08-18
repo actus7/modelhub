@@ -31,6 +31,7 @@ import {
   shareCanvas,
   updateCanvas,
 } from "@/lib/canvas-client";
+import { downloadTextFile } from "@/lib/conversation-export";
 import { CanvasPreview } from "./canvas-preview";
 
 /** Linguagem usada ao exibir o código-fonte de um canvas que normalmente é renderizado. */
@@ -82,6 +83,17 @@ export function CanvasPanel({
   const [pinOpen, setPinOpen] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [showSource, setShowSource] = useState(false);
+  const activeCanvasIdRef = useRef<string | null>(canvas?.id ?? null);
+  const titleSaveRequestRef = useRef(0);
+  const shareRequestRef = useRef(0);
+
+  useEffect(() => {
+    activeCanvasIdRef.current = canvas?.id ?? null;
+    titleSaveRequestRef.current += 1;
+    shareRequestRef.current += 1;
+    setSavingTitle(false);
+    setShareBusy(false);
+  }, [canvas?.id]);
 
   useEffect(() => {
     setTitle(canvas?.title ?? "");
@@ -94,62 +106,83 @@ export function CanvasPanel({
       setTitle(canvas?.title ?? "");
       return;
     }
+    const canvasId = canvas.id;
+    const requestId = ++titleSaveRequestRef.current;
     setSavingTitle(true);
     try {
-      onCanvasUpdated(await updateCanvas(canvas.id, { title: title.trim() }));
+      const updated = await updateCanvas(canvasId, { title: title.trim() });
+      if (requestId !== titleSaveRequestRef.current || activeCanvasIdRef.current !== canvasId) return;
+      onCanvasUpdated(updated);
       toast.success("Título atualizado.");
     } catch {
-      toast.error("Falha ao atualizar o título.");
-      setTitle(canvas.title);
+      if (requestId === titleSaveRequestRef.current && activeCanvasIdRef.current === canvasId) {
+        toast.error("Falha ao atualizar o título.");
+        setTitle(canvas.title);
+      }
     } finally {
-      setSavingTitle(false);
+      if (requestId === titleSaveRequestRef.current) {
+        setSavingTitle(false);
+      }
     }
   }, [canvas, onCanvasUpdated, title]);
 
   const handleCopy = async () => {
     if (!canvas) return;
-    await navigator.clipboard.writeText(canvas.content);
-    toast.success("Conteúdo copiado.");
+    try {
+      await navigator.clipboard.writeText(canvas.content);
+      toast.success("Conteúdo copiado.");
+    } catch {
+      toast.error("Não foi possível copiar o conteúdo.");
+    }
   };
 
   const handleDownload = () => {
     if (!canvas) return;
     const extension = KIND_EXTENSION[canvas.kind];
-    const blob = new Blob([canvas.content], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${canvas.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 60) || "canvas"}.${extension}`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    const filename = `${canvas.title.replace(/[\\/:*?"<>|]/g, "_").slice(0, 60) || "canvas"}.${extension}`;
+    downloadTextFile(filename, "text/plain;charset=utf-8", canvas.content);
   };
 
   const handleShare = async () => {
     if (!canvas) return;
+    const canvasId = canvas.id;
+    const requestId = ++shareRequestRef.current;
     setShareBusy(true);
     try {
-      const token = canvas.shareToken ?? (await shareCanvas(canvas.id));
+      const token = canvas.shareToken ?? (await shareCanvas(canvasId));
+      if (requestId !== shareRequestRef.current || activeCanvasIdRef.current !== canvasId) return;
       if (!canvas.shareToken) onCanvasUpdated({ ...canvas, shareToken: token });
       await navigator.clipboard.writeText(`${globalThis.location.origin}/share/${token}`);
       toast.success("Link de compartilhamento copiado.");
     } catch {
-      toast.error("Falha ao gerar link de compartilhamento.");
+      if (requestId === shareRequestRef.current && activeCanvasIdRef.current === canvasId) {
+        toast.error("Falha ao gerar link de compartilhamento.");
+      }
     } finally {
-      setShareBusy(false);
+      if (requestId === shareRequestRef.current) {
+        setShareBusy(false);
+      }
     }
   };
 
   const handleRevokeShare = async () => {
     if (!canvas?.shareToken) return;
+    const canvasId = canvas.id;
+    const requestId = ++shareRequestRef.current;
     setShareBusy(true);
     try {
-      await revokeCanvasShare(canvas.id);
+      await revokeCanvasShare(canvasId);
+      if (requestId !== shareRequestRef.current || activeCanvasIdRef.current !== canvasId) return;
       onCanvasUpdated({ ...canvas, shareToken: null });
       toast.success("Compartilhamento revogado.");
     } catch {
-      toast.error("Falha ao revogar o compartilhamento.");
+      if (requestId === shareRequestRef.current && activeCanvasIdRef.current === canvasId) {
+        toast.error("Falha ao revogar o compartilhamento.");
+      }
     } finally {
-      setShareBusy(false);
+      if (requestId === shareRequestRef.current) {
+        setShareBusy(false);
+      }
     }
   };
 
@@ -328,33 +361,60 @@ function VersionsDialog({
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [loadingVersion, setLoadingVersion] = useState(false);
   const [restoring, setRestoring] = useState<number | null>(null);
+  const versionRequestRef = useRef(0);
+  const restoreRequestRef = useRef(0);
+
+  useEffect(() => {
+    versionRequestRef.current += 1;
+    restoreRequestRef.current += 1;
+    setPreviewVersion(null);
+    setPreviewContent(null);
+    setLoadingVersion(false);
+  }, [canvas.id, open]);
 
   const selectVersion = async (version: number) => {
     if (version === previewVersion) {
+      versionRequestRef.current += 1;
       setPreviewVersion(null);
       setPreviewContent(null);
+      setLoadingVersion(false);
       return;
     }
+    const requestId = ++versionRequestRef.current;
     setLoadingVersion(true);
     setPreviewVersion(version);
+    setPreviewContent(null);
     try {
-      setPreviewContent((await getCanvasVersion(canvas.id, version)).content);
+      const content = (await getCanvasVersion(canvas.id, version)).content;
+      if (requestId !== versionRequestRef.current) return;
+      setPreviewContent(content);
     } catch {
-      toast.error("Falha ao carregar a versão.");
-      setPreviewVersion(null);
+      if (requestId === versionRequestRef.current) {
+        toast.error("Falha ao carregar a versão.");
+        setPreviewVersion(null);
+      }
     } finally {
-      setLoadingVersion(false);
+      if (requestId === versionRequestRef.current) {
+        setLoadingVersion(false);
+      }
     }
   };
 
   const restore = async (version: number) => {
+    const requestId = ++restoreRequestRef.current;
     setRestoring(version);
     try {
-      onRestored(await restoreCanvasVersion(canvas.id, version));
+      const restored = await restoreCanvasVersion(canvas.id, version);
+      if (requestId !== restoreRequestRef.current) return;
+      onRestored(restored);
     } catch {
-      toast.error("Falha ao restaurar a versão.");
+      if (requestId === restoreRequestRef.current) {
+        toast.error("Falha ao restaurar a versão.");
+      }
     } finally {
-      setRestoring(null);
+      if (requestId === restoreRequestRef.current) {
+        setRestoring(null);
+      }
     }
   };
 
@@ -447,22 +507,31 @@ function PinDialog({
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [pinning, setPinning] = useState<string | null>(null);
-  const loadedRef = useRef(false);
+  const loadRequestRef = useRef(0);
 
   useEffect(() => {
     if (!open) {
-      loadedRef.current = false;
+      loadRequestRef.current += 1;
+      setLoading(false);
       return;
     }
-    if (loadedRef.current) return;
-    loadedRef.current = true;
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     import("@/lib/canvas-client")
       .then(({ listProjects }) => listProjects())
-      .then(setProjects)
-      .catch(() => toast.error("Falha ao carregar projetos."))
-      .finally(() => setLoading(false));
-  }, [open]);
+      .then((nextProjects) => {
+        if (requestId === loadRequestRef.current) setProjects(nextProjects);
+      })
+      .catch(() => {
+        if (requestId === loadRequestRef.current) toast.error("Falha ao carregar projetos.");
+      })
+      .finally(() => {
+        if (requestId === loadRequestRef.current) setLoading(false);
+      });
+    return () => {
+      if (requestId === loadRequestRef.current) loadRequestRef.current += 1;
+    };
+  }, [canvasId, open]);
 
   const handlePin = async (projectId: string) => {
     setPinning(projectId);

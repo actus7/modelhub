@@ -228,6 +228,7 @@ export function ChatPage() {
     string | null
   >(null)
   const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0)
+  const conversationLoadRequestRef = useRef(0)
 
   // Temporary chat mode — messages are never persisted
   const [temporaryChat, setTemporaryChat] = useState(false)
@@ -246,11 +247,16 @@ export function ChatPage() {
   const [includeCanvasContext, setIncludeCanvasContext] = useState(true)
   const [canvasWidth, setCanvasWidth] = useState(() => {
     if (typeof window === "undefined") return 420
-    const stored = Number(window.localStorage.getItem("canvas-panel-width"))
-    return Number.isFinite(stored) && stored >= 340 && stored <= 760
-      ? stored
-      : 420
+    try {
+      const stored = Number(window.localStorage.getItem("canvas-panel-width"))
+      return Number.isFinite(stored) && stored >= 340 && stored <= 760
+        ? stored
+        : 420
+    } catch {
+      return 420
+    }
   })
+  const canvasOpenRequestRef = useRef(0)
   const canvasResizeRef = useRef<{ startX: number; startWidth: number } | null>(
     null,
   )
@@ -276,12 +282,33 @@ export function ChatPage() {
       window.removeEventListener("pointermove", onMove)
       window.removeEventListener("pointerup", onUp)
       setCanvasWidth((current) => {
-        window.localStorage.setItem("canvas-panel-width", String(current))
+        try {
+          window.localStorage.setItem("canvas-panel-width", String(current))
+        } catch {
+          // Persistência é opcional (pode estar bloqueada pelo navegador).
+        }
         return current
       })
     }
     window.addEventListener("pointermove", onMove)
     window.addEventListener("pointerup", onUp)
+  }
+
+  function handleCanvasResizeKeyDown(event: React.KeyboardEvent) {
+    let nextWidth: number | null = null
+    if (event.key === "ArrowLeft") nextWidth = Math.min(760, canvasWidth + 20)
+    if (event.key === "ArrowRight") nextWidth = Math.max(340, canvasWidth - 20)
+    if (event.key === "Home") nextWidth = 340
+    if (event.key === "End") nextWidth = 760
+    if (nextWidth === null) return
+
+    event.preventDefault()
+    setCanvasWidth(nextWidth)
+    try {
+      window.localStorage.setItem("canvas-panel-width", String(nextWidth))
+    } catch {
+      // Persistência é opcional (pode estar bloqueada pelo navegador).
+    }
   }
 
   function loadProjectOptions() {
@@ -293,11 +320,16 @@ export function ChatPage() {
   }
 
   async function openCanvasById(canvasId: string) {
+    const requestId = ++canvasOpenRequestRef.current
     try {
-      setActiveCanvas(await getCanvas(canvasId))
+      const canvas = await getCanvas(canvasId)
+      if (requestId !== canvasOpenRequestRef.current) return
+      setActiveCanvas(canvas)
       setCanvasPanelOpen(true)
     } catch {
-      toast.error("Falha ao abrir o canvas.")
+      if (requestId === canvasOpenRequestRef.current) {
+        toast.error("Falha ao abrir o canvas.")
+      }
     }
   }
 
@@ -840,6 +872,10 @@ export function ChatPage() {
   }
 
   const handleNewChat = useCallback(() => {
+    conversationLoadRequestRef.current += 1
+    canvasOpenRequestRef.current += 1
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
     attachmentsRef.current.forEach(releaseAttachmentPreview)
     setActiveConversationId(null)
     setMessages([])
@@ -848,6 +884,7 @@ export function ChatPage() {
     setEditingMessageId(null)
     setAttachments([])
     setTemporaryChat(false)
+    setPending(false)
     setActiveCanvas(null)
     setCanvasPanelOpen(false)
   }, [])
@@ -911,6 +948,12 @@ export function ChatPage() {
 
   const handleSelectConversation = useCallback(
     async (id: string) => {
+      const requestId = ++conversationLoadRequestRef.current
+      canvasOpenRequestRef.current += 1
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = null
+      setPending(false)
+      setActiveCanvas(null)
       try {
         const data = await apiJson<{
           messages: PersistedConversationMessage[]
@@ -920,6 +963,7 @@ export function ChatPage() {
             projectId: string | null
           }
         }>(`/conversations/${id}/messages`)
+        if (requestId !== conversationLoadRequestRef.current) return
         const persistedAssistantModelLabel = resolveAssistantModelLabel({
           modelId: data.conversation.modelId ?? undefined,
           models: [],
@@ -957,7 +1001,9 @@ export function ChatPage() {
             return null
           })
           .then((canvas) => {
-            if (canvas) setActiveCanvas(canvas)
+            if (requestId === conversationLoadRequestRef.current && canvas) {
+              setActiveCanvas(canvas)
+            }
           })
           .catch(() => {
             // Canvas é opcional ao abrir conversa
@@ -971,7 +1017,9 @@ export function ChatPage() {
           setSelectedModelId(data.conversation.modelId)
         }
       } catch {
-        toast.error("Falha ao carregar conversa.")
+        if (requestId === conversationLoadRequestRef.current) {
+          toast.error("Falha ao carregar conversa.")
+        }
       }
     },
     [providers, setSelectedModelId],
@@ -1145,7 +1193,7 @@ export function ChatPage() {
     const requestPayload = {
       id: crypto.randomUUID(),
       max_tokens: maxOutputTokens,
-      messages: nextConversation,
+      messages: messagesToSend,
       modelId: selectedProvider.hasModels ? selectedModelId : undefined,
       trigger: "submit-message",
     }
@@ -2970,13 +3018,18 @@ export function ChatPage() {
           style={{ width: canvasWidth }}
         >
           <div
-            className="group relative -left-1 z-10 w-2 shrink-0 cursor-col-resize"
+            className="group relative -left-1 z-10 w-2 shrink-0 cursor-col-resize focus-visible:outline-none"
+            aria-valuemax={760}
+            aria-valuemin={340}
+            aria-valuenow={canvasWidth}
             onPointerDown={beginCanvasResize}
+            onKeyDown={handleCanvasResizeKeyDown}
             role="separator"
             aria-orientation="vertical"
             aria-label="Redimensionar painel do canvas"
+            tabIndex={0}
           >
-            <div className="h-full w-full transition-colors group-hover:bg-primary/25" />
+            <div className="h-full w-full transition-colors group-hover:bg-primary/25 group-focus-visible:bg-primary/40" />
           </div>
           <div className="min-h-0 min-w-0 flex-1">
             <CanvasPanel

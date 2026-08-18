@@ -149,7 +149,7 @@ export function createApiApp() {
     return c.json(
       {
         error: {
-          message: err instanceof Error ? err.message : "Internal server error",
+          message: "Internal server error",
         },
       },
       500,

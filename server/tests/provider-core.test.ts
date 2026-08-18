@@ -6,6 +6,7 @@ const mockPrisma = {
     update: vi.fn().mockReturnValue({ catch: vi.fn() }),
   },
   conversationAttachment: { findMany: vi.fn().mockResolvedValue([]) },
+  conversation: { findFirst: vi.fn().mockResolvedValue(null) },
   project: { findFirst: vi.fn().mockResolvedValue(null) },
   projectFile: { findMany: vi.fn().mockResolvedValue([]) },
   providerCredential: { findMany: vi.fn().mockResolvedValue([]) },
@@ -341,6 +342,77 @@ describe("provider payload limits", () => {
     ).rejects.toMatchObject({
       message: 'Modelo "demo-model" nao suporta anexos de imagem',
       status: 400,
+    })
+  })
+})
+
+describe("provider usage correlation and streaming metrics", () => {
+  beforeEach(() => {
+    process.env.REQUIRE_AUTH = "true"
+    vi.clearAllMocks()
+    mockPrisma.apiKey.findFirst.mockResolvedValue({
+      expiresAt: null,
+      id: "key-1",
+      userId: "user-1",
+    })
+    mockPrisma.apiKey.update.mockReturnValue({ catch: vi.fn() })
+    mockPrisma.conversation.findFirst.mockResolvedValue({ id: "conv-1" })
+    mockPrisma.usageLog.create.mockResolvedValue({ id: "log-1" })
+    mockPrisma.usageLog.update.mockReturnValue({ catch: vi.fn() })
+  })
+
+  afterEach(() => {
+    process.env.REQUIRE_AUTH = originalRequireAuth
+  })
+
+  it("correlaciona apenas conversa do usuario e atualiza a duracao ao fim do stream", async () => {
+    const app = createProviderApp({
+      basePath: "/test-provider",
+      chat: async () =>
+        new Response(
+          '0:"ok"\nd:{"usage":{"promptTokens":2,"completionTokens":1}}\n',
+        ),
+      defaultModel: "demo-model",
+      models: [
+        {
+          capabilities: { documents: true, images: false },
+          id: "demo-model",
+          name: "Demo Model",
+        },
+      ],
+      providerId: "test-provider",
+    })
+
+    const response = await app.request("/test-provider/api/chat", {
+      body: JSON.stringify({
+        messages: [{ content: "hello", role: "user" }],
+      }),
+      headers: {
+        authorization: "Bearer sk-test",
+        "content-type": "application/json",
+        "x-modelhub-conversation-id": "conv-1",
+        "x-modelhub-message-id": "assistant-1",
+      },
+      method: "POST",
+    })
+    await response.text()
+
+    await vi.waitFor(() => {
+      expect(mockPrisma.usageLog.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            conversationId: "conv-1",
+            messageId: "assistant-1",
+            userId: "user-1",
+          }),
+        }),
+      )
+      expect(mockPrisma.usageLog.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { durationMs: expect.any(Number) },
+          where: { id: "log-1" },
+        }),
+      )
     })
   })
 })

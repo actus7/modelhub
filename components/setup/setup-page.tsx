@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import {
   AlertCircleIcon,
@@ -212,32 +212,42 @@ export function SetupPage() {
   const [ollamaChecking, setOllamaChecking] = useState(false)
   const [ollamaModels, setOllamaModels] = useState<string[] | null>(null)
   const [ollamaGuideOpen, setOllamaGuideOpen] = useState(false)
+  const ollamaRequestRef = useRef(0)
 
   const checkOllama = useCallback(async () => {
+    const requestId = ++ollamaRequestRef.current
     setOllamaChecking(true)
     try {
       const status = await apiJson<OllamaStatus>("/ollama/api/status?force=1")
-      setOllamaStatus(status)
+      let models: string[] | null = null
       if (status.online) {
         try {
           const data = await apiJson<{ models: Array<{ id: string }> }>("/ollama/api/models")
-          setOllamaModels(data.models.map((m) => m.id))
+          models = data.models.map((m) => m.id)
         } catch {
-          setOllamaModels(null)
+          models = null
         }
-      } else {
+      }
+      if (requestId !== ollamaRequestRef.current) return
+      setOllamaStatus(status)
+      setOllamaModels(models)
+    } catch {
+      if (requestId === ollamaRequestRef.current) {
+        setOllamaStatus(null)
         setOllamaModels(null)
       }
-    } catch {
-      setOllamaStatus(null)
-      setOllamaModels(null)
     } finally {
-      setOllamaChecking(false)
+      if (requestId === ollamaRequestRef.current) {
+        setOllamaChecking(false)
+      }
     }
   }, [])
 
   useEffect(() => {
     void checkOllama()
+    return () => {
+      ollamaRequestRef.current += 1
+    }
   }, [checkOllama])
 
   const sortedProviders = useMemo(

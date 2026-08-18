@@ -271,6 +271,7 @@ async function requireUsefulStreamEvent(
   let bufferedText = ""
   let timer: ReturnType<typeof setTimeout> | undefined
 
+  let handedOffReader = false
   try {
     while (true) {
       const chunk = await Promise.race([
@@ -317,6 +318,8 @@ async function requireUsefulStreamEvent(
       },
     })
 
+    handedOffReader = true
+
     return new Response(stream, {
       headers: response.headers,
       status: response.status,
@@ -324,6 +327,9 @@ async function requireUsefulStreamEvent(
     })
   } finally {
     if (timer) clearTimeout(timer)
+    if (!handedOffReader) {
+      await reader.cancel("Provider stream rejected before useful output").catch(() => undefined)
+    }
   }
 }
 
