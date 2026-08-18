@@ -57,11 +57,17 @@
     "vercel:env:sync": "node scripts/vercel-env-sync.mjs --pull"
   },
   "dependencies": {
+    "@babel/standalone": "^8.0.4",
+    "@codemirror/lang-css": "^6.3.1",
+    "@codemirror/lang-html": "^6.4.12",
+    "@codemirror/lang-javascript": "^6.2.5",
+    "@codemirror/lang-markdown": "^6.5.2",
     "@hono/zod-validator": "^0.9.0",
     "@neondatabase/auth": "0.2.0-beta.1",
     "@neondatabase/serverless": "^1.1.0",
     "@prisma/adapter-neon": "^7.9.1",
     "@prisma/client": "^7.9.1",
+    "@uiw/react-codemirror": "^4.25.11",
     "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -71,6 +77,7 @@
     "jszip": "^3.10.1",
     "katex": "^0.18.4",
     "lucide-react": "^1.29.0",
+    "mermaid": "^11.16.1",
     "next": "16.3.1",
     "next-themes": "^0.4.6",
     "pdfjs-dist": "^6.1.200",
@@ -91,6 +98,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
+    "@types/babel__standalone": "^7.1.9",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",

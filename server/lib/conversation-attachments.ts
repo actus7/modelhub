@@ -343,6 +343,15 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
     return { modelLabel: rawPart.modelLabel, type: "meta" };
   }
 
+  if (
+    rawPart.type === "canvas" &&
+    typeof rawPart.canvasId === "string" &&
+    typeof rawPart.title === "string" &&
+    typeof rawPart.kind === "string"
+  ) {
+    return { canvasId: rawPart.canvasId, kind: rawPart.kind, title: rawPart.title, type: "canvas" };
+  }
+
   return null;
 }
 
@@ -385,6 +394,11 @@ export function hydrateMessageParts(input: {
     }
 
     if (part.type === "meta") {
+      result.push(part);
+      return result;
+    }
+
+    if (part.type === "canvas") {
       result.push(part);
       return result;
     }

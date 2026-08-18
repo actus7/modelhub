@@ -316,3 +316,74 @@ export const MODELHUB_MODELS_ATTEMPTED_HEADER =
  */
 export const MODELHUB_FALLBACK_DIAGNOSTIC_HEADER =
   "x-modelhub-fallback-diagnostic" as const
+
+/** Projeto ativo enviado pelo chat para injeção de contexto (instruções + knowledge). */
+export const MODELHUB_PROJECT_HEADER = "x-modelhub-project-id" as const
+
+export type CanvasKind = "markdown" | "code" | "html" | "react" | "mermaid"
+
+export type CanvasSummary = {
+  id: string
+  conversationId: string
+  title: string
+  kind: CanvasKind
+  language: string | null
+  activeVersion: number
+  shareToken: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export type CanvasDetail = CanvasSummary & {
+  content: string
+  versions: Array<{
+    version: number
+    kind: CanvasKind
+    language: string | null
+    createdAt: string
+  }>
+}
+
+export type ProjectSummary = {
+  id: string
+  name: string
+  description: string | null
+  counts: { conversations: number; files: number; artifacts: number }
+  createdAt: string
+  updatedAt: string
+}
+
+export type ProjectDetail = ProjectSummary & {
+  instructions: string | null
+}
+
+export type ProjectFileSummary = {
+  id: string
+  fileName: string
+  mimeType: string
+  byteSize: number
+  createdAt: string
+}
+
+export type ProjectArtifactSummary = {
+  id: string
+  projectId: string
+  title: string
+  kind: CanvasKind
+  language: string | null
+  currentVersion: number
+  sourceConversationId: string | null
+  sourceCanvasId: string | null
+  shareToken: string | null
+  updatedAt: string
+}
+
+export type ProjectArtifactDetail = ProjectArtifactSummary & {
+  content: string
+  versions: Array<{ version: number; createdAt: string }>
+}
+
+export type ProjectContextPayload = {
+  instructions: string | null
+  knowledge: Array<{ fileName: string; text: string }>
+}
