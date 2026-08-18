@@ -229,13 +229,23 @@ model UsageLog {
   taskCategory   String?
   baselineModelId   String?
   baselineCostUsd   Float?
+  conversationId String?
+  /// Não é único: cada tentativa de fallback entre provedores gera sua própria linha para a mesma mensagem.
+  messageId      String?
+  /// Tempo até o primeiro byte do stream upstream (TTFT), em ms.
+  ttftMs         Int?
+  /// Tentativas de fallback entre provedores: [{ providerId, modelId, status, durationMs?, errorSnippet }].
+  attempts       Json?
   createdAt      DateTime @default(now())
 
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  apiKey ApiKey? @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  apiKey       ApiKey?       @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([apiKeyId])
+  @@index([conversationId])
+  @@index([messageId])
 }
 
 model Conversation {
@@ -256,6 +266,7 @@ model Conversation {
   attachments ConversationAttachment[]
   canvases  Canvas[]
   artifacts ProjectArtifact[] @relation("ArtifactSourceConversation")
+  usageLogs UsageLog[]
 
   @@index([userId, updatedAt])
   @@index([projectId, updatedAt])
@@ -286,6 +297,8 @@ model MessageReaction {
   messageId String
   userId    String
   type      String   // "thumbs_up" | "thumbs_down"
+  /// Nota curta opcional explicando a reação (ex.: por que a resposta foi ruim).
+  note      String?
   createdAt DateTime @default(now())
 
   message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
