@@ -5,6 +5,8 @@ import { useParams } from "next/navigation";
 import { BotIcon, Loader2Icon, UserIcon } from "lucide-react";
 
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { CanvasPreview } from "@/components/canvas/canvas-preview";
+import type { CanvasKind } from "@/lib/contracts";
 
 type SharedMessage = {
   id: string;
@@ -20,32 +22,58 @@ type SharedConversation = {
   messages: SharedMessage[];
 };
 
-export default function SharedConversationPage() {
+type SharedCanvas = {
+  title: string;
+  kind: CanvasKind;
+  language: string | null;
+  content: string;
+  createdAt: string;
+};
+
+type SharedArtifact = {
+  title: string;
+  kind: CanvasKind;
+  language: string | null;
+  content: string;
+  updatedAt: string;
+};
+
+type SharePayload =
+  | { type: "conversation"; conversation: SharedConversation }
+  | { type: "canvas"; canvas: SharedCanvas }
+  | { type: "artifact"; artifact: SharedArtifact };
+
+export default function SharedContentPage() {
   const params = useParams<{ token: string }>();
-  const [conversation, setConversation] = useState<SharedConversation | null>(null);
+  const [payload, setPayload] = useState<SharePayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchShared() {
       try {
         const response = await fetch(`/api/share/${params.token}`);
 
         if (!response.ok) {
-          setError("Conversa não encontrada ou link expirado.");
+          if (!cancelled) setError("Conteúdo não encontrado ou link expirado.");
           return;
         }
 
-        const data = (await response.json()) as { conversation: SharedConversation };
-        setConversation(data.conversation);
+        const data = (await response.json()) as SharePayload;
+        if (!cancelled) setPayload(data);
       } catch {
-        setError("Falha ao carregar conversa compartilhada.");
+        if (!cancelled) setError("Falha ao carregar o conteúdo compartilhado.");
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
 
     void fetchShared();
+    return () => {
+      cancelled = true;
+    };
   }, [params.token]);
 
   if (loading) {
@@ -56,17 +84,50 @@ export default function SharedConversationPage() {
     );
   }
 
-  if (error || !conversation) {
+  if (error || !payload) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
-          <p className="text-lg font-medium text-foreground">{error ?? "Conversa não encontrada"}</p>
+          <p className="text-lg font-medium text-foreground">{error ?? "Conteúdo não encontrado"}</p>
           <p className="mt-2 text-sm text-muted-foreground">O link pode estar expirado ou ser inválido.</p>
         </div>
       </div>
     );
   }
 
+  if (payload.type === "conversation") {
+    return <ConversationView conversation={payload.conversation} />;
+  }
+
+  const canvasLike = payload.type === "canvas" ? payload.canvas : payload.artifact;
+  const dateLabel =
+    payload.type === "canvas"
+      ? new Date(payload.canvas.createdAt).toLocaleDateString("pt-BR")
+      : new Date(payload.artifact.updatedAt).toLocaleDateString("pt-BR");
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="border-b border-border/60 bg-background/80 px-4 py-3">
+        <div className="mx-auto max-w-3xl">
+          <h1 className="text-sm font-medium">{canvasLike.title}</h1>
+          <p className="text-xs text-muted-foreground">
+            {payload.type === "canvas" ? "Canvas" : "Artefato"} · {canvasLike.kind}
+            {canvasLike.language ? ` (${canvasLike.language})` : ""} — {dateLabel}
+          </p>
+        </div>
+      </div>
+      <div className="mx-auto max-w-3xl py-4">
+        <CanvasPreview
+          content={canvasLike.content}
+          kind={canvasLike.kind}
+          language={canvasLike.language}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ConversationView({ conversation }: { conversation: SharedConversation }) {
   return (
     <div className="min-h-screen bg-background">
       <div className="border-b border-border/60 bg-background/80 px-4 py-3">

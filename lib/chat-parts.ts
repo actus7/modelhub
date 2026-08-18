@@ -32,7 +32,7 @@ type MetaPart = {
   type: "meta";
 };
 
-type CanvasReferencePart = {
+export type CanvasReferencePart = {
   canvasId: string;
   /** CanvasKind: markdown | code | html | react | mermaid */
   kind: string;

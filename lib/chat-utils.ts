@@ -259,6 +259,11 @@ export function hydrateChatMessage(input: {
     ? extractMetaModelLabel(input.message.parts)
     : undefined
 
+  const assistantCanvasParts =
+    input.message.role === "assistant"
+      ? input.message.parts?.filter((part) => part.type === "canvas") ?? []
+      : undefined;
+
   return {
     content:
       input.message.role === "assistant"
@@ -267,7 +272,12 @@ export function hydrateChatMessage(input: {
     createdAt: input.message.createdAt,
     id: input.message.id,
     modelLabel: input.message.role === "assistant" ? (metaLabel ?? input.assistantModelLabel) : undefined,
-    parts: input.message.role === "user" ? input.message.parts : undefined,
+    parts:
+      input.message.role === "user"
+        ? input.message.parts
+        : assistantCanvasParts && assistantCanvasParts.length > 0
+          ? assistantCanvasParts
+          : undefined,
     role: input.message.role,
     toolCalls: [],
   };

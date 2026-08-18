@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { Hono } from 'hono'
 import { z } from 'zod'
 
-import { MODELHUB_FALLBACK_DIAGNOSTIC_HEADER } from '@/lib/contracts'
+import { MODELHUB_FALLBACK_DIAGNOSTIC_HEADER, MODELHUB_PROJECT_HEADER } from '@/lib/contracts'
 import type { ProviderModelCapabilities } from '@/lib/chat-parts'
 import type { ProviderModel } from '@/lib/contracts'
 import { prisma } from './db'
@@ -129,6 +129,11 @@ const MAX_PARTS_PER_MESSAGE = 64
 const MAX_MESSAGE_TEXT_LENGTH = 256_000
 export const MAX_PROVIDER_REQUEST_BODY_BYTES = 4 * 1024 * 1024
 const MAX_PROVIDER_IMAGE_URL_LENGTH = 4 * 1024 * 1024
+
+/** Caps de injeção de contexto de projeto — mesmos valores do GET /projects/:id/context. */
+export const PROJECT_INSTRUCTIONS_CHAR_CAP = 20_000
+export const PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP = 20_000
+export const PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP = 60_000
 
 const rawMessagePartSchema = z
   .object({
@@ -429,10 +434,58 @@ async function loadAttachments(
   }]))
 }
 
-async function buildUserContextMessage(userId: string): Promise<ChatMessage | null> {
-  const findUserSettings = prisma.userSettings?.findUnique?.bind(prisma.userSettings)
-  const findUserMemories = prisma.userMemory?.findMany?.bind(prisma.userMemory)
-  const [userSettings, userMemories] = await Promise.all([
+/**
+ * Busca o contexto de projeto (instruções + knowledge) apenas quando o projeto
+ * pertence ao usuário autenticado (`userId` no where). Projeto inválido ou de
+ * outro usuário → retorna null silenciosamente (sem vazar informação).
+ */
+async function buildProjectContextSection(projectId: string, userId: string): Promise<string | null> {
+  const findProject = prisma.project?.findFirst?.bind?.(prisma.project)
+  if (!findProject) return null
+
+  const project = await findProject({ where: { id: projectId, userId } })
+  if (!project) return null
+
+  const sectionParts: string[] = []
+  const instructions = project.instructions?.slice(0, PROJECT_INSTRUCTIONS_CHAR_CAP)
+  if (instructions) {
+    sectionParts.push(`Project instructions:\n${instructions}`)
+  }
+
+  const findProjectFiles = prisma.projectFile?.findMany?.bind?.(prisma.projectFile)
+  if (findProjectFiles) {
+    const files = await findProjectFiles({
+      where: { projectId: project.id, extractedText: { not: null } },
+      select: { extractedText: true, fileName: true },
+      orderBy: { createdAt: 'asc' },
+    })
+
+    let remaining = PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP
+    const knowledgeBlocks: string[] = []
+    for (const file of files) {
+      if (remaining <= 0) break
+      const text = (file.extractedText ?? '').slice(0, Math.min(PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP, remaining))
+      if (!text) continue
+      knowledgeBlocks.push(`[${file.fileName}]\n${text}`)
+      remaining -= text.length
+    }
+    if (knowledgeBlocks.length > 0) {
+      sectionParts.push(`Project knowledge:\n${knowledgeBlocks.join('\n\n')}`)
+    }
+  }
+
+  if (sectionParts.length === 0) return null
+  return sectionParts.join('\n\n')
+}
+
+async function buildUserContextMessage(userId: string, projectId?: string): Promise<ChatMessage | null> {
+  const findUserSettings = prisma.userSettings?.findUnique?.bind?.(prisma.userSettings)
+  const findUserMemories = prisma.userMemory?.findMany?.bind?.(prisma.userMemory)
+  const projectContextPromise = projectId
+    ? buildProjectContextSection(projectId, userId)
+    : Promise.resolve<string | null>(null)
+
+  const [userSettings, userMemories, projectContext] = await Promise.all([
     findUserSettings
       ? findUserSettings({ where: { userId } })
       : Promise.resolve<UserSettingsRecord | null>(null),
@@ -444,6 +497,7 @@ async function buildUserContextMessage(userId: string): Promise<ChatMessage | nu
           take: 50,
         })
       : Promise.resolve<UserMemoryRecord[]>([]),
+    projectContextPromise,
   ])
 
   const systemParts: string[] = []
@@ -455,6 +509,9 @@ async function buildUserContextMessage(userId: string): Promise<ChatMessage | nu
   }
   if (userMemories.length > 0) {
     systemParts.push(`User memories:\n${userMemories.map((m) => `- ${m.content}`).join('\n')}`)
+  }
+  if (projectContext) {
+    systemParts.push(projectContext)
   }
 
   if (systemParts.length === 0) return null
@@ -529,6 +586,7 @@ export async function resolveMessagesForProvider(input: {
   modelId: string
   modelCapabilities?: ProviderModelCapabilities
   userId?: string
+  projectId?: string
 }): Promise<ChatMessage[]> {
   const modelCapabilities =
     input.modelCapabilities ??
@@ -539,7 +597,7 @@ export async function resolveMessagesForProvider(input: {
 
   const resolvedMessages: ChatMessage[] = []
   if (input.userId) {
-    const ctx = await buildUserContextMessage(input.userId)
+    const ctx = await buildUserContextMessage(input.userId, input.projectId)
     if (ctx) resolvedMessages.push(ctx)
   }
 
@@ -1471,6 +1529,7 @@ export function createProviderApp(config: ProviderConfig) {
       // 1. Credenciais do banco (menor prioridade)
       const userId = c.get('userId') as string | undefined
       const apiKeyId = c.get('apiKeyId') as string | undefined
+      const projectId = c.req.header(MODELHUB_PROJECT_HEADER)?.trim() || undefined
       const dbCredentials = await getUserProviderCredentials(userId, config.providerId)
 
       // 2. Credenciais do header (maior prioridade — sobrescrevem as do banco)
@@ -1497,6 +1556,7 @@ export function createProviderApp(config: ProviderConfig) {
         modelId,
         modelCapabilities,
         userId,
+        projectId,
       })
 
       // Verificar orçamento antes de processar

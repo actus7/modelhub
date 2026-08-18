@@ -5,15 +5,20 @@ import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
   type CloudDeploymentSummary,
+  type CanvasDetail,
   type ProviderModel,
+  type ProjectSummary,
   type UiProvider,
+  MODELHUB_PROJECT_HEADER,
 } from "@/lib/contracts";
 import {
-  createMessageContentFallback,
   type AttachmentExtractionStatus,
   type AttachmentKind,
+  type CanvasReferencePart,
   type ConversationAttachmentDescriptor,
   type HydratedAttachmentPart,
+  type HydratedConversationMessagePart,
+  createMessageContentFallback,
 } from "@/lib/chat-parts";
 import {
   BotIcon,
@@ -21,6 +26,7 @@ import {
   CopyIcon,
   DownloadIcon,
   ExternalLinkIcon,
+  FrameIcon,
   KeyRoundIcon,
   Loader2Icon,
   MessageSquarePlusIcon,
@@ -44,9 +50,11 @@ import {
 import { toast } from "sonner";
 
 import { useAppState } from "@/components/app-state-provider";
+import { CanvasPanel } from "@/components/canvas/canvas-panel";
 import { ChatHistorySidebar } from "@/components/chat/chat-history-sidebar";
 import { SettingsDialog } from "@/components/chat/settings-dialog";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   buildExportFilename,
   conversationToJson,
@@ -76,20 +84,14 @@ import {
   InputGroupText,
 } from "@/components/ui/input-group";
 
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectSeparator,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 import { apiFetch, apiJson, apiJsonRequest } from "@/lib/api";
+import { createCanvas, getCanvas, listCanvases, listProjects, updateCanvas } from "@/lib/canvas-client";
+import { buildDisplayText, detectCanvas } from "@/lib/canvas-detector";
 import { saveProviderCredentials } from "@/lib/save-provider-credentials";
 import {
   getBrowserChatProviderAdapter,
@@ -179,6 +181,61 @@ export function ChatPage() {
     useState<BrowserProviderAuthState>("unknown");
 
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
+  const isMobile = useIsMobile();
+
+  // Canvas workspace (spec v2 — fase 2)
+  const [activeCanvas, setActiveCanvas] = useState<CanvasDetail | null>(null);
+  const [canvasPanelOpen, setCanvasPanelOpen] = useState(false);
+  const [includeCanvasContext, setIncludeCanvasContext] = useState(true);
+  const [canvasWidth, setCanvasWidth] = useState(() => {
+    if (typeof window === "undefined") return 420;
+    const stored = Number(window.localStorage.getItem("canvas-panel-width"));
+    return Number.isFinite(stored) && stored >= 340 && stored <= 760 ? stored : 420;
+  });
+  const canvasResizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+
+  // Projeto ativo (contexto de projeto na conversa)
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+  const [projectOptions, setProjectOptions] = useState<ProjectSummary[]>([]);
+
+  function beginCanvasResize(event: React.PointerEvent) {
+    event.preventDefault();
+    canvasResizeRef.current = { startX: event.clientX, startWidth: canvasWidth };
+    const onMove = (moveEvent: PointerEvent) => {
+      const state = canvasResizeRef.current;
+      if (!state) return;
+      const next = Math.min(760, Math.max(340, state.startWidth - (moveEvent.clientX - state.startX)));
+      setCanvasWidth(next);
+    };
+    const onUp = () => {
+      canvasResizeRef.current = null;
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setCanvasWidth((current) => {
+        window.localStorage.setItem("canvas-panel-width", String(current));
+        return current;
+      });
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  function loadProjectOptions() {
+    listProjects()
+      .then(setProjectOptions)
+      .catch(() => {
+        // silencioso — seletor mostra apenas "Sem projeto"
+      });
+  }
+
+  async function openCanvasById(canvasId: string) {
+    try {
+      setActiveCanvas(await getCanvas(canvasId));
+      setCanvasPanelOpen(true);
+    } catch {
+      toast.error("Falha ao abrir o canvas.");
+    }
+  }
 
   // Stop generation
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -224,16 +281,42 @@ export function ChatPage() {
   const searchParams = useSearchParams();
   useEffect(() => {
     const openclawId = searchParams.get("openclaw");
-    if (!openclawId) return;
-    const targetProviderId = `openclaw:${openclawId}`;
-    const exists = openclawDeployments.some((d) => d.id === openclawId);
-    if (exists) {
-      setSelectedProviderId(targetProviderId);
+    if (openclawId) {
+      const targetProviderId = `openclaw:${openclawId}`;
+      const exists = openclawDeployments.some((d) => d.id === openclawId);
+      if (exists) {
+        setSelectedProviderId(targetProviderId);
+        const url = new URL(window.location.href);
+        url.searchParams.delete("openclaw");
+        window.history.replaceState({}, "", url.toString());
+      }
+    }
+
+    // ?project=<id>&new=1 — nova conversa vinculada ao projeto (spec v2)
+    const projectId = searchParams.get("project");
+    if (projectId) {
+      setActiveProjectId(projectId);
+      if (searchParams.get("new") === "1") {
+        attachmentsRef.current.forEach(releaseAttachmentPreview);
+        setActiveConversationId(null);
+        setMessages([]);
+        setConversation([]);
+        setInput("");
+        setAttachments([]);
+        setActiveCanvas(null);
+        setCanvasPanelOpen(false);
+      }
       const url = new URL(window.location.href);
-      url.searchParams.delete("openclaw");
+      url.searchParams.delete("project");
+      url.searchParams.delete("new");
       window.history.replaceState({}, "", url.toString());
     }
   }, [searchParams, openclawDeployments]);
+
+  // Carrega opções de projeto para o seletor do composer (uma vez)
+  useEffect(() => {
+    loadProjectOptions();
+  }, []);
 
   const autoProvider = useMemo<UiProvider>(() => ({
     base: "/v1",
@@ -499,6 +582,7 @@ export function ChatPage() {
       conversation: { id: string };
     }>("/conversations", "POST", {
       modelId: selectedModelId || undefined,
+      projectId: activeProjectId ?? undefined,
       providerId: selectedProviderId || undefined,
       title: titleSeed || "Nova conversa",
     });
@@ -629,6 +713,8 @@ export function ChatPage() {
     setEditingMessageId(null);
     setAttachments([]);
     setTemporaryChat(false);
+    setActiveCanvas(null);
+    setCanvasPanelOpen(false);
   }, []);
 
   // Stop generation
@@ -664,7 +750,7 @@ export function ChatPage() {
     try {
       const data = await apiJson<{
         messages: PersistedConversationMessage[];
-        conversation: { providerId: string | null; modelId: string | null };
+        conversation: { providerId: string | null; modelId: string | null; projectId: string | null };
       }>(`/conversations/${id}/messages`);
       const persistedAssistantModelLabel = resolveAssistantModelLabel({
         modelId: data.conversation.modelId ?? undefined,
@@ -675,6 +761,7 @@ export function ChatPage() {
       attachmentsRef.current.forEach(releaseAttachmentPreview);
       setActiveConversationId(id);
       setAttachments([]);
+      setActiveProjectId(data.conversation.projectId ?? null);
       setMessages(data.messages.map((message) => hydrateChatMessage({
         assistantModelLabel: persistedAssistantModelLabel,
         message,
@@ -686,6 +773,21 @@ export function ChatPage() {
           role: message.role,
         })),
       );
+
+      // Abre o canvas mais recente da conversa (se houver) sem forçar foco.
+      listCanvases(id)
+        .then((canvases) => {
+          if (canvases.length > 0) {
+            return getCanvas(canvases[0]!.id);
+          }
+          return null;
+        })
+        .then((canvas) => {
+          if (canvas) setActiveCanvas(canvas);
+        })
+        .catch(() => {
+          // Canvas é opcional ao abrir conversa
+        });
 
       // Restore provider/model if available
       if (data.conversation.providerId) {
@@ -800,6 +902,27 @@ export function ChatPage() {
       },
     ];
 
+    // Contexto do canvas ativo (spec: role user prefixada, cap 20k, não persiste/não aparece na UI)
+    const canvasContextMessage: ConversationMessage | null =
+      activeCanvas && canvasPanelOpen && includeCanvasContext
+        ? {
+            id: crypto.randomUUID(),
+            parts: [
+              {
+                text: `[canvas ativo: ${activeCanvas.title}]\n${activeCanvas.content.slice(0, 20_000)}`,
+                type: "text" as const,
+              },
+            ],
+            role: "user" as const,
+          }
+        : null;
+    const messagesToSend: ConversationMessage[] = canvasContextMessage
+      ? [...nextConversation.slice(0, -1), canvasContextMessage, nextConversation.at(-1)!]
+      : nextConversation;
+    const projectHeaders: Record<string, string> = activeProjectId
+      ? { [MODELHUB_PROJECT_HEADER]: activeProjectId }
+      : {};
+
     const maxOutputTokens = resolveMaxOutputTokens({
       model: selectedModel,
       modelId: selectedModelId,
@@ -857,8 +980,9 @@ export function ChatPage() {
         }
 
         fullText = await browserProviderAdapter.stream({
-          conversationMessages: nextConversation,
+          conversationMessages: messagesToSend,
           modelId: selectedModelId,
+          projectId: activeProjectId ?? undefined,
           signal: controller.signal,
           onTextDelta(delta) {
             setMessages((current) =>
@@ -878,11 +1002,12 @@ export function ChatPage() {
         {
           body: JSON.stringify(
             selectedProviderId === AUTO_PROVIDER_ID
-              ? { max_tokens: requestPayload.max_tokens, messages: nextConversation, model: selectedModelId }
-              : requestPayload,
+              ? { max_tokens: requestPayload.max_tokens, messages: messagesToSend, model: selectedModelId }
+              : { ...requestPayload, messages: messagesToSend },
           ),
           headers: {
             "Content-Type": "application/json",
+            ...projectHeaders,
           },
           method: "POST",
           signal: controller.signal,
@@ -974,26 +1099,77 @@ export function ChatPage() {
       }
 
       if (fullText) {
+        // Detecção de canvas (client-side, pós-stream — spec v2)
+        let assistantParts: HydratedConversationMessagePart[] = [{ text: fullText, type: "text" }];
+        let displayContent = fullText;
+        let convIdEarly = activeConversationId;
+        let createdConversation = false;
+
+        const suggestion = temporaryChat ? null : detectCanvas(fullText);
+        if (suggestion) {
+          try {
+            if (!convIdEarly) {
+              convIdEarly = await ensureConversationId(
+                text || currentAttachments[0]?.fileName || suggestion.title,
+              );
+              createdConversation = true;
+            }
+            const activeInConversation =
+              activeCanvas && activeCanvas.conversationId === convIdEarly;
+            const canvas = activeInConversation
+              ? await updateCanvas(activeCanvas.id, {
+                  content: suggestion.content,
+                  kind: suggestion.kind,
+                  language: suggestion.language,
+                })
+              : await createCanvas(convIdEarly, {
+                  content: suggestion.content,
+                  kind: suggestion.kind,
+                  language: suggestion.language,
+                  title: suggestion.title,
+                });
+            setActiveCanvas(canvas);
+            setCanvasPanelOpen(true);
+            displayContent = buildDisplayText(fullText, suggestion);
+            const canvasPart: CanvasReferencePart = {
+              canvasId: canvas.id,
+              kind: canvas.kind,
+              title: canvas.title,
+              type: "canvas",
+            };
+            assistantParts = displayContent
+              ? [{ text: displayContent, type: "text" }, canvasPart]
+              : [canvasPart];
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId ? { ...message, content: displayContent } : message,
+              ),
+            );
+          } catch {
+            // Canvas é best-effort: mantém o texto completo na bolha.
+          }
+        }
+
         setConversation((current) => [
           ...current,
           {
             id: assistantMessageId,
-            parts: [{ text: fullText, type: "text" }],
+            parts: assistantParts,
             role: "assistant",
           },
         ]);
 
         // Persist conversation (skip in temporary chat mode)
         if (!temporaryChat) try {
-          let convId = activeConversationId;
-          let isNewConversation = false;
+          let convId = convIdEarly;
+          let isNewConversation = createdConversation;
           if (!convId) {
             convId = await ensureConversationId(text || currentAttachments[0]?.fileName || "Nova conversa");
             isNewConversation = true;
           }
           const persisted = await persistMessagesForConversation(convId, [
             { parts: messageParts, role: "user" },
-            { content: fullText, modelLabel: effectiveModelLabel, parts: [{ text: fullText, type: "text" }], role: "assistant" },
+            { content: displayContent, modelLabel: effectiveModelLabel, parts: assistantParts, role: "assistant" },
           ]);
           const [persistedUserMessage, persistedAssistantMessage] = persisted.messages;
           if (persistedUserMessage && persistedAssistantMessage) {
@@ -1661,14 +1837,27 @@ export function ChatPage() {
                         </div>
                       </div>
                     ) : message.role === "assistant" ? (
-                      message.content ? (
-                        <div className="min-w-0 max-w-full overflow-hidden prose-sm">
-                          <MarkdownRenderer content={message.content} />
-                          {/* Blinking cursor during streaming */}
-                          {pending && messageIndex === messages.length - 1 && !message.isError && (
-                            <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-foreground/70" />
-                          )}
-                        </div>
+                      message.content || message.parts?.some((part) => part.type === "canvas") ? (
+                        <>
+                          {message.content ? (
+                            <div className="min-w-0 max-w-full overflow-hidden prose-sm">
+                              <MarkdownRenderer content={message.content} />
+                              {/* Blinking cursor during streaming */}
+                              {pending && messageIndex === messages.length - 1 && !message.isError && (
+                                <span className="ml-0.5 inline-block h-4 w-1.5 animate-pulse rounded-sm bg-foreground/70" />
+                              )}
+                            </div>
+                          ) : null}
+                          {message.parts
+                            ?.filter((part): part is CanvasReferencePart => part.type === "canvas")
+                            .map((part) => (
+                              <CanvasMessageCard
+                                key={part.canvasId}
+                                onOpen={() => void openCanvasById(part.canvasId)}
+                                part={part}
+                              />
+                            ))}
+                        </>
                       ) : (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Loader2Icon className="size-3 animate-spin" />
@@ -1970,6 +2159,29 @@ export function ChatPage() {
                     Limites: {formatBytes(MAX_ATTACHMENT_FILE_BYTES)} por imagem, {formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} em imagens, {formatBytes(MAX_DOCUMENT_ATTACHMENT_FILE_BYTES)} por documento, {formatBytes(MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES)} em documentos e {formatBytes(MAX_SERIALIZED_CHAT_REQUEST_BYTES)} por request.
                   </TooltipContent>
                 </Tooltip>
+                {projectOptions.length > 0 ? (
+                  <Select
+                    onValueChange={(value) =>
+                      setActiveProjectId(value === "__none__" ? null : value)
+                    }
+                    value={activeProjectId ?? "__none__"}
+                  >
+                    <SelectTrigger
+                      className="h-7 w-auto max-w-[150px] shrink-0 border-dashed text-[11px]"
+                      title="Projeto do contexto da conversa"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Sem projeto</SelectItem>
+                      {projectOptions.map((project) => (
+                        <SelectItem key={project.id} value={project.id}>
+                          <span className="max-w-[180px] truncate">{project.name}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : null}
                 <InputGroupText className="max-w-[55vw] truncate text-xs sm:max-w-none">
                   {selectedProvider?.label ?? "Provider"}
                   {selectedModelId ? ` · ${models.find((model) => model.id === selectedModelId)?.name ?? selectedModelId}` : ""}
@@ -2058,8 +2270,56 @@ export function ChatPage() {
       </Dialog>
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       </div>
+
+      {/* Painel do canvas — split-pane redimensionável no desktop, sheet no mobile */}
+      {isMobile ? (
+        <Sheet onOpenChange={setCanvasPanelOpen} open={canvasPanelOpen}>
+          <SheetContent className="h-[92vh] w-full p-0 sm:max-w-full" side="bottom">
+            <SheetHeader className="sr-only">
+              <SheetTitle>Canvas</SheetTitle>
+            </SheetHeader>
+            <div className="h-full">
+              <CanvasPanel
+                canvas={activeCanvas}
+                includeInContext={includeCanvasContext}
+                loading={false}
+                onClose={() => setCanvasPanelOpen(false)}
+                onCanvasUpdated={setActiveCanvas}
+                onIncludeInContextChange={setIncludeCanvasContext}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      ) : canvasPanelOpen ? (
+        <div
+          className="hidden h-full min-h-0 shrink-0 border-l border-border/60 bg-background md:flex"
+          style={{ width: canvasWidth }}
+        >
+          <div
+            className="group relative -left-1 z-10 w-2 shrink-0 cursor-col-resize"
+            onPointerDown={beginCanvasResize}
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Redimensionar painel do canvas"
+          >
+            <div className="h-full w-full transition-colors group-hover:bg-primary/25" />
+          </div>
+          <div className="min-h-0 min-w-0 flex-1">
+            <CanvasPanel
+              canvas={activeCanvas}
+              includeInContext={includeCanvasContext}
+              loading={false}
+              onClose={() => setCanvasPanelOpen(false)}
+              onCanvasUpdated={setActiveCanvas}
+              onIncludeInContextChange={setIncludeCanvasContext}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <ChatHistorySidebar
         activeConversationId={activeConversationId}
+        activeProjectId={activeProjectId}
         mobileSheetOpen={mobileHistoryOpen}
         onMobileSheetOpenChange={setMobileHistoryOpen}
         onSelectConversation={(id) => void handleSelectConversation(id)}
@@ -2067,5 +2327,40 @@ export function ChatPage() {
         refreshKey={sidebarRefreshKey}
       />
     </div>
+  );
+}
+
+const CANVAS_KIND_ICON_LABEL: Record<string, string> = {
+  code: "Código",
+  html: "HTML",
+  markdown: "Documento",
+  mermaid: "Diagrama",
+  react: "React",
+};
+
+function CanvasMessageCard({
+  onOpen,
+  part,
+}: {
+  onOpen: () => void;
+  part: CanvasReferencePart;
+}) {
+  return (
+    <button
+      className="mt-2 flex w-full items-center gap-2.5 rounded-xl border border-border/60 bg-background/60 px-3 py-2.5 text-left transition-colors hover:border-primary/40 hover:bg-muted"
+      onClick={onOpen}
+      type="button"
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <FrameIcon className="size-4" />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-xs font-medium">{part.title}</span>
+        <span className="block text-[10px] text-muted-foreground">
+          Canvas · {CANVAS_KIND_ICON_LABEL[part.kind] ?? part.kind}
+        </span>
+      </span>
+      <ExternalLinkIcon className="size-3.5 shrink-0 text-muted-foreground" />
+    </button>
   );
 }

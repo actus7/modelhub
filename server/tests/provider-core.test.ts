@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPrisma = {
+  apiKey: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn().mockReturnValue({ catch: vi.fn() }) },
   conversationAttachment: { findMany: vi.fn().mockResolvedValue([]) },
+  project: { findFirst: vi.fn().mockResolvedValue(null) },
+  projectFile: { findMany: vi.fn().mockResolvedValue([]) },
   providerCredential: { findMany: vi.fn().mockResolvedValue([]) },
-  usageLog: { create: vi.fn().mockReturnValue({ catch: vi.fn() }) },
+  usageLog: { create: vi.fn().mockResolvedValue({ id: "log-1" }) },
+  userBudget: { findUnique: vi.fn().mockResolvedValue(null) },
 };
 
 vi.mock("../lib/db", () => ({ prisma: mockPrisma }));
@@ -269,6 +273,176 @@ describe("provider payload limits", () => {
       message: 'Modelo "demo-model" nao suporta anexos de imagem',
       status: 400,
     });
+  });
+});
+
+describe("project context injection", () => {
+  const demoConfig = {
+    basePath: "/test-provider",
+    chat: async () => new Response("ok"),
+    defaultModel: "demo-model",
+    models: [{ capabilities: { documents: true, images: false }, id: "demo-model", name: "Demo Model" }],
+    providerId: "test-provider",
+  };
+
+  beforeEach(() => {
+    process.env.REQUIRE_AUTH = "false";
+    vi.clearAllMocks();
+  });
+
+  function systemContent(messages: Array<{ content: string | unknown[]; role: string }>): string {
+    const system = messages[0];
+    expect(system?.role).toBe("system");
+    expect(typeof system?.content).toBe("string");
+    return system?.content as string;
+  }
+
+  it("injects owned project instructions and knowledge into the system context", async () => {
+    mockPrisma.project.findFirst.mockResolvedValueOnce({
+      description: null,
+      id: "proj-1",
+      instructions: "Sempre responda em pt-BR",
+      name: "Projeto Alpha",
+      userId: "user-1",
+    });
+    mockPrisma.projectFile.findMany.mockResolvedValueOnce([
+      { extractedText: "Conteúdo do arquivo A", fileName: "a.pdf" },
+      { extractedText: "Conteúdo do arquivo B", fileName: "b.md" },
+    ]);
+
+    const messages = await resolveMessagesForProvider({
+      config: demoConfig,
+      credentials: {},
+      messages: [{ content: "oi", role: "user" }],
+      modelId: "demo-model",
+      projectId: "proj-1",
+      userId: "user-1",
+    });
+
+    const content = systemContent(messages);
+    expect(content).toContain("Project instructions:\nSempre responda em pt-BR");
+    expect(content).toContain("Project knowledge:\n[a.pdf]\nConteúdo do arquivo A");
+    expect(content).toContain("[b.md]\nConteúdo do arquivo B");
+    expect(messages[1]?.content).toBe("oi");
+  });
+
+  it("validates ownership with findFirst({ id, userId }) and ignores another user's project", async () => {
+    // findFirst com o userId do solicitante não encontra projeto de outro usuário
+    mockPrisma.project.findFirst.mockResolvedValueOnce(null);
+
+    const messages = await resolveMessagesForProvider({
+      config: demoConfig,
+      credentials: {},
+      messages: [{ content: "oi", role: "user" }],
+      modelId: "demo-model",
+      projectId: "proj-other",
+      userId: "user-1",
+    });
+
+    expect(mockPrisma.project.findFirst).toHaveBeenCalledWith({
+      where: { id: "proj-other", userId: "user-1" },
+    });
+    expect(mockPrisma.projectFile.findMany).not.toHaveBeenCalled();
+    // Sem settings/memories e sem projeto válido → nenhuma mensagem de sistema extra
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.content).toBe("oi");
+  });
+
+  it("does not fetch project context when projectId is absent", async () => {
+    const messages = await resolveMessagesForProvider({
+      config: demoConfig,
+      credentials: {},
+      messages: [{ content: "oi", role: "user" }],
+      modelId: "demo-model",
+      userId: "user-1",
+    });
+
+    expect(messages).toHaveLength(1);
+    expect(mockPrisma.project.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.projectFile.findMany).not.toHaveBeenCalled();
+  });
+
+  it("enforces instructions 20k cap and knowledge per-file 20k / total 60k caps", async () => {
+    mockPrisma.project.findFirst.mockResolvedValueOnce({
+      description: null,
+      id: "proj-1",
+      instructions: "i".repeat(25_000),
+      name: "Projeto Alpha",
+      userId: "user-1",
+    });
+    mockPrisma.projectFile.findMany.mockResolvedValueOnce([
+      { extractedText: "x".repeat(25_000), fileName: "a.pdf" },
+      { extractedText: "y".repeat(25_000), fileName: "b.pdf" },
+      { extractedText: "z".repeat(25_000), fileName: "c.pdf" },
+      { extractedText: "w".repeat(25_000), fileName: "d.pdf" },
+    ]);
+
+    const messages = await resolveMessagesForProvider({
+      config: demoConfig,
+      credentials: {},
+      messages: [{ content: "oi", role: "user" }],
+      modelId: "demo-model",
+      projectId: "proj-1",
+      userId: "user-1",
+    });
+
+    const content = systemContent(messages);
+    // instruções: 20k máx
+    expect(content).toContain(`Project instructions:\n${"i".repeat(20_000)}`);
+    expect(content).not.toContain("i".repeat(20_001));
+    // knowledge: cada arquivo cortado a 20k e agregado a 60k (4º arquivo fica de fora)
+    expect(content).toContain(`[a.pdf]\n${"x".repeat(20_000)}`);
+    expect(content).toContain(`[b.pdf]\n${"y".repeat(20_000)}`);
+    expect(content).toContain(`[c.pdf]\n${"z".repeat(20_000)}`);
+    expect(content).not.toContain("[d.pdf]");
+    expect(content).not.toContain("w".repeat(20_000));
+  });
+
+  it("reads x-modelhub-project-id header and injects project context via /api/chat", async () => {
+    process.env.REQUIRE_AUTH = "true";
+    mockPrisma.apiKey.findFirst.mockResolvedValueOnce({
+      expiresAt: null,
+      id: "key-1",
+      userId: "user-1",
+    });
+    mockPrisma.project.findFirst.mockResolvedValueOnce({
+      description: null,
+      id: "proj-1",
+      instructions: "Sempre responda em pt-BR",
+      name: "Projeto Alpha",
+      userId: "user-1",
+    });
+    mockPrisma.projectFile.findMany.mockResolvedValueOnce([
+      { extractedText: "Conteúdo do arquivo A", fileName: "a.pdf" },
+    ]);
+
+    const chat = vi.fn().mockResolvedValue(new Response("ok"));
+    const app = createProviderApp({
+      basePath: "/test-provider",
+      chat,
+      defaultModel: "demo-model",
+      models: [{ capabilities: { documents: true, images: false }, id: "demo-model", name: "Demo Model" }],
+      providerId: "test-provider",
+    });
+
+    const response = await app.request("/test-provider/api/chat", {
+      body: JSON.stringify({ messages: [{ content: "oi", role: "user" }], modelId: "demo-model" }),
+      headers: {
+        authorization: "Bearer sk-test-123",
+        "content-type": "application/json",
+        "x-modelhub-project-id": "proj-1",
+      },
+      method: "POST",
+    });
+
+    expect(response.status).toBe(200);
+    expect(mockPrisma.project.findFirst).toHaveBeenCalledWith({
+      where: { id: "proj-1", userId: "user-1" },
+    });
+    const firstArg = chat.mock.calls[0]?.[0] as Array<{ role: string; content: string }>;
+    const content = systemContent(firstArg);
+    expect(content).toContain("Project instructions:\nSempre responda em pt-BR");
+    expect(content).toContain("Project knowledge:\n[a.pdf]\nConteúdo do arquivo A");
   });
 });
 
