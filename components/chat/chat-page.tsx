@@ -1167,8 +1167,13 @@ export function ChatPage() {
                   : message,
               ),
             );
-          } catch {
-            // Canvas é best-effort: mantém o texto completo na bolha.
+          } catch (error) {
+            // Canvas é best-effort (a resposta permanece íntegra), mas o erro
+            // precisa ser visível para diagnóstico em produção.
+            console.error("[canvas] falha ao criar/atualizar canvas", error);
+            toast.error(
+              `Falha ao abrir o Canvas: ${error instanceof Error ? error.message : "erro desconhecido"}`,
+            );
           }
         }
 
