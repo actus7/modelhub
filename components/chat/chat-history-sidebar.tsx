@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
   CheckIcon,
   DownloadIcon,
+  FolderIcon,
   HistoryIcon,
   Loader2Icon,
   MessageSquarePlusIcon,
   PencilIcon,
+  PlusIcon,
   SearchIcon,
   Trash2Icon,
   XIcon,
@@ -45,6 +48,7 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { apiJson, apiJsonRequest } from "@/lib/api";
+import type { ProjectSummary } from "@/lib/contracts";
 import {
   buildExportFilename,
   conversationToJson,
@@ -65,6 +69,7 @@ type ConversationSummary = {
 
 type Props = {
   activeConversationId: string | null;
+  activeProjectId?: string | null;
   onSelectConversation: (id: string) => void;
   onNewChat: () => void;
   refreshKey: number;
@@ -74,6 +79,7 @@ type Props = {
 
 export function ChatHistorySidebar({
   activeConversationId,
+  activeProjectId = null,
   onSelectConversation,
   onNewChat,
   refreshKey,
@@ -91,7 +97,23 @@ export function ChatHistorySidebar({
   const [pendingBulkDelete, setPendingBulkDelete] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkWorking, setBulkWorking] = useState(false);
+  const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const renameInputRef = useRef<HTMLInputElement>(null);
+
+  // Seção Projetos: carrega uma vez (e quando a sidebar reabre em mobile).
+  useEffect(() => {
+    let cancelled = false;
+    apiJson<{ projects: ProjectSummary[] }>("/projects")
+      .then((payload) => {
+        if (!cancelled) setProjects(payload.projects.slice(0, 5));
+      })
+      .catch(() => {
+        // silencioso — seção Projetos é opcional
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
 
   // Busca server-side (título + conteúdo das mensagens) com debounce.
   const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
@@ -337,6 +359,60 @@ export function ChatHistorySidebar({
             <MessageSquarePlusIcon className="size-3.5" />
           </Button>
         </div>
+      </div>
+
+      {/* Seção Projetos */}
+      <div className="shrink-0 border-b border-border/40 px-2 py-2">
+        <div className="flex items-center justify-between px-1 pb-1">
+          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <FolderIcon className="size-3" />
+            Projetos
+          </span>
+          <Link
+            className="flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-foreground"
+            href="/projects?new=1"
+            onClick={() => isMobile && onMobileSheetOpenChange(false)}
+          >
+            <PlusIcon className="size-3" />
+            Novo
+          </Link>
+        </div>
+        {projects.length === 0 ? (
+          <Link
+            className="block rounded-md px-1.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            href="/projects"
+            onClick={() => isMobile && onMobileSheetOpenChange(false)}
+          >
+            Criar seu primeiro projeto →
+          </Link>
+        ) : (
+          <>
+            {projects.map((project) => (
+              <Link
+                className={cn(
+                  "flex items-center gap-2 rounded-md px-1.5 py-1.5 text-xs transition-colors hover:bg-muted",
+                  activeProjectId === project.id && "bg-muted font-medium",
+                )}
+                href={`/projects/${project.id}`}
+                key={project.id}
+                onClick={() => isMobile && onMobileSheetOpenChange(false)}
+              >
+                <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                <span className="shrink-0 text-[9px] text-muted-foreground">
+                  {project.counts.conversations}
+                </span>
+              </Link>
+            ))}
+            <Link
+              className="block rounded-md px-1.5 py-1 text-[10px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              href="/projects"
+              onClick={() => isMobile && onMobileSheetOpenChange(false)}
+            >
+              Ver todos os projetos →
+            </Link>
+          </>
+        )}
       </div>
 
       {/* Search bar */}
