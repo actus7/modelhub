@@ -316,12 +316,20 @@ export function getUserMessageText(message: {
   return extractPlainTextFromParts(message.parts)
 }
 
+/** ~4 caracteres por token — heurística padrão quando o provider não reporta uso real. */
+const ESTIMATED_CHARS_PER_TOKEN = 4
+
 /**
  * Resumo compacto de bastidores pra linha inline (TTFT, tokens/s, tokens totais).
  * Tokens/s usa a fase de decode (após o TTFT) quando dá, senão a duração inteira.
+ *
+ * Providers sem chave de API (Duck.ai, Pollinations, Quillbot etc.) não expõem uso
+ * real de tokens no upstream — nesse caso, `responseText` permite estimar a partir
+ * do tamanho da resposta (marcado com "~" para não parecer um valor exato).
  */
 export function formatBackstageInline(
   backstage: MessageBackstage,
+  responseText?: string,
 ): string | null {
   const parts: string[] = []
 
@@ -329,19 +337,30 @@ export function formatBackstageInline(
     parts.push(`TTFT ${backstage.ttftMs}ms`)
   }
 
-  if (backstage.outputTokens !== null && backstage.durationMs !== null) {
+  const outputTokens =
+    backstage.outputTokens ??
+    (responseText
+      ? Math.round(responseText.length / ESTIMATED_CHARS_PER_TOKEN)
+      : null)
+  const isEstimated = backstage.outputTokens === null && outputTokens !== null
+
+  if (outputTokens !== null && backstage.durationMs !== null) {
     const decodeMs =
       backstage.ttftMs !== null && backstage.durationMs > backstage.ttftMs
         ? backstage.durationMs - backstage.ttftMs
         : backstage.durationMs
     if (decodeMs > 0) {
-      const tokensPerSecond = backstage.outputTokens / (decodeMs / 1000)
-      parts.push(`${tokensPerSecond.toFixed(1)} tok/s`)
+      const tokensPerSecond = outputTokens / (decodeMs / 1000)
+      parts.push(
+        `${isEstimated ? "~" : ""}${tokensPerSecond.toFixed(1)} tok/s`,
+      )
     }
   }
 
   if (backstage.inputTokens !== null && backstage.outputTokens !== null) {
     parts.push(`${backstage.inputTokens}→${backstage.outputTokens} tok`)
+  } else if (isEstimated && outputTokens !== null) {
+    parts.push(`~${outputTokens} tok`)
   }
 
   return parts.length > 0 ? parts.join(" · ") : null

@@ -28,10 +28,14 @@ function formatCost(value: number | null | undefined) {
   return `$${value.toFixed(4)}`
 }
 
+const ESTIMATED_CHARS_PER_TOKEN = 4
+
 interface MessageBackstageDialogProps {
   backstage: MessageBackstage
   open: boolean
   onOpenChange: (open: boolean) => void
+  /** Texto da resposta, usado para estimar tokens/s quando o provider não reporta uso real. */
+  responseText?: string
 }
 
 /**
@@ -42,8 +46,25 @@ export function MessageBackstageDialog({
   backstage,
   open,
   onOpenChange,
+  responseText,
 }: MessageBackstageDialogProps) {
   const attempts = backstage.attempts ?? []
+  const outputTokens =
+    backstage.outputTokens ??
+    (responseText
+      ? Math.round(responseText.length / ESTIMATED_CHARS_PER_TOKEN)
+      : null)
+  const isEstimated = backstage.outputTokens === null && outputTokens !== null
+  const decodeMs =
+    backstage.durationMs !== null &&
+    backstage.ttftMs !== null &&
+    backstage.durationMs > backstage.ttftMs
+      ? backstage.durationMs - backstage.ttftMs
+      : (backstage.durationMs ?? null)
+  const tokensPerSecond =
+    outputTokens !== null && decodeMs !== null && decodeMs > 0
+      ? outputTokens / (decodeMs / 1000)
+      : null
   const hasSplit =
     backstage.ttftMs !== null &&
     backstage.durationMs !== null &&
@@ -149,7 +170,15 @@ export function MessageBackstageDialog({
               </TableCell>
               <TableCell className="text-right">
                 {formatTokens(backstage.inputTokens)} /{" "}
-                {formatTokens(backstage.outputTokens)}
+                {isEstimated ? `~${outputTokens}` : formatTokens(backstage.outputTokens)}
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell className="text-muted-foreground">Tokens/s</TableCell>
+              <TableCell className="text-right">
+                {tokensPerSecond === null
+                  ? "—"
+                  : `${isEstimated ? "~" : ""}${tokensPerSecond.toFixed(1)}`}
               </TableCell>
             </TableRow>
             <TableRow>

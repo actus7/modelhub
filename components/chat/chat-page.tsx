@@ -2470,7 +2470,10 @@ export function ChatPage() {
                         </span>
                         {message.role === "assistant" && message.backstage && (
                           <span>
-                            {formatBackstageInline(message.backstage)}
+                            {formatBackstageInline(
+                              message.backstage,
+                              message.content,
+                            )}
                           </span>
                         )}
                       </div>
@@ -2932,6 +2935,7 @@ export function ChatPage() {
               onOpenChange={(next) =>
                 setBackstageOpenMessageId(next ? backstageOpenMessageId : null)
               }
+              responseText={backstageMessage.content}
             />
           )
         })()}
