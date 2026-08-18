@@ -60,7 +60,12 @@ type FencedBlock = {
 
 function extractFencedBlocks(text: string): FencedBlock[] {
   const blocks: FencedBlock[] = [];
-  const fenceRegex = /^```([\w-]*)[^\n]*\n([\s\S]*?)\n?^```\s*$/gm;
+  /**
+ * Fences no padrão CommonMark: até 3 espaços de indentação na abertura e no
+ * fechamento, espaço opcional antes da linguagem ("``` html") e sufixos de
+ * info-string tolerados. O range retornado inclui a indentação.
+ */
+const fenceRegex = /^ {0,3}```[ \t]*([\w-]*)[^\n]*\n([\s\S]*?)\n?^ {0,3}```[ \t]*$/gm;
   let match: RegExpExecArray | null;
   while ((match = fenceRegex.exec(text)) !== null) {
     blocks.push({
