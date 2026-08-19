@@ -2,6 +2,18 @@ import { prisma } from "../lib/db"
 import { listAllHarnessEvents } from "./events"
 import type { HarnessRegistry } from "./registry"
 
+export const HARNESS_TOOL_USE_GUIDANCE =
+  "Do not call goal_write, plan_write, todo_write, or subagent merely to restate, track, or role-play an ordinary user task. These tools pause for approval. Complete requested creator/critic or multi-role refinement directly unless the user explicitly asks to persist tracking state or delegate a separate task."
+
+export const HARNESS_COMPLETION_GUIDANCE =
+  "Before ending, verify that every explicitly requested numbered round, section, and deliverable is present. If the latest assistant content is visibly truncated or the requested format is incomplete, continue exactly where it stopped without repeating completed content."
+
+export const HARNESS_NO_PROJECT_GUIDANCE =
+  "No active project is attached. Do not call project_context, project_file_read, or project_file_write. Deliver requested code and artifacts directly in the response."
+
+export const HARNESS_ITERATIVE_DELIVERY_GUIDANCE =
+  "For multi-round refinement, keep non-final artifact deliveries concise: state concrete changes and show only the changed excerpts or patch. Reserve the full self-contained artifact for the final round unless the user explicitly requires the complete artifact in every round."
+
 export type ModelMessage = {
   content: string | unknown[]
   name?: string
@@ -156,10 +168,15 @@ export async function buildHarnessSystemPrompt(input: {
   return [
     "You are ModelHub's agent runtime. Work in explicit, bounded steps and use tools when they materially improve the answer.",
     "Never claim that a tool ran unless a tool result is present. Respect approval denials and capability limits.",
+    HARNESS_TOOL_USE_GUIDANCE,
+    HARNESS_COMPLETION_GUIDANCE,
+    HARNESS_ITERATIVE_DELIVERY_GUIDANCE,
     settings?.customInstructionsAbout ? `User context:\n${settings.customInstructionsAbout}` : "",
     settings?.customInstructionsStyle ? `Response preferences:\n${settings.customInstructionsStyle}` : "",
     memories.length ? `Saved memories:\n${memories.map((memory) => `- ${memory.content}`).join("\n")}` : "",
-    project ? `Active project: ${project.name}\n${project.instructions ?? ""}` : "",
+    project
+      ? `Active project: ${project.name}\n${project.instructions ?? ""}`
+      : HARNESS_NO_PROJECT_GUIDANCE,
     skills.length
       ? `Active skills:\n${skills.map((skill) => `## ${skill.name}\n${skill.content}`).join("\n\n")}`
       : "",

@@ -10,15 +10,30 @@ import {
   formatMessageTimestamp,
   getUserMessageText,
   hydrateChatMessage,
+  normalizeConversationTitle,
   parseApiErrorResponse,
   resolveAssistantModelLabel,
   resolveModelFallbackFromHeaders,
   resolveModelSelectPlaceholder,
   resolveStickToBottom,
   resolveStreamErrorContent,
+  shouldUseHarnessRuntime,
   STREAM_INTERRUPTED_NOTE,
   validateAttachmentCompatibility,
 } from "./chat-utils";
+
+describe("conversation runtime helpers", () => {
+  it("normalizes long prompts into valid conversation titles", () => {
+    expect(normalizeConversationTitle(`  ${"x".repeat(250)}  `)).toBe("x".repeat(200));
+    expect(normalizeConversationTitle("   ")).toBe("Nova conversa");
+  });
+
+  it("uses the harness for every durable tool-capable provider, including Auto", () => {
+    expect(shouldUseHarnessRuntime({ supportsTools: true, temporaryChat: false })).toBe(true);
+    expect(shouldUseHarnessRuntime({ supportsTools: false, temporaryChat: false })).toBe(false);
+    expect(shouldUseHarnessRuntime({ supportsTools: true, temporaryChat: true })).toBe(false);
+  });
+});
 
 const MODELS: ProviderModel[] = [
   { capabilities: { documents: true, images: false }, id: "gpt-4o", name: "GPT-4o" },

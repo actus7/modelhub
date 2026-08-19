@@ -78,6 +78,41 @@ describe('scoreComplexity', () => {
     expect(result.rawScore).toBeGreaterThan(40)
   })
 
+  it('routes autonomous iterative multi-agent creation to reasoning', () => {
+    const result = scoreComplexity(msg(`
+      Atue como um sistema multiagente autônomo de refinamento iterativo composto por dois papéis:
+      Agente Criador e Agente Crítico. Crie o jogo fapibird.
+      Realize 3 rodadas consecutivas. Em cada rodada apresente Crítica, Ajustes e Entrega.
+      Encerre somente após a terceira rodada com o artefato totalmente polido.
+    `))
+    expect(result.tier).toBe('reasoning')
+    expect(result.signals).toEqual(expect.arrayContaining([
+      'autonomous_multi_agent',
+      'iterative_refinement',
+      'complex_deliverable',
+      'autonomous_workflow_floor',
+    ]))
+    expect(result.confidence).toBeGreaterThanOrEqual(0.9)
+  })
+
+  it('routes the full Portuguese creator/critic workflow to reasoning', () => {
+    const result = scoreComplexity(msg(`
+      Atue como um sistema multiagente autônomo de refinamento iterativo composto por dois papéis:
+      Agente Criador: Responsável por gerar o rascunho inicial e implementar todas as melhorias estruturais, visuais e conceituais exigidas a cada ciclo.
+      Agente Crítico: Um revisor rigoroso e implacável de padrão "AAA" que não aceita soluções genéricas, superficiais ou incompletas. Seu foco é apontar falhas de profundidade, narrativa, acabamento, consistência e detalhes ausentes.
+      Objetivo da tarefa: criar o jogo fapibird.
+      Realize 3 rodadas consecutivas de refinamento autônomo. Em cada rodada, apresente Crítica, Ajustes e Entrega. O loop se encerra após a terceira rodada com a versão final totalmente polida e comentada.
+    `))
+    expect(result.tier).toBe('reasoning')
+    expect(result.rawScore).toBeGreaterThanOrEqual(50)
+    expect(result.signals).toEqual(expect.arrayContaining([
+      'autonomous_multi_agent',
+      'iterative_refinement',
+      'quality_review',
+      'autonomous_workflow_floor',
+    ]))
+  })
+
   it('detects formal_logic signal', () => {
     const result = scoreComplexity(msg('Therefore, we can conclude that P implies Q.'))
     expect(result.signals).toContain('formal_logic')

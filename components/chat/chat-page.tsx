@@ -186,6 +186,7 @@ import {
   getUserMessageText,
   hydrateChatMessage,
   isHydratedAttachmentPart,
+  normalizeConversationTitle,
   parseApiErrorResponse,
   persistMessagesForConversation,
   releaseAttachmentPreview,
@@ -194,6 +195,7 @@ import {
   resolveModelSelectPlaceholder,
   resolveStickToBottom,
   resolveStreamErrorContent,
+  shouldUseHarnessRuntime,
   trimConversation,
   validateAttachmentCompatibility,
   type ChatMessage,
@@ -734,7 +736,7 @@ export function ChatPage() {
       modelId: selectedModelId || undefined,
       projectId: activeProjectId ?? undefined,
       providerId: selectedProviderId || undefined,
-      title: titleSeed || "Nova conversa",
+      title: normalizeConversationTitle(titleSeed),
     })
 
     setActiveConversationId(response.conversation.id)
@@ -1491,9 +1493,10 @@ export function ChatPage() {
         })
         setBrowserProviderAuthState("signed-in")
       } else if (
-        !temporaryChat &&
-        selectedProviderId !== AUTO_PROVIDER_ID &&
-        selectedModel?.capabilities.tools === true
+        shouldUseHarnessRuntime({
+          supportsTools: selectedModel?.capabilities.tools === true,
+          temporaryChat,
+        })
       ) {
         harnessConversationId = await ensureConversationId(
           (text || currentAttachments[0]?.fileName || "Nova conversa").slice(
@@ -1587,6 +1590,12 @@ export function ChatPage() {
                   toolMap.set(toolCallId, call)
                   updateAssistantToolCall(assistantMessageId, call)
                 }
+              }
+              if (
+                event.type === "assistant/message" &&
+                typeof event.payload.modelLabel === "string"
+              ) {
+                effectiveModelLabel = event.payload.modelLabel
               }
             },
           )
@@ -2292,7 +2301,10 @@ export function ChatPage() {
               value={selectedProviderId}
               onValueChange={setSelectedProviderId}
             >
-              <SelectTrigger className="h-8 w-auto max-w-[min(200px,55vw)] shrink-0 text-xs sm:min-w-[140px] sm:max-w-[200px]">
+              <SelectTrigger
+                aria-label="Selecionar provider"
+                className="h-8 w-auto max-w-[min(200px,55vw)] shrink-0 text-xs sm:min-w-[140px] sm:max-w-[200px]"
+              >
                 <SelectValue placeholder="Provider" />
               </SelectTrigger>
               <SelectContent>
@@ -2402,7 +2414,10 @@ export function ChatPage() {
                   models.length === 0
                 }
               >
-                <SelectTrigger className="h-8 w-auto max-w-[min(240px,60vw)] shrink-0 text-xs sm:min-w-[140px] sm:max-w-[240px]">
+                <SelectTrigger
+                  aria-label="Selecionar modelo"
+                  className="h-8 w-auto max-w-[min(240px,60vw)] shrink-0 text-xs sm:min-w-[140px] sm:max-w-[240px]"
+                >
                   <SelectValue
                     placeholder={resolveModelSelectPlaceholder({
                       hasModels: !!selectedProvider?.hasModels,
@@ -3277,6 +3292,7 @@ export function ChatPage() {
                     <TooltipTrigger asChild>
                       <span>
                         <Button
+                          aria-label="Anexar arquivo"
                           variant="ghost"
                           size="icon-xs"
                           className="size-8 md:size-6"
@@ -3310,6 +3326,7 @@ export function ChatPage() {
                       value={activeProjectId ?? "__none__"}
                     >
                       <SelectTrigger
+                        aria-label="Selecionar projeto da conversa"
                         className="h-7 w-auto max-w-[150px] shrink-0 border-dashed text-[11px]"
                         title="Projeto do contexto da conversa"
                       >
@@ -3336,6 +3353,7 @@ export function ChatPage() {
                 </div>
                 {pending ? (
                   <Button
+                    aria-label="Parar geração"
                     size="sm"
                     variant="destructive"
                     className="h-7 text-xs"
@@ -3346,6 +3364,7 @@ export function ChatPage() {
                   </Button>
                 ) : (
                   <InputGroupButton
+                    aria-label="Enviar mensagem"
                     size="sm"
                     disabled={
                       (!input.trim() && attachments.length === 0) ||

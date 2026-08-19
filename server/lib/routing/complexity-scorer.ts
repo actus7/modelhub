@@ -67,6 +67,7 @@ const MULTI_STEP_KEYWORDS = [
   'step by step', 'passo a passo', 'first.*then', 'sequentially', 'sequencialmente',
   'prove that', 'prove ', 'demonstrate', 'demonstre', 'derive ', 'derive that',
   'walk me through', 'explain in detail', 'in depth', 'em detalhes',
+  'iterative refinement', 'refinamento iterativo', 'rodadas consecutivas', 'consecutive rounds',
 ]
 
 const REASONING_KEYWORDS = [
@@ -86,6 +87,10 @@ const MATH_PATTERNS = [
 const CODE_PATTERN = /```[\s\S]{20,}/
 const INLINE_CODE_PATTERN = /`[^`]+`/g
 const CODE_REQUEST_PATTERN = /\b(c[oó]digo|code|python|typescript|javascript|fun[cç][aã]o|function|script|programa|implemente|implement|escreva|write)\b/i
+const AUTONOMOUS_MULTI_AGENT_PATTERN = /\b(multi[-\s]?agents?|multiagentes?|autonomous agents?|sistema (?:de )?agentes|agente criador|creator agent|agente cr[ií]tico|critic agent)\b/i
+const ITERATIVE_REFINEMENT_PATTERN = /\b(iterative refinement|refinamento iterativo|(?:three|tr[eê]s|\d+)\s+(?:consecutive\s+)?(?:rounds?|rodadas?|iterations?|itera[cç][oõ]es|cycles?|ciclos?))\b/i
+const COMPLEX_DELIVERABLE_PATTERN = /\b(create|build|develop|implement|criar|crie|construir|construa|desenvolver|desenvolva|implementar|implemente)\b[\s\S]{0,120}\b(game|jogo|app|aplicativo|artefato|artifact|interface|site|canvas)\b/i
+const QUALITY_REVIEW_PATTERN = /\b(critic|cr[ií]tic[oa]|reviewer|revisor|rigoroso|implac[aá]vel|polid[oa]|production-ready|padr[aã]o\s+aaa)\b/i
 const ARCHITECTURE_REQUEST_PATTERN = /\b(arquitetura|architecture|architect|design a system)\b/i
 const DECISION_REQUEST_PATTERN = /\b(como decidir|decidir|escolher|choose|select|selecionar|balancear|otimizar|optimize)\b/i
 const DECISION_OBJECTIVE_PATTERN = /\b(custo|cost|lat[eê]ncia|latency|taxa de erro|error rate|or[cç]amento|budget|fallback|confiabilidade|reliability|qualidade|quality)\b/gi
@@ -211,6 +216,17 @@ export function scoreComplexity(
     score += 4; signals.push('structured_output')
   }
 
+  // 14. Orquestração autônoma e refinamento iterativo exigem modelos que
+  // consigam manter papéis, estado e critérios de parada por vários ciclos.
+  const autonomousMultiAgent = AUTONOMOUS_MULTI_AGENT_PATTERN.test(lastText)
+  const iterativeRefinement = ITERATIVE_REFINEMENT_PATTERN.test(lastText)
+  const complexDeliverable = COMPLEX_DELIVERABLE_PATTERN.test(lastText)
+  const qualityReview = QUALITY_REVIEW_PATTERN.test(lastText)
+  if (autonomousMultiAgent) { score += 20; signals.push('autonomous_multi_agent') }
+  if (iterativeRefinement) { score += 15; signals.push('iterative_refinement') }
+  if (complexDeliverable) { score += 12; signals.push('complex_deliverable') }
+  if (qualityReview) { score += 8; signals.push('quality_review') }
+
   score = Math.min(score, 100)
   let tier = tierFromScore(score)
   let confidence = confidenceFromScore(score)
@@ -256,6 +272,14 @@ export function scoreComplexity(
     tier = 'reasoning'
     confidence = Math.max(confidence, 0.9)
     signals.push('multi_objective_reasoning')
+  }
+
+  // Um workflow multiagente com ciclos de crítica e refinamento é uma tarefa
+  // de raciocínio mesmo sem vocabulário técnico clássico.
+  if (autonomousMultiAgent && iterativeRefinement) {
+    tier = floorTier(tier, 'reasoning')
+    confidence = Math.max(confidence, 0.9)
+    signals.push('autonomous_workflow_floor')
   }
 
   // Tools ativas exigem um modelo que saiba usá-las → piso "standard".

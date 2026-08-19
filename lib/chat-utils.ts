@@ -106,6 +106,20 @@ export const EMPTY_STATE_PROMPTS = [
   "Me ajude a diagnosticar um erro 500.",
 ] as const
 
+export const MAX_CONVERSATION_TITLE_LENGTH = 200
+
+export function normalizeConversationTitle(titleSeed: string): string {
+  const title = titleSeed.trim() || "Nova conversa"
+  return title.slice(0, MAX_CONVERSATION_TITLE_LENGTH)
+}
+
+export function shouldUseHarnessRuntime(input: {
+  supportsTools: boolean
+  temporaryChat: boolean
+}): boolean {
+  return !input.temporaryChat && input.supportsTools
+}
+
 export type ChatRequestError = Error & {
   status?: number
   suppressToast?: boolean

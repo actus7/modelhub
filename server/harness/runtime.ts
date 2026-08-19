@@ -3,7 +3,11 @@ import type { HarnessEvent, HarnessRunStatus, HarnessToolCall } from "../../lib/
 import { prisma } from "../lib/db"
 import { appendHarnessEvent, ensureLegacyMessageEvents, HarnessLeaseLostError, serializeHarnessEvent } from "./events"
 import { toHarnessJson } from "./json"
-import { consumeHarnessModelResponse } from "./model-stream"
+import {
+  consumeHarnessModelResponse,
+  isModelOutputLimitFinishReason,
+  type HarnessModelResult,
+} from "./model-stream"
 import { createMcpPlugin } from "./mcp"
 import { buildHarnessSystemPrompt, compactModelMessages, deriveMessagesFromEvents, type ModelMessage } from "./prompt"
 import { HarnessRegistry, type HarnessToolDefinition } from "./registry"
@@ -13,8 +17,72 @@ const EXECUTION_SLICE_MS = 50_000
 const LEASE_MS = 60_000
 export const MAX_TOOL_CALLS_PER_STEP = 16
 export const MAX_SUBAGENTS_PER_RUN = 4
+export const MAX_OUTPUT_LIMIT_CONTINUATIONS = 8
 const APPROVAL_EXECUTION_MS = 60_000
 const activeToolExecutions = new Map<string, Set<AbortController>>()
+
+type OpenAiHarnessToolSchema = ReturnType<HarnessRegistry["openAiSchemas"]>[number]
+
+const PERSISTENT_COORDINATION_REQUEST =
+  /\b(goal_write|plan_write|todo_write|salv(?:e|ar)|persist(?:a|ir|e)|registre|atualize)\b[\s\S]{0,80}\b(objetivo|goal|plano|plan|tarefas?|todos?)\b/i
+const SUBAGENT_REQUEST =
+  /\b(subagent|subagente|deleg(?:ate|ar|ue)|separate agent|agente separado)\b/i
+const WEB_TOOL_REQUEST =
+  /\b(search|research|look up|browse|web|internet|source|url|pesquis\w*|busc\w*|procure|consulte|fontes?)\b|https?:\/\//i
+const CONTEXT_SEARCH_REQUEST =
+  /\b(memory|memories|mem[oó]ria|history|hist[oó]rico|conversation events?|eventos? da conversa|previous conversation|conversa anterior)\b/i
+
+export function selectHarnessToolSchemas(input: {
+  messages: ModelMessage[]
+  projectId: string | null
+  tools: OpenAiHarnessToolSchema[]
+}): OpenAiHarnessToolSchema[] {
+  const latestUserContent = [...input.messages]
+    .reverse()
+    .find((message) => message.role === "user")?.content
+  const latestUserText =
+    typeof latestUserContent === "string"
+      ? latestUserContent
+      : JSON.stringify(latestUserContent ?? "")
+  const exposePersistentCoordination =
+    PERSISTENT_COORDINATION_REQUEST.test(latestUserText)
+  const exposeSubagent = SUBAGENT_REQUEST.test(latestUserText)
+  const exposeWebTools = WEB_TOOL_REQUEST.test(latestUserText)
+  const exposeContextSearch = CONTEXT_SEARCH_REQUEST.test(latestUserText)
+
+  return input.tools.filter((tool) => {
+    const name = tool.function.name
+    if (!input.projectId && name.startsWith("project_")) return false
+    if (
+      ["goal_write", "plan_write", "todo_write"].includes(name) &&
+      !exposePersistentCoordination
+    ) {
+      return false
+    }
+    if (name === "subagent" && !exposeSubagent) return false
+    if (["web_fetch", "web_search"].includes(name) && !exposeWebTools) {
+      return false
+    }
+    if (
+      ["memory_search", "session_event_search"].includes(name) &&
+      !exposeContextSearch
+    ) {
+      return false
+    }
+    return true
+  })
+}
+
+function resolvedHarnessModelLabel(
+  requestedModel: string,
+  routing: HarnessModelResult["routing"],
+): string {
+  if (!routing || requestedModel !== "auto") return requestedModel
+  const tier = routing.tier
+    ? `${routing.tier.charAt(0).toUpperCase()}${routing.tier.slice(1)}`
+    : "Auto"
+  return `Auto · ${tier} (${routing.providerId}/${routing.modelId})`
+}
 
 export function abortActiveHarnessRun(runId: string): void {
   for (const controller of activeToolExecutions.get(runId) ?? []) controller.abort("Harness run cancelled")
@@ -365,6 +433,7 @@ async function completeAssistantRun(input: {
           content: input.content,
           finishReason: input.finishReason,
           messageId: input.assistantMessageId,
+          modelLabel: input.model,
           toolCalls: [],
         }),
         runId: input.runId,
@@ -533,6 +602,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
     let messages = input.initialMessages?.length ? input.initialMessages : await deriveMessagesFromEvents(run.conversationId)
     const systemPrompt = await buildHarnessSystemPrompt({ projectId: run.conversation.projectId, registry, userId: run.userId })
     let currentStepCount = run.stepCount
+    let outputLimitContinuations = 0
     const unresolved = await unresolvedToolCalls(run.id)
     if (unresolved) {
       const stepNumber = currentStepCount + 1
@@ -602,7 +672,11 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
           model: run.modelId ?? "auto",
           stream: true,
           tool_choice: "auto",
-          tools: registry.openAiSchemas(),
+          tools: selectHarnessToolSchemas({
+            messages,
+            projectId: run.conversation.projectId,
+            tools: registry.openAiSchemas(),
+          }),
         },
         signal: input.signal,
       })
@@ -636,14 +710,75 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
       })
       await flushDurableChunks()
       await renewRunLease(run.id, input.leaseToken)
+      const resultModelLabel = resolvedHarnessModelLabel(
+        run.modelId ?? "auto",
+        result.routing,
+      )
       if (result.toolCalls.length === 0) {
+        if (
+          isModelOutputLimitFinishReason(result.finishReason) &&
+          outputLimitContinuations < MAX_OUTPUT_LIMIT_CONTINUATIONS &&
+          stepNumber < run.maxSteps
+        ) {
+          outputLimitContinuations += 1
+          await emit(
+            {
+              conversationId: run.conversationId,
+              payload: {
+                content: result.text,
+                continuationRequired: true,
+                finishReason: result.finishReason,
+                messageId: assistantMessageId,
+                modelLabel: resultModelLabel,
+                toolCalls: [],
+              },
+              runId: run.id,
+              stepId,
+              turnId,
+              type: "assistant/message",
+            },
+            input.onEvent,
+            input.leaseToken,
+          )
+          messages.push({ content: result.text, role: "assistant" })
+          messages.push({
+            content:
+              "Continue exactly from the last emitted character. Do not repeat completed content. Finish every section, numbered round, and deliverable required by the original user request.",
+            role: "system",
+          })
+          await emit(
+            {
+              conversationId: run.conversationId,
+              payload: {
+                finishReason: result.finishReason,
+                outputLimitContinuation: outputLimitContinuations,
+                stepNumber,
+              },
+              runId: run.id,
+              stepId,
+              turnId,
+              type: "step/end",
+            },
+            input.onEvent,
+            input.leaseToken,
+          )
+          const advanced = await prisma.agentRun.updateMany({
+            where: { id: run.id, leaseToken: input.leaseToken, status: "running" },
+            data: {
+              leaseExpiresAt: new Date(Date.now() + LEASE_MS),
+              stepCount: stepNumber,
+            },
+          })
+          if (advanced.count !== 1) throw new HarnessLeaseLostError()
+          continue
+        }
         await completeAssistantRun({
           assistantMessageId,
           content: result.text,
           conversationId: run.conversationId,
           finishReason: result.finishReason,
           leaseToken: input.leaseToken,
-          model: run.modelId ?? "auto",
+          model: resultModelLabel,
           onEvent: input.onEvent,
           runId: run.id,
           stepId,
@@ -723,7 +858,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
           content: result.text,
           conversationId: run.conversationId,
           id: assistantMessageId,
-          model: run.modelId ?? "auto",
+          model: resultModelLabel,
           toolCalls: await projectedToolCalls(run.id),
         })
         await setRunStatus(run.id, input.leaseToken, "waiting_approval")

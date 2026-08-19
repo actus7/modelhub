@@ -11,7 +11,7 @@ vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
 
 const { chatViaOpenAiCompatible, createOpenAiFetchModels } = await import("../lib/openai-compatible");
-const { buildNvidiaNimBody, isNvidiaNimChatModel, isNvidiaNimModelUnavailableError, testNvidiaNimCredentials } = await import("../providers/nvidianim");
+const { buildNvidiaNimBody, isNvidiaNimChatModel, isNvidiaNimModelUnavailableError, resolveNvidiaNimModelId, testNvidiaNimCredentials } = await import("../providers/nvidianim");
 
 describe("OpenAI-compatible provider helpers", () => {
   const originalFetch = globalThis.fetch;
@@ -213,5 +213,14 @@ describe("OpenAI-compatible provider helpers", () => {
       modelId: "nvidia/nemotron-3-ultra-550b-a55b",
       rawBody: {},
     })).not.toHaveProperty("stream_options");
+  });
+
+  it("maps retired NVIDIA NIM model IDs before the upstream request", () => {
+    expect(resolveNvidiaNimModelId("nvidia/llama-3.1-nemotron-ultra-253b-v1"))
+      .toBe("nvidia/nemotron-3-ultra-550b-a55b");
+    expect(resolveNvidiaNimModelId("meta/codellama-70b"))
+      .toBe("nvidia/nemotron-3-ultra-550b-a55b");
+    expect(resolveNvidiaNimModelId("openai/gpt-oss-20b"))
+      .toBe("openai/gpt-oss-20b");
   });
 });

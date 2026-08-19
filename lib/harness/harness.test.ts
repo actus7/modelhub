@@ -5,17 +5,100 @@ import { join } from "node:path"
 import { parseChatStream } from "../chat-stream"
 import { consumeHarnessStream } from "./client"
 import type { HarnessEvent } from "./contracts"
-import { compactModelMessages } from "../../server/harness/prompt"
+import {
+  compactModelMessages,
+  HARNESS_COMPLETION_GUIDANCE,
+  HARNESS_ITERATIVE_DELIVERY_GUIDANCE,
+  HARNESS_NO_PROJECT_GUIDANCE,
+  HARNESS_TOOL_USE_GUIDANCE,
+} from "../../server/harness/prompt"
 import { HarnessRegistry } from "../../server/harness/registry"
-import { consumeHarnessModelResponse } from "../../server/harness/model-stream"
+import {
+  consumeHarnessModelResponse,
+  isModelOutputLimitFinishReason,
+} from "../../server/harness/model-stream"
 import { assertPublicHttpUrl } from "../../server/harness/core-tools"
 import { collectHarnessEventPages } from "../../server/harness/events"
 import { toHarnessJson } from "../../server/harness/json"
 import { assertSecureMcpUrl, mcpToolRisk, readMcpRpcResponse, safeMcpToolName } from "../../server/harness/mcp"
 import { parseSingleMessagePart } from "../../server/lib/conversation-attachments"
-import { limitHarnessToolCalls, MAX_TOOL_CALLS_PER_STEP } from "../../server/harness/runtime"
+import {
+  limitHarnessToolCalls,
+  MAX_TOOL_CALLS_PER_STEP,
+  selectHarnessToolSchemas,
+} from "../../server/harness/runtime"
 
 describe("harness stream protocol", () => {
+  it("keeps ordinary multi-role refinement from pausing for internal tracking approval", () => {
+    expect(HARNESS_TOOL_USE_GUIDANCE).toContain("creator/critic")
+    expect(HARNESS_TOOL_USE_GUIDANCE).toContain("goal_write")
+    expect(HARNESS_TOOL_USE_GUIDANCE).toContain("pause for approval")
+  })
+
+  it("recognizes provider finish reasons that require automatic continuation", () => {
+    expect(isModelOutputLimitFinishReason("length")).toBe(true)
+    expect(isModelOutputLimitFinishReason("max_tokens")).toBe(true)
+    expect(isModelOutputLimitFinishReason("max-output-tokens")).toBe(true)
+    expect(isModelOutputLimitFinishReason("stop")).toBe(false)
+    expect(HARNESS_COMPLETION_GUIDANCE).toContain("numbered round")
+    expect(HARNESS_NO_PROJECT_GUIDANCE).toContain("project_file_write")
+    expect(HARNESS_ITERATIVE_DELIVERY_GUIDANCE).toContain("final round")
+  })
+
+  it("hides unusable stateful tools for an ordinary multi-role artifact request", () => {
+    const tool = (name: string) => ({
+      function: { description: name, name, parameters: { type: "object" as const } },
+      type: "function" as const,
+    })
+    const selected = selectHarnessToolSchemas({
+      messages: [{ content: "Atue como criador e crítico e crie um jogo", role: "user" }],
+      projectId: null,
+      tools: [
+        tool("goal_write"),
+        tool("todo_write"),
+        tool("subagent"),
+        tool("project_file_write"),
+        tool("web_search"),
+        tool("memory_search"),
+        tool("session_event_search"),
+      ],
+    })
+    expect(selected.map((item) => item.function.name)).toEqual([])
+  })
+
+  it("exposes stateful tools only for explicit persistence or delegation requests", () => {
+    const tool = (name: string) => ({
+      function: { description: name, name, parameters: { type: "object" as const } },
+      type: "function" as const,
+    })
+    const selected = selectHarnessToolSchemas({
+      messages: [{ content: "Salve um plano persistente e delegue a um subagente", role: "user" }],
+      projectId: "project-1",
+      tools: [tool("plan_write"), tool("subagent"), tool("project_file_write")],
+    })
+    expect(selected.map((item) => item.function.name)).toEqual([
+      "plan_write",
+      "subagent",
+      "project_file_write",
+    ])
+  })
+
+  it("exposes web tools only when the user explicitly requests research", () => {
+    const tool = (name: string) => ({
+      function: { description: name, name, parameters: { type: "object" as const } },
+      type: "function" as const,
+    })
+    const selected = selectHarnessToolSchemas({
+      messages: [{ content: "Pesquise na web e cite fontes", role: "user" }],
+      projectId: null,
+      tools: [tool("web_search"), tool("web_fetch"), tool("goal_write")],
+    })
+    expect(selected.map((item) => item.function.name)).toEqual([
+      "web_search",
+      "web_fetch",
+    ])
+  })
+
   it("parses streamed harness events and terminal status", async () => {
     const events: HarnessEvent[] = [
       {
@@ -152,6 +235,23 @@ describe("harness stream protocol", () => {
       toolCalls: [
         { args: {}, toolCallId: "call-1", toolName: "project_context" },
       ],
+    })
+  })
+
+  it("keeps the effective Auto routing metadata", async () => {
+    const result = await consumeHarnessModelResponse(
+      new Response('0:"ok"\nd:{"finishReason":"stop"}\n', {
+        headers: {
+          "x-modelhub-model": "qwen3.5-27b",
+          "x-modelhub-provider": "groq",
+          "x-modelhub-tier": "reasoning",
+        },
+      }),
+    )
+    expect(result.routing).toEqual({
+      modelId: "qwen3.5-27b",
+      providerId: "groq",
+      tier: "reasoning",
     })
   })
 
