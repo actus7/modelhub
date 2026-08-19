@@ -59,17 +59,23 @@ const createMessageSchema = z.object({
   role: z.enum(["assistant", "user"]),
 })
 
+const conversationTitleSchema = z.preprocess(
+  (value) =>
+    typeof value === "string" ? value.trim().slice(0, 200) : value,
+  z.string().min(1).max(200),
+)
+
 const createConversationSchema = z.object({
   modelId: z.string().trim().min(1).max(200).optional(),
   projectId: z.string().trim().min(1).max(64).optional(),
   providerId: z.string().trim().min(1).max(64).optional(),
-  title: z.string().trim().min(1).max(200).optional(),
+  title: conversationTitleSchema.optional(),
 })
 
 const updateConversationSchema = z.object({
   archived: z.boolean().optional(),
   projectId: z.string().trim().min(1).max(64).nullable().optional(),
-  title: z.string().trim().min(1).max(200).optional(),
+  title: conversationTitleSchema.optional(),
 })
 
 /** Aceita o id gerado no cliente (ex.: usado no header de correlação com UsageLog) quando plausível. */

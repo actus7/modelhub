@@ -489,6 +489,45 @@ describe("conversation routes with attachments", () => {
     getSession.mockReset()
   })
 
+  it("normaliza titulos longos enviados por bundles antigos", async () => {
+    const longTitle = "titulo longo ".repeat(100)
+    const createResponse = await conversationsFetch(
+      new Request("http://localhost/conversations", {
+        body: JSON.stringify({
+          modelId: "auto",
+          providerId: "auto",
+          title: longTitle,
+        }),
+        headers: { "content-type": "application/json" },
+        method: "POST",
+      }),
+    )
+
+    expect(createResponse.status).toBe(201)
+    const createPayload = (await createResponse.json()) as {
+      conversation: { id: string; title: string }
+    }
+    expect(createPayload.conversation.title).toHaveLength(200)
+    expect(createPayload.conversation.title).toBe(longTitle.trim().slice(0, 200))
+
+    const updateResponse = await conversationsFetch(
+      new Request(
+        `http://localhost/conversations/${createPayload.conversation.id}`,
+        {
+          body: JSON.stringify({ title: longTitle }),
+          headers: { "content-type": "application/json" },
+          method: "PATCH",
+        },
+      ),
+    )
+
+    expect(updateResponse.status).toBe(200)
+    expect(
+      ((await updateResponse.json()) as { conversation: { title: string } })
+        .conversation.title,
+    ).toHaveLength(200)
+  })
+
   it("uploads an attachment, persists message parts, and hydrates them on fetch", async () => {
     const imageBody = new Uint8Array([137, 80, 78, 71])
     const formData = new FormData()

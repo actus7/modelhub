@@ -9,7 +9,13 @@ import {
   type HarnessModelResult,
 } from "./model-stream"
 import { createMcpPlugin } from "./mcp"
-import { buildHarnessSystemPrompt, compactModelMessages, deriveMessagesFromEvents, type ModelMessage } from "./prompt"
+import {
+  buildHarnessSystemPrompt,
+  compactModelMessages,
+  deriveMessagesFromEvents,
+  missingExplicitIterativeSections,
+  type ModelMessage,
+} from "./prompt"
 import { HarnessRegistry, type HarnessToolDefinition } from "./registry"
 import { coreHarnessPlugin } from "./core-tools"
 
@@ -764,6 +770,66 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
           )
           const advanced = await prisma.agentRun.updateMany({
             where: { id: run.id, leaseToken: input.leaseToken, status: "running" },
+            data: {
+              leaseExpiresAt: new Date(Date.now() + LEASE_MS),
+              stepCount: stepNumber,
+            },
+          })
+          if (advanced.count !== 1) throw new HarnessLeaseLostError()
+          continue
+        }
+        const missingSections = missingExplicitIterativeSections(
+          messages,
+          result.text,
+        )
+        if (missingSections.length > 0) {
+          await emit(
+            {
+              conversationId: run.conversationId,
+              payload: {
+                content: result.text,
+                continuationRequired: true,
+                finishReason: "format-incomplete",
+                messageId: assistantMessageId,
+                missingSections,
+                modelLabel: resultModelLabel,
+                toolCalls: [],
+              },
+              runId: run.id,
+              stepId,
+              turnId,
+              type: "assistant/message",
+            },
+            input.onEvent,
+            input.leaseToken,
+          )
+          messages.push({ content: result.text, role: "assistant" })
+          messages.push({
+            content: `Your response stopped before satisfying the user's explicit iterative format. Continue without repeating completed content. Emit every missing section using these exact headings, in order:\n${missingSections.join("\n")}`,
+            role: "system",
+          })
+          await emit(
+            {
+              conversationId: run.conversationId,
+              payload: {
+                finishReason: "format-incomplete",
+                missingSections,
+                stepNumber,
+              },
+              runId: run.id,
+              stepId,
+              turnId,
+              type: "step/end",
+            },
+            input.onEvent,
+            input.leaseToken,
+          )
+          const advanced = await prisma.agentRun.updateMany({
+            where: {
+              id: run.id,
+              leaseToken: input.leaseToken,
+              status: "running",
+            },
             data: {
               leaseExpiresAt: new Date(Date.now() + LEASE_MS),
               stepCount: stepNumber,

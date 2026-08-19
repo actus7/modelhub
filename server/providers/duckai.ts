@@ -316,7 +316,6 @@ function isRetryableDuckAiThrownError(error: unknown): DuckAiRetryableError | nu
 
   if (
     message.includes('VQD challenge failed after') ||
-    message.includes('Could not find Chrome') ||
     message.includes('Failed to load external module jsdom') ||
     message.includes('ERR_REQUIRE_ESM')
   ) {
