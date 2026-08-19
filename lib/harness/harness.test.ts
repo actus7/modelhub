@@ -11,6 +11,7 @@ import {
   HARNESS_ITERATIVE_DELIVERY_GUIDANCE,
   HARNESS_NO_PROJECT_GUIDANCE,
   HARNESS_TOOL_USE_GUIDANCE,
+  missingExplicitIterativeSections,
 } from "../../server/harness/prompt"
 import { HarnessRegistry } from "../../server/harness/registry"
 import {
@@ -43,6 +44,40 @@ describe("harness stream protocol", () => {
     expect(HARNESS_COMPLETION_GUIDANCE).toContain("numbered round")
     expect(HARNESS_NO_PROJECT_GUIDANCE).toContain("project_file_write")
     expect(HARNESS_ITERATIVE_DELIVERY_GUIDANCE).toContain("final round")
+  })
+
+  it("detects missing sections in an explicitly formatted iterative request", () => {
+    const user = `Realize 3 rodadas consecutivas.\n[Rodada X - Crítica]\n[Rodada X - Ajustes]\n[Rodada X - Entrega]`
+    const messages = [{ content: user, role: "user" as const }]
+
+    expect(
+      missingExplicitIterativeSections(
+        messages,
+        "[Rodada 1 - Entrega]: versão inicial",
+      ),
+    ).toEqual([
+      "[Rodada 1 - Crítica]",
+      "[Rodada 1 - Ajustes]",
+      "[Rodada 2 - Crítica]",
+      "[Rodada 2 - Ajustes]",
+      "[Rodada 2 - Entrega]",
+      "[Rodada 3 - Crítica]",
+      "[Rodada 3 - Ajustes]",
+      "[Rodada 3 - Entrega]",
+    ])
+
+    const complete = Array.from({ length: 3 }, (_, index) => {
+      const round = index + 1
+      return `[Rodada ${round} - Crítica]\n[Rodada ${round} - Ajustes]\n[Rodada ${round} - Entrega]`
+    }).join("\n")
+    expect(missingExplicitIterativeSections(messages, complete)).toEqual([])
+
+    expect(
+      missingExplicitIterativeSections(
+        messages,
+        complete.replace("[Rodada 3 - Entrega]", "[Rodada 3 - Entrega Final]"),
+      ),
+    ).toEqual([])
   })
 
   it("hides unusable stateful tools for an ordinary multi-role artifact request", () => {

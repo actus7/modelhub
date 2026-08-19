@@ -177,6 +177,27 @@ describe("Duck.ai chat retry handling", () => {
     expect(sleep).toHaveBeenCalledTimes(4);
   });
 
+  it("does not retry when the configured browser runtime is unavailable", async () => {
+    const getVqdData = vi
+      .fn()
+      .mockRejectedValue(
+        new Error("Duck.ai browser challenge failed: Could not find Chrome."),
+      );
+    const sendChatRequest = vi.fn();
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const handler = createHandler({ getVqdData, sendChatRequest, sleep });
+
+    const response = await handler(
+      [{ content: "hello", role: "user" }],
+      "gpt-4o-mini",
+    );
+
+    expect(response.status).toBe(500);
+    expect(getVqdData).toHaveBeenCalledTimes(1);
+    expect(sendChatRequest).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it("does not retry permanent upstream client errors", async () => {
     const sendChatRequest = vi.fn().mockResolvedValue({
       cookies: "",

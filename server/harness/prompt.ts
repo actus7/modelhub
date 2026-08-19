@@ -60,6 +60,63 @@ export function normalizeRequestMessages(messages: Array<Record<string, unknown>
     .filter((message): message is ModelMessage => message !== null)
 }
 
+function normalizedFormatMarker(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+}
+
+export function missingExplicitIterativeSections(
+  messages: ModelMessage[],
+  latestAssistantContent: string,
+): string[] {
+  const latestUserIndex = messages.findLastIndex(
+    (message) => message.role === "user",
+  )
+  if (latestUserIndex < 0) return []
+
+  const userText = contentFromUnknown(messages[latestUserIndex]!.content)
+  const roundMatch = userText.match(/\b(\d{1,2})\s+(?:rodadas?|rounds?)\b/i)
+  const roundCount = Number(roundMatch?.[1] ?? 0)
+  if (!Number.isInteger(roundCount) || roundCount < 1 || roundCount > 10) {
+    return []
+  }
+
+  const labels = [
+    ...userText.matchAll(
+      /\[\s*(?:rodada|round)\s+x\s*-\s*([^\]]+?)\s*\]/gi,
+    ),
+  ]
+    .map((match) => match[1]?.trim() ?? "")
+    .filter((label, index, all) => label && all.indexOf(label) === index)
+  if (labels.length === 0) return []
+
+  const deliveredText = [
+    ...messages
+      .slice(latestUserIndex + 1)
+      .filter((message) => message.role === "assistant")
+      .map((message) => contentFromUnknown(message.content)),
+    latestAssistantContent,
+  ].join("\n")
+  const deliveredMarkers = [...deliveredText.matchAll(/\[[^\]\r\n]{1,120}\]/g)]
+    .map((match) => normalizedFormatMarker(match[0]))
+
+  const missing: string[] = []
+  for (let round = 1; round <= roundCount; round += 1) {
+    for (const label of labels) {
+      const marker = `[Rodada ${round} - ${label}]`
+      const normalizedMarker = normalizedFormatMarker(marker)
+      const markerStem = normalizedMarker.slice(0, -1)
+      if (!deliveredMarkers.some((delivered) => delivered.startsWith(markerStem))) {
+        missing.push(marker)
+      }
+    }
+  }
+  return missing
+}
+
 export async function deriveMessagesFromEvents(conversationId: string): Promise<ModelMessage[]> {
   const events = await listAllHarnessEvents(conversationId)
   const messages: ModelMessage[] = []
