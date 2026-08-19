@@ -5,7 +5,9 @@
 import "../env";
 import { ensureRuntimeEnvValidated } from "../env";
 
-import { PrismaNeonHttp } from "@prisma/adapter-neon";
+import { neonConfig } from "@neondatabase/serverless";
+import { PrismaNeon } from "@prisma/adapter-neon";
+import ws from "ws";
 
 import { PrismaClient } from "../../generated/prisma/client.ts";
 
@@ -16,7 +18,7 @@ type PrismaClientInstance = InstanceType<typeof PrismaClient>;
  * (e.g. new fields). Without this, `next dev` can keep a stale singleton in `globalThis`
  * after `pnpm prisma:generate` until a full server restart.
  */
-const PRISMA_CLIENT_CACHE_REVISION = 3;
+const PRISMA_CLIENT_CACHE_REVISION = 4;
 
 const globalForPrisma = globalThis as {
   __prisma?: PrismaClientInstance;
@@ -31,7 +33,8 @@ function createPrismaClient(): PrismaClientInstance {
     throw new Error("DATABASE_URL não definido");
   }
 
-  const adapter = new PrismaNeonHttp(databaseUrl, {});
+  neonConfig.webSocketConstructor = ws;
+  const adapter = new PrismaNeon({ connectionString: databaseUrl });
   return new PrismaClient({ adapter });
 }
 

@@ -343,6 +343,24 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
     return { modelLabel: rawPart.modelLabel, type: "meta" };
   }
 
+  if (rawPart.type === "harness" && Array.isArray(rawPart.toolCalls)) {
+    const toolCalls = rawPart.toolCalls.filter((call) => {
+      if (!call || typeof call !== "object") return false;
+      const record = call as Record<string, unknown>;
+      return (
+        typeof record.toolCallId === "string" &&
+        typeof record.toolName === "string" &&
+        ["completed", "pending-approval", "running"].includes(
+          String(record.status),
+        )
+      );
+    });
+    return {
+      toolCalls: toolCalls as import("@/lib/chat-parts").HarnessMessagePart["toolCalls"],
+      type: "harness",
+    };
+  }
+
   if (
     rawPart.type === "canvas" &&
     typeof rawPart.canvasId === "string" &&
@@ -394,6 +412,11 @@ export function hydrateMessageParts(input: {
     }
 
     if (part.type === "meta") {
+      result.push(part);
+      return result;
+    }
+
+    if (part.type === "harness") {
       result.push(part);
       return result;
     }

@@ -16,17 +16,22 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  apiKeys             ApiKey[]
-  providerCredentials ProviderCredential[]
-  cloudConnections    CloudConnection[]
-  cloudDeployments    CloudDeployment[]
-  usageLogs           UsageLog[]
-  conversations       Conversation[]
-  projects            Project[]
-  settings            UserSettings?
-  memories            UserMemory[]
-  routingConfig       RoutingConfig?
-  budget              UserBudget?
+  apiKeys              ApiKey[]
+  providerCredentials  ProviderCredential[]
+  cloudConnections     CloudConnection[]
+  cloudDeployments     CloudDeployment[]
+  usageLogs            UsageLog[]
+  conversations        Conversation[]
+  projects             Project[]
+  agentRuns            AgentRun[]
+  harnessPluginConfigs HarnessPluginConfig[]
+  harnessSkills        HarnessSkill[]
+  mcpServers           McpServer[]
+  toolApprovals        ToolApproval[]
+  settings             UserSettings?
+  memories             UserMemory[]
+  routingConfig        RoutingConfig?
+  budget               UserBudget?
 }
 
 model Project {
@@ -42,23 +47,44 @@ model Project {
   conversations Conversation[]
   files         ProjectFile[]
   artifacts     ProjectArtifact[]
+  harnessSkills HarnessSkill[]
 
   @@index([userId, updatedAt])
 }
 
 model ProjectFile {
+  id             String   @id @default(cuid())
+  projectId      String
+  fileName       String
+  mimeType       String
+  byteSize       Int
+  blob           Bytes
+  extractedText  String?
+  currentVersion Int      @default(1)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @default(now()) @updatedAt
+
+  project  Project              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versions ProjectFileVersion[]
+
+  @@index([projectId])
+  @@unique([projectId, fileName])
+}
+
+model ProjectFileVersion {
   id            String   @id @default(cuid())
-  projectId     String
-  fileName      String
+  projectFileId String
+  version       Int
   mimeType      String
   byteSize      Int
   blob          Bytes
   extractedText String?
   createdAt     DateTime @default(now())
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectFile ProjectFile @relation(fields: [projectFileId], references: [id], onDelete: Cascade)
 
-  @@index([projectId])
+  @@unique([projectFileId, version])
+  @@index([projectFileId, createdAt])
 }
 
 model ProjectArtifact {
@@ -74,10 +100,10 @@ model ProjectArtifact {
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
-  project       Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  conversation  Conversation?     @relation("ArtifactSourceConversation", fields: [sourceConversationId], references: [id], onDelete: SetNull)
-  sourceCanvas  Canvas?           @relation("ArtifactSourceCanvas", fields: [sourceCanvasId], references: [id], onDelete: SetNull)
-  versions      ArtifactVersion[]
+  project      Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  conversation Conversation?     @relation("ArtifactSourceConversation", fields: [sourceConversationId], references: [id], onDelete: SetNull)
+  sourceCanvas Canvas?           @relation("ArtifactSourceCanvas", fields: [sourceCanvasId], references: [id], onDelete: SetNull)
+  versions     ArtifactVersion[]
 
   @@index([projectId, updatedAt])
 }
@@ -106,9 +132,9 @@ model Canvas {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  conversation    Conversation       @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation    Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   versions        CanvasVersion[]
-  pinnedArtifacts ProjectArtifact[]  @relation("ArtifactSourceCanvas")
+  pinnedArtifacts ProjectArtifact[] @relation("ArtifactSourceCanvas")
 
   @@index([conversationId, updatedAt])
 }
@@ -138,7 +164,7 @@ model ApiKey {
   lastUsedAt DateTime?
   expiresAt  DateTime?
 
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   usageLogs UsageLog[]
 
   @@index([key])
@@ -211,32 +237,32 @@ model CloudDeployment {
 }
 
 model UsageLog {
-  id             String   @id @default(cuid())
-  userId         String
-  apiKeyId       String?
-  providerId     String
-  modelId        String?
-  endpoint       String?
-  statusCode     Int      @default(200)
+  id              String   @id @default(cuid())
+  userId          String
+  apiKeyId        String?
+  providerId      String
+  modelId         String?
+  endpoint        String?
+  statusCode      Int      @default(200)
   /// Trecho da resposta de erro (JSON/texto) para diagnóstico no dashboard; ausente em sucessos e em logs antigos.
-  errorDetail    String?
-  inputTokens    Int?
-  outputTokens   Int?
-  costUsd        Float?
-  durationMs     Int?
-  routingTier    String?
-  routingReason  String?
-  taskCategory   String?
-  baselineModelId   String?
-  baselineCostUsd   Float?
-  conversationId String?
+  errorDetail     String?
+  inputTokens     Int?
+  outputTokens    Int?
+  costUsd         Float?
+  durationMs      Int?
+  routingTier     String?
+  routingReason   String?
+  taskCategory    String?
+  baselineModelId String?
+  baselineCostUsd Float?
+  conversationId  String?
   /// Não é único: cada tentativa de fallback entre provedores gera sua própria linha para a mesma mensagem.
-  messageId      String?
+  messageId       String?
   /// Tempo até o primeiro byte do stream upstream (TTFT), em ms.
-  ttftMs         Int?
+  ttftMs          Int?
   /// Tentativas de fallback entre provedores: [{ providerId, modelId, status, durationMs?, errorSnippet }].
-  attempts       Json?
-  createdAt      DateTime @default(now())
+  attempts        Json?
+  createdAt       DateTime @default(now())
 
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   apiKey       ApiKey?       @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
@@ -249,27 +275,169 @@ model UsageLog {
 }
 
 model Conversation {
-  id         String   @id @default(cuid())
-  userId     String
-  title      String   @default("Nova conversa")
-  providerId String?
-  modelId    String?
-  projectId  String?
-  archived   Boolean  @default(false)
-  shareToken String?  @unique
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  id              String   @id @default(cuid())
+  userId          String
+  title           String   @default("Nova conversa")
+  providerId      String?
+  modelId         String?
+  projectId       String?
+  engineVersion   String?
+  forkedFromId    String?
+  forkBoundarySeq BigInt?
+  archived        Boolean  @default(false)
+  shareToken      String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  project   Project?      @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  messages  Message[]
+  user        User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project?                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  messages    Message[]
   attachments ConversationAttachment[]
-  canvases  Canvas[]
-  artifacts ProjectArtifact[] @relation("ArtifactSourceConversation")
-  usageLogs UsageLog[]
+  canvases    Canvas[]
+  artifacts   ProjectArtifact[]        @relation("ArtifactSourceConversation")
+  usageLogs   UsageLog[]
+  events      SessionEvent[]
+  agentRuns   AgentRun[]
+  forkedFrom  Conversation?            @relation("ConversationForks", fields: [forkedFromId], references: [id], onDelete: SetNull)
+  forks       Conversation[]           @relation("ConversationForks")
 
   @@index([userId, updatedAt])
   @@index([projectId, updatedAt])
+  @@index([forkedFromId])
+}
+
+model SessionEvent {
+  seq            BigInt   @id @default(autoincrement())
+  id             String   @unique @default(cuid())
+  conversationId String
+  runId          String?
+  turnId         String?
+  stepId         String?
+  type           String
+  payload        Json
+  createdAt      DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  run          AgentRun?    @relation(fields: [runId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, seq])
+  @@index([runId, seq])
+  @@index([turnId])
+}
+
+model AgentRun {
+  id               String    @id @default(cuid())
+  conversationId   String
+  userId           String
+  parentRunId      String?
+  idempotencyKey   String?
+  status           String    @default("queued")
+  providerId       String?
+  modelId          String?
+  stepCount        Int       @default(0)
+  maxSteps         Int       @default(16)
+  subagentDepth    Int       @default(0)
+  maxSubagentDepth Int       @default(2)
+  leaseToken       String?
+  leaseVersion     Int       @default(0)
+  leaseExpiresAt   DateTime?
+  error            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  conversation Conversation   @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentRun    AgentRun?      @relation("AgentRunChildren", fields: [parentRunId], references: [id], onDelete: SetNull)
+  children     AgentRun[]     @relation("AgentRunChildren")
+  events       SessionEvent[]
+  approvals    ToolApproval[]
+
+  @@unique([conversationId, idempotencyKey])
+  @@index([userId, createdAt])
+  @@index([conversationId, status])
+  @@index([parentRunId])
+}
+
+model ToolApproval {
+  id         String    @id @default(cuid())
+  userId     String
+  runId      String
+  toolCallId String
+  toolName   String
+  args       Json
+  risk       String
+  reason     String
+  status     String    @default("pending")
+  decision   String?
+  response   Json?
+  operationKey String  @unique
+  result     Json?
+  stepNumber Int
+  executionToken String?
+  executionStartedAt DateTime?
+  executionExpiresAt DateTime?
+  attemptCount Int @default(0)
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  user User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  run  AgentRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@unique([runId, toolCallId])
+  @@index([userId, status, createdAt])
+  @@index([status, executionExpiresAt])
+}
+
+model HarnessPluginConfig {
+  id        String   @id @default(cuid())
+  userId    String
+  pluginId  String
+  enabled   Boolean  @default(true)
+  config    Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, pluginId])
+  @@index([userId, enabled])
+}
+
+model McpServer {
+  id               String   @id @default(cuid())
+  userId           String
+  name             String
+  url              String
+  encryptedHeaders String?
+  status           String   @default("active")
+  toolsCache       Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@index([userId, status])
+}
+
+model HarnessSkill {
+  id          String   @id @default(cuid())
+  userId      String
+  projectId   String?
+  name        String
+  description String?
+  content     String
+  enabled     Boolean  @default(true)
+  version     Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, projectId, name])
+  @@index([userId, enabled])
+  @@index([projectId, enabled])
 }
 
 model Message {
@@ -282,11 +450,11 @@ model Message {
   branchIndex    Int      @default(0)
   createdAt      DateTime @default(now())
 
-  conversation Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation Conversation             @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   attachments  ConversationAttachment[]
   reactions    MessageReaction[]
-  parent       Message?          @relation("MessageBranches", fields: [parentId], references: [id], onDelete: SetNull)
-  children     Message[]         @relation("MessageBranches")
+  parent       Message?                 @relation("MessageBranches", fields: [parentId], references: [id], onDelete: SetNull)
+  children     Message[]                @relation("MessageBranches")
 
   @@index([conversationId, createdAt])
   @@index([parentId])
@@ -296,7 +464,7 @@ model MessageReaction {
   id        String   @id @default(cuid())
   messageId String
   userId    String
-  type      String   // "thumbs_up" | "thumbs_down"
+  type      String // "thumbs_up" | "thumbs_down"
   /// Nota curta opcional explicando a reação (ex.: por que a resposta foi ruim).
   note      String?
   createdAt DateTime @default(now())
@@ -308,13 +476,13 @@ model MessageReaction {
 }
 
 model UserSettings {
-  id                    String  @id @default(cuid())
-  userId                String  @unique
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
   customInstructionsAbout String? // "What should the AI know about you?"
   customInstructionsStyle String? // "How should the AI respond?"
-  accentColor           String? // accent preset id (lib/accent-colors.ts); null = default theme
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  accentColor             String? // accent preset id (lib/accent-colors.ts); null = default theme
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -346,15 +514,15 @@ model RoutingConfig {
 }
 
 model UserBudget {
-  id               String   @id @default(cuid())
-  userId           String   @unique
-  periodType       String   @default("monthly")
-  limitUsd         Float?
-  alertThreshold   Float    @default(0.8)
-  blocksRequests   Boolean  @default(false)
-  baselineModelId  String?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  periodType      String   @default("monthly")
+  limitUsd        Float?
+  alertThreshold  Float    @default(0.8)
+  blocksRequests  Boolean  @default(false)
+  baselineModelId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

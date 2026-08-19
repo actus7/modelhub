@@ -54,6 +54,13 @@ type AttachmentRecord = {
   mimeType: string
 }
 
+type SessionEventRecord = {
+  conversationId: string
+  id: string
+  payload: Record<string, unknown>
+  type: string
+}
+
 let conversationCounter = 1
 let messageCounter = 1
 let attachmentCounter = 1
@@ -61,11 +68,13 @@ let attachmentCounter = 1
 const state: {
   attachments: AttachmentRecord[]
   conversations: ConversationRecord[]
+  events: SessionEventRecord[]
   messages: MessageRecord[]
   usageLogs: UsageLogRecord[]
 } = {
   attachments: [],
   conversations: [],
+  events: [],
   messages: [],
   usageLogs: [],
 }
@@ -91,13 +100,12 @@ function resetState() {
     },
   ]
   state.messages = []
+  state.events = []
   state.usageLogs = []
 }
 
 const mockPrisma = {
-  $transaction: vi.fn(async () => {
-    throw new Error("Transactions are not supported in HTTP mode")
-  }),
+  $transaction: vi.fn(async (callback: (tx: typeof mockPrisma) => Promise<unknown>) => callback(mockPrisma)),
   apiKey: {
     findFirst: vi.fn().mockResolvedValue(null),
     update: vi.fn().mockResolvedValue(null),
@@ -208,6 +216,15 @@ const mockPrisma = {
         return select ? project(conversation, select) : conversation
       },
     ),
+  },
+  sessionEvent: {
+    deleteMany: vi.fn(async ({ where }: { where: { id?: { in: string[] } } }) => {
+      const ids = new Set(where.id?.in ?? [])
+      const before = state.events.length
+      state.events = state.events.filter((event) => !ids.has(event.id))
+      return { count: before - state.events.length }
+    }),
+    findMany: vi.fn(async () => state.events),
   },
   conversationAttachment: {
     create: vi.fn(
@@ -915,6 +932,26 @@ describe("conversation routes with attachments", () => {
         role: "user",
       },
     )
+    state.events.push(
+      {
+        conversationId: "conv-1",
+        id: "evt_msg-a",
+        payload: { messageId: "msg-a" },
+        type: "user/message",
+      },
+      {
+        conversationId: "conv-1",
+        id: "evt_msg-b",
+        payload: { messageId: "msg-b" },
+        type: "assistant/message",
+      },
+      {
+        conversationId: "conv-1",
+        id: "evt_msg-c",
+        payload: { messageId: "msg-c" },
+        type: "user/message",
+      },
+    )
 
     const response = await conversationsFetch(
       new Request(
@@ -927,6 +964,7 @@ describe("conversation routes with attachments", () => {
 
     expect(response.status).toBe(200)
     expect(state.messages.map((message) => message.id)).toEqual(["msg-a"])
+    expect(state.events.map((event) => event.id)).toEqual(["evt_msg-a"])
   })
 
   it("lista conversas sem filtro quando ?q= esta ausente", async () => {

@@ -412,6 +412,12 @@ export function hydrateChatMessage(input: {
       ? (input.message.parts?.filter((part) => part.type === "canvas") ?? [])
       : undefined
 
+  const harnessToolCalls =
+    input.message.role === "assistant"
+      ? (input.message.parts?.find((part) => part.type === "harness")
+          ?.toolCalls ?? [])
+      : []
+
   return {
     content:
       input.message.role === "assistant"
@@ -433,7 +439,7 @@ export function hydrateChatMessage(input: {
           ? assistantCanvasParts
           : undefined,
     role: input.message.role,
-    toolCalls: [],
+    toolCalls: harnessToolCalls,
     backstage: input.message.backstage,
   }
 }

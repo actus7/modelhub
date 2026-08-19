@@ -317,22 +317,22 @@ fix(providers): remove integração quebrada
 docs(readme): atualiza instruções de setup
 ```
 
-## Patrocinadores
+## Xiaomi MiMo Spark — demonstração candidata
 
 <div align="center">
   <a href="https://www.mi.com">
     <img src="https://upload.wikimedia.org/wikipedia/commons/a/ae/Xiaomi_logo_%282021-%29.svg" alt="Xiaomi" width="120" />
   </a>
 
-  <h3>Xiaomi · Programa MiMo</h3>
+  <h3>ModelHub × Xiaomi MiMo</h3>
 
   <p>
-    O ModelHub é um projeto selecionado pelo <strong>Programa de Colaboração MiMo</strong> da Xiaomi, recebendo suporte operacional, créditos de API e acesso antecipado a novos modelos para acelerar o desenvolvimento de casos de uso reais com IA.
+    O ModelHub está submetendo uma demonstração técnica real para avaliação no <strong>MiMo Spark Program</strong>. A participação como core user ainda não foi confirmada. O programa pode oferecer a oportunidade de testar novos modelos antecipadamente, mas isso não é garantido.
   </p>
 
   <p>
-    <a href="https://mimo.xiaomi.com"><img alt="MiMo" src="https://img.shields.io/badge/Powered_by-MiMo-FF6900?logo=xiaomi&logoColor=white" /></a>
-    <a href="https://www.mi.com"><img alt="Xiaomi" src="https://img.shields.io/badge/Sponsor-Xiaomi-FF6900?logo=xiaomi&logoColor=white" /></a>
+    <a href="docs/case-studies/xiaomi-mimo.md"><img alt="MiMo case study" src="https://img.shields.io/badge/Case_study-MiMo-FF6900?logo=xiaomi&logoColor=white" /></a>
+    <a href="https://mimo.mi.com/docs/en-US/quick-start/summary/first-api-call"><img alt="MiMo API documentation" src="https://img.shields.io/badge/API-OpenAI_compatible-111111" /></a>
   </p>
 </div>
 
