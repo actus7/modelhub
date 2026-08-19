@@ -4,11 +4,11 @@ import {
   MODELHUB_MODELS_ATTEMPTED_HEADER,
   MODELHUB_REQUESTED_MODEL_HEADER,
   type ProviderModel,
-} from "@/lib/contracts";
+} from "@/lib/contracts"
 
-const MODELHUB_ROUTING_TIER_HEADER = "x-modelhub-tier";
-const MODELHUB_ROUTING_PROVIDER_HEADER = "x-modelhub-provider";
-const MODELHUB_ROUTING_MODEL_HEADER = "x-modelhub-model";
+const MODELHUB_ROUTING_TIER_HEADER = "x-modelhub-tier"
+const MODELHUB_ROUTING_PROVIDER_HEADER = "x-modelhub-provider"
+const MODELHUB_ROUTING_MODEL_HEADER = "x-modelhub-model"
 import {
   extractPlainTextFromParts,
   type AttachmentExtractionStatus,
@@ -17,83 +17,120 @@ import {
   type ConversationMessagePart,
   type HydratedAttachmentPart,
   type HydratedConversationMessagePart,
-} from "@/lib/chat-parts";
-import { apiJson, apiJsonRequest } from "@/lib/api";
-import { type ParsedToolCall } from "@/lib/chat-stream";
+} from "@/lib/chat-parts"
+import { apiJson, apiJsonRequest } from "@/lib/api"
+import { type ParsedToolCall } from "@/lib/chat-stream"
 
 export type ConversationMessage = {
-  id: string;
-  parts: HydratedConversationMessagePart[];
-  role: "assistant" | "user";
-};
+  id: string
+  parts: HydratedConversationMessagePart[]
+  role: "assistant" | "user"
+}
 
 export type ComposerAttachment = ConversationAttachmentDescriptor & {
-  previewUrl?: string;
-  status: "uploaded" | "uploading";
-};
+  previewUrl?: string
+  status: "uploaded" | "uploading"
+}
 
-export const ACCEPTED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp"] as const;
+export const ACCEPTED_IMAGE_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+] as const
 export const ACCEPTED_DOCUMENT_TYPES = [
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-] as const;
+] as const
 
 export type ChatMessage = {
-  content: string;
-  createdAt?: string;
-  id: string;
-  isError?: boolean;
-  modelLabel?: string;
+  content: string
+  createdAt?: string
+  id: string
+  isError?: boolean
+  modelLabel?: string
   /** Só preenchido quando o backend confirmou fallback (`x-modelhub-model-fallback-used: true`). */
   modelFallbackMeta?: {
-    attemptedIds: string[];
-    effectiveLabel: string;
-    requestedLabel: string;
-  };
-  parts?: HydratedConversationMessagePart[];
-  role: "assistant" | "user";
-  toolCalls: ParsedToolCall[];
-  truncated?: boolean;
-};
+    attemptedIds: string[]
+    effectiveLabel: string
+    requestedLabel: string
+  }
+  parts?: HydratedConversationMessagePart[]
+  role: "assistant" | "user"
+  toolCalls: ParsedToolCall[]
+  truncated?: boolean
+  /** O que aconteceu nos bastidores pra gerar a resposta (roteamento, fallback, tempo, tokens), quando o backend registrou. */
+  backstage?: MessageBackstage
+}
+
+export type BackstageAttempt = {
+  modelId: string
+  providerId?: string
+  status: number
+  durationMs?: number
+  errorSnippet?: string
+}
+
+export type MessageBackstage = {
+  providerId: string
+  modelId: string | null
+  routingTier: string | null
+  routingReason: string | null
+  durationMs: number | null
+  ttftMs: number | null
+  inputTokens: number | null
+  outputTokens: number | null
+  costUsd: number | null
+  attempts: BackstageAttempt[] | null
+}
 
 export type PersistedConversationMessage = {
-  content: string;
-  createdAt?: string;
-  id: string;
-  parts: HydratedConversationMessagePart[];
-  role: "assistant" | "user";
-};
+  content: string
+  createdAt?: string
+  id: string
+  parts: HydratedConversationMessagePart[]
+  role: "assistant" | "user"
+  backstage?: MessageBackstage
+}
 
-export const DUCKAI_TEMPORARY_INLINE_MESSAGE = "Duck.ai temporariamente indisponível. Tente novamente em instantes.";
-export const STREAM_INTERRUPTED_NOTE = "\n\n_Resposta interrompida. Tente novamente._";
+export const DUCKAI_TEMPORARY_INLINE_MESSAGE =
+  "Duck.ai temporariamente indisponível. Tente novamente em instantes."
+export const STREAM_INTERRUPTED_NOTE =
+  "\n\n_Resposta interrompida. Tente novamente._"
 export const EMPTY_STATE_PROMPTS = [
   "Resuma este projeto em tópicos.",
   "Compare dois providers para o meu caso.",
   "Escreva um prompt melhor para suporte.",
   "Me ajude a diagnosticar um erro 500.",
-] as const;
+] as const
 
 export type ChatRequestError = Error & {
-  status?: number;
-  suppressToast?: boolean;
-};
+  status?: number
+  suppressToast?: boolean
+}
 
-export async function parseApiErrorResponse(response: Response): Promise<string> {
+export async function parseApiErrorResponse(
+  response: Response,
+): Promise<string> {
   try {
-    const payload = (await response.json()) as { error?: unknown } | null;
+    const payload = (await response.json()) as { error?: unknown } | null
     if (payload && typeof payload === "object" && payload.error) {
-      if (typeof payload.error === "string") return payload.error;
-      if (typeof payload.error === "object" && payload.error !== null && "message" in payload.error) {
-        return String((payload.error as { message: unknown }).message);
+      if (typeof payload.error === "string") return payload.error
+      if (
+        typeof payload.error === "object" &&
+        payload.error !== null &&
+        "message" in payload.error
+      ) {
+        return String((payload.error as { message: unknown }).message)
       }
-      return JSON.stringify(payload.error);
+      return JSON.stringify(payload.error)
     }
   } catch {
     // Keep fallback.
   }
-  return `HTTP ${response.status}`;
+  return `HTTP ${response.status}`
 }
 
 export function resolveModelFallbackFromHeaders(
@@ -102,73 +139,108 @@ export function resolveModelFallbackFromHeaders(
   models: ProviderModel[],
   providerLabel: string,
 ) {
-  const routingTier = response.headers.get(MODELHUB_ROUTING_TIER_HEADER)?.trim() ?? "";
-  const routingProvider = response.headers.get(MODELHUB_ROUTING_PROVIDER_HEADER)?.trim() ?? "";
-  const routingModel = response.headers.get(MODELHUB_ROUTING_MODEL_HEADER)?.trim() ?? "";
-  const effectiveModelId = response.headers.get(MODELHUB_EFFECTIVE_MODEL_HEADER)?.trim() ?? "";
-  const requestedModel = response.headers.get(MODELHUB_REQUESTED_MODEL_HEADER)?.trim() ?? "";
-  const fallbackUsed = response.headers.get(MODELHUB_MODEL_FALLBACK_USED_HEADER) === "true";
-  const attemptedIds = (response.headers.get(MODELHUB_MODELS_ATTEMPTED_HEADER) ?? "")
-    .split(",").map((s) => s.trim()).filter(Boolean);
+  const routingTier =
+    response.headers.get(MODELHUB_ROUTING_TIER_HEADER)?.trim() ?? ""
+  const routingProvider =
+    response.headers.get(MODELHUB_ROUTING_PROVIDER_HEADER)?.trim() ?? ""
+  const routingModel =
+    response.headers.get(MODELHUB_ROUTING_MODEL_HEADER)?.trim() ?? ""
+  const effectiveModelId =
+    response.headers.get(MODELHUB_EFFECTIVE_MODEL_HEADER)?.trim() ?? ""
+  const requestedModel =
+    response.headers.get(MODELHUB_REQUESTED_MODEL_HEADER)?.trim() ?? ""
+  const fallbackUsed =
+    response.headers.get(MODELHUB_MODEL_FALLBACK_USED_HEADER) === "true"
+  const attemptedIds = (
+    response.headers.get(MODELHUB_MODELS_ATTEMPTED_HEADER) ?? ""
+  )
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
 
-  const routedLabel = routingTier && routingModel
-    ? `Auto · ${routingTier[0]?.toUpperCase()}${routingTier.slice(1)} (${routingProvider ? `${routingProvider}/` : ""}${routingModel})`
-    : undefined;
-  const resolvedLabel = routedLabel ?? (effectiveModelId.length > 0
-    ? resolveAssistantModelLabel({ modelId: effectiveModelId, models, providerLabel })
-    : defaultLabel);
+  const routedLabel =
+    routingTier && routingModel
+      ? `Auto · ${routingTier[0]?.toUpperCase()}${routingTier.slice(1)} (${routingProvider ? `${routingProvider}/` : ""}${routingModel})`
+      : undefined
+  const resolvedLabel =
+    routedLabel ??
+    (effectiveModelId.length > 0
+      ? resolveAssistantModelLabel({
+          modelId: effectiveModelId,
+          models,
+          providerLabel,
+        })
+      : defaultLabel)
 
   const fallbackMeta =
-    fallbackUsed && requestedModel.length > 0 && effectiveModelId.length > 0 && attemptedIds.length > 0
+    fallbackUsed &&
+    requestedModel.length > 0 &&
+    effectiveModelId.length > 0 &&
+    attemptedIds.length > 0
       ? {
-          requestedLabel: resolveAssistantModelLabel({ modelId: requestedModel, models, providerLabel }) ?? requestedModel,
+          requestedLabel:
+            resolveAssistantModelLabel({
+              modelId: requestedModel,
+              models,
+              providerLabel,
+            }) ?? requestedModel,
           effectiveLabel: resolvedLabel ?? effectiveModelId,
           attemptedIds: [...attemptedIds],
         }
-      : undefined;
+      : undefined
 
-  return { resolvedLabel, fallbackMeta };
+  return { resolvedLabel, fallbackMeta }
 }
 
 export function resolveStreamErrorContent(
-  parsedStream: { errorMessage?: string; hadPartialOutput: boolean; text: string },
+  parsedStream: {
+    errorMessage?: string
+    hadPartialOutput: boolean
+    text: string
+  },
   fullText: string,
   providerId: string,
 ): string | null {
-  if (!parsedStream.errorMessage) return null;
-  if (parsedStream.hadPartialOutput) return `${fullText}${STREAM_INTERRUPTED_NOTE}`;
-  if (providerId === "duckai") return DUCKAI_TEMPORARY_INLINE_MESSAGE;
-  return `Erro: ${parsedStream.errorMessage}`;
+  if (!parsedStream.errorMessage) return null
+  if (parsedStream.hadPartialOutput)
+    return `${fullText}${STREAM_INTERRUPTED_NOTE}`
+  if (providerId === "duckai") return DUCKAI_TEMPORARY_INLINE_MESSAGE
+  return `Erro: ${parsedStream.errorMessage}`
 }
 
 export function resolveAssistantModelLabel(input: {
-  modelId?: string;
-  models: ProviderModel[];
-  providerLabel?: string;
+  modelId?: string
+  models: ProviderModel[]
+  providerLabel?: string
 }) {
   const modelName = input.modelId
-    ? (input.models.find((model) => model.id === input.modelId)?.name ?? input.modelId)
-    : null;
+    ? (input.models.find((model) => model.id === input.modelId)?.name ??
+      input.modelId)
+    : null
 
   if (modelName && input.providerLabel) {
-    const trimmed = modelName.trim();
-    const suffix = `(${input.providerLabel})`;
+    const trimmed = modelName.trim()
+    const suffix = `(${input.providerLabel})`
     if (trimmed.endsWith(suffix)) {
-      return trimmed;
+      return trimmed
     }
 
-    return `${trimmed} (${input.providerLabel})`;
+    return `${trimmed} (${input.providerLabel})`
   }
 
-  return modelName ?? input.providerLabel;
+  return modelName ?? input.providerLabel
 }
 
-export function isHydratedAttachmentPart(part: HydratedConversationMessagePart): part is HydratedAttachmentPart {
-  return part.type === "attachment";
+export function isHydratedAttachmentPart(
+  part: HydratedConversationMessagePart,
+): part is HydratedAttachmentPart {
+  return part.type === "attachment"
 }
 
-export function createTextPart(text: string): HydratedConversationMessagePart[] {
-  return text ? [{ text, type: "text" }] : [];
+export function createTextPart(
+  text: string,
+): HydratedConversationMessagePart[] {
+  return text ? [{ text, type: "text" }] : []
 }
 
 export function buildUserMessageParts(
@@ -182,7 +254,7 @@ export function buildUserMessageParts(
       attachmentId: attachment.id,
       type: "attachment" as const,
     })),
-  ];
+  ]
 }
 
 /**
@@ -197,81 +269,163 @@ export function validateAttachmentCompatibility(
   providerLabel: string,
   browserAdapterCaps?: { images: boolean; documents: boolean },
 ): string | null {
-  if (attachments.some((attachment) => attachment.kind === "image") && !caps.allowImages) {
-    return "O modelo selecionado nao suporta anexos de imagem.";
+  if (
+    attachments.some((attachment) => attachment.kind === "image") &&
+    !caps.allowImages
+  ) {
+    return "O modelo selecionado nao suporta anexos de imagem."
   }
 
-  if (attachments.some((attachment) => attachment.kind === "document") && !caps.allowDocuments) {
-    return "O modelo selecionado nao suporta anexos de documento.";
+  if (
+    attachments.some((attachment) => attachment.kind === "document") &&
+    !caps.allowDocuments
+  ) {
+    return "O modelo selecionado nao suporta anexos de documento."
   }
 
   if (
     browserAdapterCaps &&
     attachments.some((attachment) =>
-      attachment.kind === "image" ? !browserAdapterCaps.images : !browserAdapterCaps.documents,
+      attachment.kind === "image"
+        ? !browserAdapterCaps.images
+        : !browserAdapterCaps.documents,
     )
   ) {
-    return `${providerLabel} aceita apenas mensagens de texto por enquanto.`;
+    return `${providerLabel} aceita apenas mensagens de texto por enquanto.`
   }
 
-  return null;
+  return null
 }
 
 /** Builds the prompt used to auto-generate a short conversation title. */
-export function buildTitleGenerationPrompt(userText: string, assistantText: string): string {
-  return `Gere um título curto (máximo 6 palavras) para esta conversa. Responda APENAS com o título, sem aspas, sem pontuação final.\n\nUsuário: ${userText}\nAssistente: ${assistantText.slice(0, 500)}`;
+export function buildTitleGenerationPrompt(
+  userText: string,
+  assistantText: string,
+): string {
+  return `Gere um título curto (máximo 6 palavras) para esta conversa. Responda APENAS com o título, sem aspas, sem pontuação final.\n\nUsuário: ${userText}\nAssistente: ${assistantText.slice(0, 500)}`
 }
 
-export function getUserMessageText(message: { parts?: HydratedConversationMessagePart[]; content: string }): string {
+export function getUserMessageText(message: {
+  parts?: HydratedConversationMessagePart[]
+  content: string
+}): string {
   if (!message.parts?.length) {
-    return message.content;
+    return message.content
   }
 
-  return extractPlainTextFromParts(message.parts);
+  return extractPlainTextFromParts(message.parts)
+}
+
+/** ~4 caracteres por token — heurística padrão quando o provider não reporta uso real. */
+const ESTIMATED_CHARS_PER_TOKEN = 4
+
+/**
+ * Resumo compacto de bastidores pra linha inline (TTFT, tokens/s, tokens totais).
+ * Tokens/s usa a fase de decode (após o TTFT) quando dá, senão a duração inteira.
+ *
+ * Providers sem chave de API (Duck.ai, Pollinations, Quillbot etc.) não expõem uso
+ * real de tokens no upstream — nesse caso, `responseText` permite estimar a partir
+ * do tamanho da resposta (marcado com "~" para não parecer um valor exato).
+ */
+export function formatBackstageInline(
+  backstage: MessageBackstage,
+  responseText?: string,
+): string | null {
+  const parts: string[] = []
+
+  if (backstage.ttftMs !== null) {
+    parts.push(`TTFT ${backstage.ttftMs}ms`)
+  }
+
+  const outputTokens =
+    backstage.outputTokens ??
+    (responseText
+      ? Math.round(responseText.length / ESTIMATED_CHARS_PER_TOKEN)
+      : null)
+  const isEstimated = backstage.outputTokens === null && outputTokens !== null
+
+  if (outputTokens !== null && backstage.durationMs !== null) {
+    const decodeMs =
+      backstage.ttftMs !== null && backstage.durationMs > backstage.ttftMs
+        ? backstage.durationMs - backstage.ttftMs
+        : backstage.durationMs
+    if (decodeMs > 0) {
+      const tokensPerSecond = outputTokens / (decodeMs / 1000)
+      parts.push(`${isEstimated ? "~" : ""}${tokensPerSecond.toFixed(1)} tok/s`)
+    }
+  }
+
+  if (backstage.inputTokens !== null && backstage.outputTokens !== null) {
+    parts.push(`${backstage.inputTokens}→${backstage.outputTokens} tok`)
+  } else if (isEstimated && outputTokens !== null) {
+    parts.push(`~${outputTokens} tok`)
+  }
+
+  return parts.length > 0 ? parts.join(" · ") : null
 }
 
 export function formatMessageTimestamp(createdAt: string): string {
-  const date = new Date(createdAt);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
-  const time = date.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-  if (isToday) return time;
-  const day = date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-  return `${day} ${time}`;
+  const date = new Date(createdAt)
+  const now = new Date()
+  const isToday = date.toDateString() === now.toDateString()
+  const time = date.toLocaleTimeString("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+  if (isToday) return time
+  const day = date.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  })
+  return `${day} ${time}`
 }
 
-function extractMetaModelLabel(parts: HydratedConversationMessagePart[] | undefined): string | undefined {
+function extractMetaModelLabel(
+  parts: HydratedConversationMessagePart[] | undefined,
+): string | undefined {
   if (!parts) return undefined
   for (const part of parts) {
-    if (typeof part === 'object' && part !== null && 'type' in part && (part as Record<string, unknown>).type === 'meta') {
+    if (
+      typeof part === "object" &&
+      part !== null &&
+      "type" in part &&
+      (part as Record<string, unknown>).type === "meta"
+    ) {
       const label = (part as Record<string, unknown>).modelLabel
-      if (typeof label === 'string' && label.trim()) return label
+      if (typeof label === "string" && label.trim()) return label
     }
   }
   return undefined
 }
 
 export function hydrateChatMessage(input: {
-  message: PersistedConversationMessage;
-  assistantModelLabel?: string;
+  message: PersistedConversationMessage
+  assistantModelLabel?: string
 }): ChatMessage {
-  const metaLabel = input.message.role === 'assistant'
-    ? extractMetaModelLabel(input.message.parts)
-    : undefined
+  const metaLabel =
+    input.message.role === "assistant"
+      ? extractMetaModelLabel(input.message.parts)
+      : undefined
 
   const assistantCanvasParts =
     input.message.role === "assistant"
-      ? input.message.parts?.filter((part) => part.type === "canvas") ?? []
-      : undefined;
+      ? (input.message.parts?.filter((part) => part.type === "canvas") ?? [])
+      : undefined
 
   return {
     content:
       input.message.role === "assistant"
         ? input.message.content
-        : getUserMessageText({ content: input.message.content, parts: input.message.parts }),
+        : getUserMessageText({
+            content: input.message.content,
+            parts: input.message.parts,
+          }),
     createdAt: input.message.createdAt,
     id: input.message.id,
-    modelLabel: input.message.role === "assistant" ? (metaLabel ?? input.assistantModelLabel) : undefined,
+    modelLabel:
+      input.message.role === "assistant"
+        ? (metaLabel ?? input.assistantModelLabel)
+        : undefined,
     parts:
       input.message.role === "user"
         ? input.message.parts
@@ -280,76 +434,90 @@ export function hydrateChatMessage(input: {
           : undefined,
     role: input.message.role,
     toolCalls: [],
-  };
+    backstage: input.message.backstage,
+  }
 }
 
 export function releaseAttachmentPreview(attachment: ComposerAttachment) {
   if (attachment.previewUrl?.startsWith("blob:")) {
-    URL.revokeObjectURL(attachment.previewUrl);
+    URL.revokeObjectURL(attachment.previewUrl)
   }
 }
 
-export function buildAttachmentLabel(attachment: { extractionStatus: AttachmentExtractionStatus; kind: AttachmentKind }) {
+export function buildAttachmentLabel(attachment: {
+  extractionStatus: AttachmentExtractionStatus
+  kind: AttachmentKind
+}) {
   if (attachment.kind === "image") {
-    return "Imagem";
+    return "Imagem"
   }
 
   switch (attachment.extractionStatus) {
     case "completed":
-      return "Documento indexado";
+      return "Documento indexado"
     case "unsupported_scan":
-      return "Scan sem OCR";
+      return "Scan sem OCR"
     case "processing":
-      return "Processando";
+      return "Processando"
     default:
-      return "Documento sem texto";
+      return "Documento sem texto"
   }
 }
 
-export async function persistMessagesForConversation(conversationId: string, outgoingMessages: Array<{
-  content?: string;
-  modelLabel?: string;
-  parts?: ConversationMessagePart[];
-  role: "assistant" | "user";
-}>) {
+export async function persistMessagesForConversation(
+  conversationId: string,
+  outgoingMessages: Array<{
+    content?: string
+    id?: string
+    modelLabel?: string
+    parts?: ConversationMessagePart[]
+    role: "assistant" | "user"
+  }>,
+) {
   return apiJsonRequest<{ messages: PersistedConversationMessage[] }>(
     `/conversations/${conversationId}/messages`,
     "POST",
     { messages: outgoingMessages },
-  );
+  )
 }
 
-export async function trimConversation(conversationId: string, input: {
-  afterMessageId?: string;
-  fromMessageId?: string;
-}) {
-  const query = new URLSearchParams();
+export async function trimConversation(
+  conversationId: string,
+  input: {
+    afterMessageId?: string
+    fromMessageId?: string
+  },
+) {
+  const query = new URLSearchParams()
   if (input.afterMessageId) {
-    query.set("afterMessageId", input.afterMessageId);
+    query.set("afterMessageId", input.afterMessageId)
   }
   if (input.fromMessageId) {
-    query.set("fromMessageId", input.fromMessageId);
+    query.set("fromMessageId", input.fromMessageId)
   }
 
-  return apiJson<{ deletedMessageIds: string[] }>(`/conversations/${conversationId}/messages?${query.toString()}`, {
-    method: "DELETE",
-  });
+  return apiJson<{ deletedMessageIds: string[] }>(
+    `/conversations/${conversationId}/messages?${query.toString()}`,
+    {
+      method: "DELETE",
+    },
+  )
 }
 
 export function resolveModelSelectPlaceholder(input: {
-  hasModels: boolean;
-  providerReady: boolean;
+  hasModels: boolean
+  providerReady: boolean
 }): string {
-  if (!input.hasModels) return "Sem modelo";
-  if (input.providerReady) return "Modelo";
-  return "Credenciais…";
+  if (!input.hasModels) return "Sem modelo"
+  if (input.providerReady) return "Modelo"
+  return "Credenciais…"
 }
 
 /** Distância do fundo, em px, dentro da qual a área de mensagens é considerada "no fim". */
-export const STICK_TO_BOTTOM_THRESHOLD_PX = 100;
+export const STICK_TO_BOTTOM_THRESHOLD_PX = 100
 
 /** Tolerância para ruído subpixel de `scrollTop` ao detectar rolagem para cima. */
-const SCROLL_UP_TOLERANCE_PX = 1;
+const SCROLL_UP_TOLERANCE_PX = 1
 
 /**
  * Decide se a área de mensagens deve continuar colada ao fundo.
@@ -360,18 +528,19 @@ const SCROLL_UP_TOLERANCE_PX = 1;
  * Chegar ao fundo recola, então o estado sempre se auto-corrige.
  */
 export function resolveStickToBottom(input: {
-  clientHeight: number;
-  previousScrollTop: number;
-  scrollHeight: number;
-  scrollTop: number;
-  sticking: boolean;
+  clientHeight: number
+  previousScrollTop: number
+  scrollHeight: number
+  scrollTop: number
+  sticking: boolean
 }): boolean {
-  const { clientHeight, previousScrollTop, scrollHeight, scrollTop, sticking } = input;
+  const { clientHeight, previousScrollTop, scrollHeight, scrollTop, sticking } =
+    input
 
-  const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
-  if (distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX) return true;
+  const distanceFromBottom = scrollHeight - scrollTop - clientHeight
+  if (distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX) return true
 
-  if (scrollTop < previousScrollTop - SCROLL_UP_TOLERANCE_PX) return false;
+  if (scrollTop < previousScrollTop - SCROLL_UP_TOLERANCE_PX) return false
 
-  return sticking;
+  return sticking
 }

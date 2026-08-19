@@ -115,6 +115,10 @@ export function downloadTextFile(filename: string, mimeType: string, content: st
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  anchor.hidden = true;
+  document.body.append(anchor);
   anchor.click();
-  URL.revokeObjectURL(url);
+  anchor.remove();
+  // Safari pode consumir o Blob apenas depois que o click retorna ao event loop.
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }

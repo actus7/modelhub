@@ -5,6 +5,7 @@ const mockPrisma = {
   providerCredential: { findMany: vi.fn(), findFirst: vi.fn(), upsert: vi.fn(), delete: vi.fn() },
   usageLog: { count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
   user: { findUnique: vi.fn() },
+  userSettings: { findUnique: vi.fn(), upsert: vi.fn() },
 };
 
 vi.mock("../lib/db", () => ({ prisma: mockPrisma }));
@@ -151,5 +152,39 @@ describe("GET /user/usage/recent", () => {
     expect(mockPrisma.usageLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     }));
+  });
+});
+
+describe("PATCH /user/settings", () => {
+  it("preserva instrucoes omitidas ao atualizar apenas a cor de destaque", async () => {
+    mockPrisma.userSettings.upsert.mockResolvedValue({
+      accentColor: "violet",
+      customInstructionsAbout: "Sobre mim",
+      customInstructionsStyle: "Direto",
+    });
+
+    const res = await mkApp().request("/user/settings", {
+      method: "PATCH",
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ accentColor: "violet" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.userSettings.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        update: { accentColor: "violet" },
+      }),
+    );
+  });
+
+  it("rejeita tipos invalidos sem gravar configuracoes", async () => {
+    const res = await mkApp().request("/user/settings", {
+      method: "PATCH",
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ accentColor: 7 }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockPrisma.userSettings.upsert).not.toHaveBeenCalled();
   });
 });

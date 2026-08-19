@@ -13,13 +13,14 @@ dist
 build
 coverage
 
-# Environment files
-.env
-.env.local
-.env.*.local
-.env.development.local
-.env.test.local
-.env.production.local
+# Environment files and local registry credentials
+.env*
+.npmrc
+.yarnrc.yml
+*.pem
+*.key
+*.p12
+*.pfx
 
 # Git
 .git
@@ -40,6 +41,7 @@ Thumbs.db
 # Testing
 coverage
 .nyc_output
+.playwright-cli
 *.lcov
 
 # Logs
@@ -81,3 +83,4 @@ temp
 # Monorepo
 apps
 packages
+manifest-main

@@ -31,17 +31,11 @@ jobs:
 
       - name: Build
         run: pnpm build
-        env:
-          DATABASE_URL: postgresql://dummy:dummy@localhost:5432/dummy
-          DIRECT_URL: postgresql://dummy:dummy@localhost:5432/dummy
-          NEON_AUTH_BASE_URL: https://dummy.neon.tech
-          NEON_AUTH_COOKIE_SECRET: dummy-secret-32-characters-long
-          ENCRYPTION_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
       - name: Generate Release Notes
         id: release_notes
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${GITHUB_REF_NAME#v}
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           
           # Extrair notas do CHANGELOG.md
@@ -86,7 +80,7 @@ jobs:
             type=raw,value=latest
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           push: true

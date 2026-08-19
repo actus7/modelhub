@@ -7,6 +7,13 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Adicionado
+- Projetos, canvases versionados e artefatos persistidos, com compartilhamento, histórico de versões e respectivas migrações de banco.
+- Bastidores das respostas de chat com roteamento, fallback, TTFT, estimativa de tokens por segundo e notas em reações.
+
+### Segurança
+- Dependências transitivas corrigidas para eliminar os advisories conhecidos dos grafos completo e de produção.
+
 ### Planejado
 - Suporte a mais provedores (Perplexity, Together AI)
 - Sistema de plugins

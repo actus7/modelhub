@@ -13,12 +13,41 @@ export type CanvasPreviewProps = {
   language?: string | null;
 };
 
+const SANDBOX_CSP = [
+  "default-src 'none'",
+  "script-src 'unsafe-inline'",
+  "style-src 'unsafe-inline'",
+  "img-src data: blob:",
+  "font-src data:",
+  "media-src data: blob:",
+  "connect-src 'none'",
+  "frame-src 'none'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "form-action 'none'",
+].join("; ");
+
+export function buildSandboxedHtmlDocument(content: string): string {
+  const policy = `<meta http-equiv="Content-Security-Policy" content="${SANDBOX_CSP}">`;
+  if (/<head(?:\s[^>]*)?>/i.test(content)) {
+    return content.replace(/<head(?:\s[^>]*)?>/i, (head) => `${head}${policy}`);
+  }
+  if (/<html(?:\s[^>]*)?>/i.test(content)) {
+    return content.replace(/<html(?:\s[^>]*)?>/i, (html) => `${html}<head>${policy}</head>`);
+  }
+  return `<!doctype html><html><head>${policy}</head><body>${content}</body></html>`;
+}
+
+export function escapeInlineScript(value: string): string {
+  return value.replace(/<\/script/gi, "<\\/script");
+}
+
 export function CanvasPreview({ content, kind, language }: CanvasPreviewProps) {
   if (kind === "markdown") {
     return <div className="p-5"><MarkdownRenderer content={content} /></div>;
   }
   if (kind === "html") {
-    return <iframe className="h-full min-h-[420px] w-full border-0 bg-white" sandbox="allow-scripts" srcDoc={content} title="Preview HTML" />;
+    return <iframe className="h-full min-h-[420px] w-full border-0 bg-white" referrerPolicy="no-referrer" sandbox="allow-scripts" srcDoc={buildSandboxedHtmlDocument(content)} title="Preview HTML" />;
   }
   if (kind === "mermaid") return <MermaidPreview content={content} />;
   if (kind === "react") return <ReactPreview content={content} language={language ?? "tsx"} />;
@@ -116,9 +145,11 @@ function ReactPreview({ content, language }: { content: string; language: string
         const componentName = normalized.includes("__CanvasComponent") ? "__CanvasComponent" : (componentMatch?.[1] ?? "App");
         const code = Babel.transform(normalized, {
           filename: language === "jsx" ? "canvas.jsx" : "canvas.tsx",
+          plugins: ["transform-modules-commonjs"],
           presets: ["react", "typescript"],
         }).code;
-        const runtime = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><script crossorigin src="https://unpkg.com/react@19/umd/react.development.js"></script><script crossorigin src="https://unpkg.com/react-dom@19/umd/react-dom.development.js"></script><style>body{margin:0;padding:20px;font-family:ui-sans-serif,system-ui;color:#18181b}*{box-sizing:border-box}.error{white-space:pre-wrap;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px}</style></head><body><div id="root"></div><script>window.onerror=(m,s,l,c,e)=>{document.getElementById('root').innerHTML='<pre class="error">'+String(e?.stack||m).replace(/</g,'&lt;')+'</pre>'};try{${code};const C=${componentName};ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(C));}catch(e){window.onerror(e.message,'',0,0,e)}</script></body></html>`;
+        const safeCode = escapeInlineScript(code ?? "");
+        const runtime = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://esm.sh; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'"><script type="importmap">{"imports":{"react":"https://esm.sh/react@19.2.8","react-dom/client":"https://esm.sh/react-dom@19.2.8/client"}}</script><style>body{margin:0;padding:20px;font-family:ui-sans-serif,system-ui;color:#18181b}*{box-sizing:border-box}.error{white-space:pre-wrap;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px}</style></head><body><div id="root"></div><script type="module">import * as __React from "react";import {createRoot as __createRoot} from "react-dom/client";globalThis.React=__React;const reportError=(value)=>{const root=document.getElementById('root');const pre=document.createElement('pre');pre.className='error';pre.textContent=String(value);root.replaceChildren(pre)};window.onerror=(m,s,l,c,e)=>{reportError(e?.stack||m);return true};const module={exports:{}};const exports=module.exports;const require=(id)=>{if(id==='react')return __React;if(id==='react-dom/client')return{createRoot:__createRoot};throw new Error('Import não suportado no preview: '+id)};try{${safeCode};const C=typeof ${componentName}==='undefined'?(module.exports.default||exports.default):${componentName};if(typeof C!=='function')throw new Error('Componente React não encontrado');__createRoot(document.getElementById('root')).render(__React.createElement(C));}catch(e){reportError(e?.stack||e)}</script></body></html>`;
         if (!cancelled) { setSrcDoc(runtime); setError(null); }
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Falha na compilação");
@@ -129,5 +160,5 @@ function ReactPreview({ content, language }: { content: string; language: string
   }, [content, language]);
 
   if (error) return <ErrorPanel detail={error} title="Não foi possível compilar o componente" />;
-  return <iframe className="h-full min-h-[420px] w-full border-0 bg-white" sandbox="allow-scripts" srcDoc={srcDoc} title="Preview React" />;
+  return <iframe className="h-full min-h-[420px] w-full border-0 bg-white" referrerPolicy="no-referrer" sandbox="allow-scripts" srcDoc={srcDoc} title="Preview React" />;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   FileIcon,
@@ -35,19 +35,27 @@ export function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(searchParams.get("new") === "1");
+  const loadRequestRef = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
     setError(null);
     try {
       const data = await apiJson<{ projects: ProjectSummary[] }>("/projects");
+      if (requestId !== loadRequestRef.current) return;
       setProjects(data.projects);
     } catch {
-      setError("Falha ao carregar projetos.");
+      if (requestId === loadRequestRef.current) {
+        setError("Falha ao carregar projetos.");
+      }
     }
   }, []);
 
   useEffect(() => {
     void load();
+    return () => {
+      loadRequestRef.current += 1;
+    };
   }, [load]);
 
   useEffect(() => {

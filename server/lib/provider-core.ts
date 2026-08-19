@@ -1,30 +1,41 @@
-import { createHash } from 'node:crypto'
+import { createHash } from "node:crypto"
 
-import { Hono } from 'hono'
-import { z } from 'zod'
+import { Hono } from "hono"
+import { z } from "zod"
 
-import { MODELHUB_FALLBACK_DIAGNOSTIC_HEADER, MODELHUB_PROJECT_HEADER } from '@/lib/contracts'
-import type { ProviderModelCapabilities } from '@/lib/chat-parts'
-import type { ProviderModel } from '@/lib/contracts'
-import { prisma } from './db'
-import { decryptCredential } from './crypto'
-import { DEFAULT_MODELS_CACHE_TTL_MS, getCachedModels } from './model-cache'
+import {
+  MODELHUB_CONVERSATION_HEADER,
+  MODELHUB_FALLBACK_DIAGNOSTIC_HEADER,
+  MODELHUB_MESSAGE_HEADER,
+  MODELHUB_PROJECT_HEADER,
+} from "@/lib/contracts"
+import type { ProviderModelCapabilities } from "@/lib/chat-parts"
+import type { ProviderModel } from "@/lib/contracts"
+import type { Prisma } from "../../generated/prisma/client.ts"
+import { prisma } from "./db"
+import { decryptCredential } from "./crypto"
+import { DEFAULT_MODELS_CACHE_TTL_MS, getCachedModels } from "./model-cache"
 import {
   MAX_DOCUMENT_CONTEXT_CHARS,
   buildDocumentContextBlock,
-} from './conversation-attachments'
-import { ensureProtectedAccess, isProductionEnv, protectedCors, securityHeaders } from './security'
-import { checkBudget } from './budget'
-import { scrubSecrets } from './secret-scrub'
+} from "./conversation-attachments"
+import {
+  ensureProtectedAccess,
+  isProductionEnv,
+  protectedCors,
+  securityHeaders,
+} from "./security"
+import { checkBudget } from "./budget"
+import { scrubSecrets } from "./secret-scrub"
 
 type ChatMessageToolCall = {
   id: string
-  type: 'function'
+  type: "function"
   function: { name: string; arguments: string }
 }
 
 export type ChatMessage = {
-  role: 'user' | 'assistant' | 'system' | 'tool'
+  role: "user" | "assistant" | "system" | "tool"
   content: string | ChatMessageContentPart[]
   tool_calls?: ChatMessageToolCall[]
   tool_call_id?: string
@@ -32,21 +43,21 @@ export type ChatMessage = {
 }
 
 type ChatMessageContentPart =
-  | { type: 'text'; text: string }
-  | { type: 'image_url'; image_url: { url: string; detail?: string } }
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string; detail?: string } }
 
 type ChatInputAttachmentPart = {
   attachmentId: string
   fileName: string
-  kind: 'document' | 'image'
+  kind: "document" | "image"
   mimeType: string
-  type: 'attachment'
+  type: "attachment"
 }
 
 type ChatInputContentPart = ChatMessageContentPart | ChatInputAttachmentPart
 
 type ChatInputMessage = {
-  role: 'user' | 'assistant' | 'system' | 'tool'
+  role: "user" | "assistant" | "system" | "tool"
   content: string | ChatInputContentPart[]
   tool_calls?: ChatMessageToolCall[]
   tool_call_id?: string
@@ -68,8 +79,11 @@ type RawMessagePart = {
 /** Entrada bruta OpenAI-compatible: tool_calls podem vir sem id ou com arguments como objeto. */
 type RawIncomingToolCall = {
   id?: string
-  type?: 'function'
-  function?: { name?: string; arguments?: string | Record<string, unknown> | unknown[] }
+  type?: "function"
+  function?: {
+    name?: string
+    arguments?: string | Record<string, unknown> | unknown[]
+  }
 }
 
 type RawChatMessage = {
@@ -105,7 +119,7 @@ type OpenAiSseChunk = {
 
 type AccumulatedToolCall = {
   id: string
-  type: 'function'
+  type: "function"
   function: { name: string; arguments: string }
 }
 
@@ -166,8 +180,12 @@ const rawMessagePartSchema = z
 const toolCallFunctionSchema = z.object({
   name: z.string().max(256),
   arguments: z
-    .union([z.string().max(MAX_MESSAGE_TEXT_LENGTH), z.record(z.string(), z.unknown()), z.array(z.unknown())])
-    .transform((v) => (typeof v === 'string' ? v : JSON.stringify(v)))
+    .union([
+      z.string().max(MAX_MESSAGE_TEXT_LENGTH),
+      z.record(z.string(), z.unknown()),
+      z.array(z.unknown()),
+    ])
+    .transform((v) => (typeof v === "string" ? v : JSON.stringify(v)))
     .pipe(z.string().max(MAX_MESSAGE_TEXT_LENGTH * 2)),
 })
 
@@ -175,7 +193,7 @@ const toolCallSchema = z
   .object({
     id: z.string().max(256).optional(),
     /** Alguns clientes omitem; assumimos function. */
-    type: z.literal('function').optional(),
+    type: z.literal("function").optional(),
     function: toolCallFunctionSchema,
   })
   .passthrough()
@@ -219,22 +237,29 @@ type ProviderConfig = {
     userId?: string,
   ) => Promise<Response>
   /** Optional function to test credentials against the upstream provider. */
-  testCredentials?: (credentials: Record<string, string>) => Promise<{ ok: boolean; error?: string }>
+  testCredentials?: (
+    credentials: Record<string, string>,
+  ) => Promise<{ ok: boolean; error?: string }>
   /** Optional function to fetch models dynamically from upstream. Results are cached with TTL. */
-  fetchModels?: (credentials?: Record<string, string>) => Promise<ProviderModel[]>
+  fetchModels?: (
+    credentials?: Record<string, string>,
+  ) => Promise<ProviderModel[]>
 }
 
 function buildProviderModelsCacheKeySuffix(
   userId: string | undefined,
   credentials: Record<string, string>,
 ): string {
-  const uid = userId ?? 'anon'
+  const uid = userId ?? "anon"
   const keys = Object.keys(credentials).sort()
   if (keys.length === 0) {
     return `${uid}:env`
   }
-  const payload = keys.map((k) => `${k}=${credentials[k] ?? ''}`).join('\n')
-  const hash = createHash('sha256').update(payload).digest('base64url').slice(0, 32)
+  const payload = keys.map((k) => `${k}=${credentials[k] ?? ""}`).join("\n")
+  const hash = createHash("sha256")
+    .update(payload)
+    .digest("base64url")
+    .slice(0, 32)
   return `${uid}:${hash}`
 }
 
@@ -255,47 +280,54 @@ function fetchCachedProviderModels(
   )
 }
 
-function normalizeContentParts(parts: RawMessagePart[]): ChatInputContentPart[] {
+function normalizeContentParts(
+  parts: RawMessagePart[],
+): ChatInputContentPart[] {
   const out: ChatInputContentPart[] = []
   for (const part of parts) {
-    if (part.type === 'text' && typeof part.text === 'string') {
-      out.push({ type: 'text', text: part.text })
-    } else if (part.type === 'image_url' && part.image_url?.url) {
-      out.push({ type: 'image_url', image_url: { url: part.image_url.url, detail: part.image_url.detail } })
+    if (part.type === "text" && typeof part.text === "string") {
+      out.push({ type: "text", text: part.text })
+    } else if (part.type === "image_url" && part.image_url?.url) {
+      out.push({
+        type: "image_url",
+        image_url: { url: part.image_url.url, detail: part.image_url.detail },
+      })
     } else if (
-      part.type === 'attachment' &&
-      typeof part.attachmentId === 'string' &&
-      (part.kind === 'image' || part.kind === 'document') &&
-      typeof part.fileName === 'string' &&
-      typeof part.mimeType === 'string'
+      part.type === "attachment" &&
+      typeof part.attachmentId === "string" &&
+      (part.kind === "image" || part.kind === "document") &&
+      typeof part.fileName === "string" &&
+      typeof part.mimeType === "string"
     ) {
       out.push({
         attachmentId: part.attachmentId,
         fileName: part.fileName,
         kind: part.kind,
         mimeType: part.mimeType,
-        type: 'attachment',
+        type: "attachment",
       })
     }
   }
   return out
 }
 
-const ROLE_ALIASES: Record<string, ChatInputMessage['role']> = {
-  assistant: 'assistant',
-  developer: 'system',
-  function: 'tool',
-  system: 'system',
-  tool: 'tool',
+const ROLE_ALIASES: Record<string, ChatInputMessage["role"]> = {
+  assistant: "assistant",
+  developer: "system",
+  function: "tool",
+  system: "system",
+  tool: "tool",
 }
 
-function mapRole(raw: string | undefined): ChatInputMessage['role'] {
-  if (!raw) return 'user'
-  return ROLE_ALIASES[raw] ?? 'user'
+function mapRole(raw: string | undefined): ChatInputMessage["role"] {
+  if (!raw) return "user"
+  return ROLE_ALIASES[raw] ?? "user"
 }
 
-function normalizeContent(item: RawChatMessage): string | ChatInputContentPart[] {
-  if (typeof item.content === 'string') return item.content
+function normalizeContent(
+  item: RawChatMessage,
+): string | ChatInputContentPart[] {
+  if (typeof item.content === "string") return item.content
   if (Array.isArray(item.content)) {
     const parts = normalizeContentParts(item.content)
     if (parts.length > 0) return parts
@@ -306,22 +338,28 @@ function normalizeContent(item: RawChatMessage): string | ChatInputContentPart[]
     if (parts.length > 0) return parts
   }
 
-  return ''
+  return ""
 }
 
 function normalizeToolCalls(
-  toolCalls: RawChatMessage['tool_calls'],
+  toolCalls: RawChatMessage["tool_calls"],
 ): ChatMessageToolCall[] | undefined {
-  if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) return undefined
+  if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0)
+    return undefined
 
   return toolCalls.map((tc, i) => {
-    const id = typeof tc.id === 'string' && tc.id.length > 0 ? tc.id : `tool_${i}`
-    const name = typeof tc.function?.name === 'string' ? tc.function.name : ''
+    const id =
+      typeof tc.id === "string" && tc.id.length > 0 ? tc.id : `tool_${i}`
+    const name = typeof tc.function?.name === "string" ? tc.function.name : ""
     const args = tc.function?.arguments
-    let argumentsStr = '{}'
-    if (typeof args === 'string') argumentsStr = args
+    let argumentsStr = "{}"
+    if (typeof args === "string") argumentsStr = args
     else if (args !== undefined) argumentsStr = JSON.stringify(args)
-    return { id, type: 'function' as const, function: { name, arguments: argumentsStr } }
+    return {
+      id,
+      type: "function" as const,
+      function: { name, arguments: argumentsStr },
+    }
   })
 }
 
@@ -336,8 +374,9 @@ function normalizeMessages(input: RawChatMessage[]): ChatInputMessage[] {
 
     const toolCalls = normalizeToolCalls(item.tool_calls)
     if (toolCalls) msg.tool_calls = toolCalls
-    if (typeof item.tool_call_id === 'string' && item.tool_call_id) msg.tool_call_id = item.tool_call_id
-    if (typeof item.name === 'string' && item.name) msg.name = item.name
+    if (typeof item.tool_call_id === "string" && item.tool_call_id)
+      msg.tool_call_id = item.tool_call_id
+    if (typeof item.name === "string" && item.name) msg.name = item.name
 
     return msg
   })
@@ -348,7 +387,7 @@ class AttachmentCapabilityError extends Error {
 }
 
 function toDataUrl(mimeType: string, blob: Uint8Array): string {
-  return `data:${mimeType};base64,${Buffer.from(blob).toString('base64')}`
+  return `data:${mimeType};base64,${Buffer.from(blob).toString("base64")}`
 }
 
 async function getModelCapabilities(
@@ -363,7 +402,11 @@ async function getModelCapabilities(
   }
 
   if (config.fetchModels) {
-    const fetchedModels = await fetchCachedProviderModels(config, credentials, userId)
+    const fetchedModels = await fetchCachedProviderModels(
+      config,
+      credentials,
+      userId,
+    )
     const dynamicMatch = fetchedModels.find((model) => model.id === modelId)
     if (dynamicMatch) {
       return dynamicMatch.capabilities
@@ -382,18 +425,18 @@ function requestUsesTools(rawBody: Record<string, unknown>): boolean {
   const toolChoice = rawBody.tool_choice
   return Boolean(
     toolChoice &&
-      toolChoice !== 'none' &&
-      (typeof toolChoice === 'object' || toolChoice === 'required'),
+    toolChoice !== "none" &&
+    (typeof toolChoice === "object" || toolChoice === "required"),
   )
 }
 
 type ResolvedAttachment = {
   blob: Uint8Array
   extractedText: string | null
-  extractionStatus: 'completed' | 'failed' | 'processing' | 'unsupported_scan'
+  extractionStatus: "completed" | "failed" | "processing" | "unsupported_scan"
   fileName: string
   id: string
-  kind: 'document' | 'image'
+  kind: "document" | "image"
   mimeType: string
 }
 
@@ -402,7 +445,7 @@ function collectAttachmentIds(messages: ChatInputMessage[]): Set<string> {
   for (const message of messages) {
     if (!Array.isArray(message.content)) continue
     for (const part of message.content) {
-      if (part.type === 'attachment') ids.add(part.attachmentId)
+      if (part.type === "attachment") ids.add(part.attachmentId)
     }
   }
   return ids
@@ -413,25 +456,39 @@ async function loadAttachments(
   userId: string | undefined,
 ): Promise<Map<string, ResolvedAttachment>> {
   if (attachmentIds.size === 0) return new Map()
-  if (!userId) throw new AttachmentCapabilityError('Authenticated user context is required for attachments')
+  if (!userId)
+    throw new AttachmentCapabilityError(
+      "Authenticated user context is required for attachments",
+    )
 
   const rows = await prisma.conversationAttachment.findMany({
     where: { conversation: { userId }, id: { in: [...attachmentIds] } },
     select: {
-      blob: true, extractedText: true, extractionStatus: true,
-      fileName: true, id: true, kind: true, mimeType: true,
+      blob: true,
+      extractedText: true,
+      extractionStatus: true,
+      fileName: true,
+      id: true,
+      kind: true,
+      mimeType: true,
     },
   })
 
-  return new Map(rows.map((row) => [row.id, {
-    blob: row.blob,
-    extractedText: row.extractedText,
-    extractionStatus: row.extractionStatus as ResolvedAttachment['extractionStatus'],
-    fileName: row.fileName,
-    id: row.id,
-    kind: row.kind as ResolvedAttachment['kind'],
-    mimeType: row.mimeType,
-  }]))
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        blob: row.blob,
+        extractedText: row.extractedText,
+        extractionStatus:
+          row.extractionStatus as ResolvedAttachment["extractionStatus"],
+        fileName: row.fileName,
+        id: row.id,
+        kind: row.kind as ResolvedAttachment["kind"],
+        mimeType: row.mimeType,
+      },
+    ]),
+  )
 }
 
 /**
@@ -439,7 +496,10 @@ async function loadAttachments(
  * pertence ao usuário autenticado (`userId` no where). Projeto inválido ou de
  * outro usuário → retorna null silenciosamente (sem vazar informação).
  */
-async function buildProjectContextSection(projectId: string, userId: string): Promise<string | null> {
+async function buildProjectContextSection(
+  projectId: string,
+  userId: string,
+): Promise<string | null> {
   const findProject = prisma.project?.findFirst?.bind?.(prisma.project)
   if (!findProject) return null
 
@@ -447,40 +507,55 @@ async function buildProjectContextSection(projectId: string, userId: string): Pr
   if (!project) return null
 
   const sectionParts: string[] = []
-  const instructions = project.instructions?.slice(0, PROJECT_INSTRUCTIONS_CHAR_CAP)
+  const instructions = project.instructions?.slice(
+    0,
+    PROJECT_INSTRUCTIONS_CHAR_CAP,
+  )
   if (instructions) {
     sectionParts.push(`Project instructions:\n${instructions}`)
   }
 
-  const findProjectFiles = prisma.projectFile?.findMany?.bind?.(prisma.projectFile)
+  const findProjectFiles = prisma.projectFile?.findMany?.bind?.(
+    prisma.projectFile,
+  )
   if (findProjectFiles) {
     const files = await findProjectFiles({
       where: { projectId: project.id, extractedText: { not: null } },
       select: { extractedText: true, fileName: true },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
     })
 
     let remaining = PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP
     const knowledgeBlocks: string[] = []
     for (const file of files) {
       if (remaining <= 0) break
-      const text = (file.extractedText ?? '').slice(0, Math.min(PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP, remaining))
+      const text = (file.extractedText ?? "").slice(
+        0,
+        Math.min(PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP, remaining),
+      )
       if (!text) continue
       knowledgeBlocks.push(`[${file.fileName}]\n${text}`)
       remaining -= text.length
     }
     if (knowledgeBlocks.length > 0) {
-      sectionParts.push(`Project knowledge:\n${knowledgeBlocks.join('\n\n')}`)
+      sectionParts.push(`Project knowledge:\n${knowledgeBlocks.join("\n\n")}`)
     }
   }
 
   if (sectionParts.length === 0) return null
-  return sectionParts.join('\n\n')
+  return sectionParts.join("\n\n")
 }
 
-async function buildUserContextMessage(userId: string, projectId?: string): Promise<ChatMessage | null> {
-  const findUserSettings = prisma.userSettings?.findUnique?.bind?.(prisma.userSettings)
-  const findUserMemories = prisma.userMemory?.findMany?.bind?.(prisma.userMemory)
+async function buildUserContextMessage(
+  userId: string,
+  projectId?: string,
+): Promise<ChatMessage | null> {
+  const findUserSettings = prisma.userSettings?.findUnique?.bind?.(
+    prisma.userSettings,
+  )
+  const findUserMemories = prisma.userMemory?.findMany?.bind?.(
+    prisma.userMemory,
+  )
   const projectContextPromise = projectId
     ? buildProjectContextSection(projectId, userId)
     : Promise.resolve<string | null>(null)
@@ -493,7 +568,7 @@ async function buildUserContextMessage(userId: string, projectId?: string): Prom
       ? findUserMemories({
           where: { userId },
           select: { content: true },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
           take: 50,
         })
       : Promise.resolve<UserMemoryRecord[]>([]),
@@ -508,32 +583,42 @@ async function buildUserContextMessage(userId: string, projectId?: string): Prom
     systemParts.push(`Response style: ${userSettings.customInstructionsStyle}`)
   }
   if (userMemories.length > 0) {
-    systemParts.push(`User memories:\n${userMemories.map((m) => `- ${m.content}`).join('\n')}`)
+    systemParts.push(
+      `User memories:\n${userMemories.map((m) => `- ${m.content}`).join("\n")}`,
+    )
   }
   if (projectContext) {
     systemParts.push(projectContext)
   }
 
   if (systemParts.length === 0) return null
-  return { role: 'system', content: systemParts.join('\n\n') }
+  return { role: "system", content: systemParts.join("\n\n") }
 }
 
 function resolveAttachmentPart(
-  part: ChatInputContentPart & { type: 'attachment' },
+  part: ChatInputContentPart & { type: "attachment" },
   attachmentsById: Map<string, ResolvedAttachment>,
   modelCapabilities: ProviderModelCapabilities,
   modelId: string,
   remainingDocumentChars: number,
 ): { contentPart: ChatMessageContentPart | null; consumedChars: number } {
   const attachment = attachmentsById.get(part.attachmentId)
-  if (!attachment) throw new AttachmentCapabilityError(`Attachment "${part.fileName}" was not found`)
+  if (!attachment)
+    throw new AttachmentCapabilityError(
+      `Attachment "${part.fileName}" was not found`,
+    )
 
-  if (attachment.kind === 'image') {
+  if (attachment.kind === "image") {
     if (!modelCapabilities.images) {
-      throw new AttachmentCapabilityError(`Modelo "${modelId}" nao suporta anexos de imagem`)
+      throw new AttachmentCapabilityError(
+        `Modelo "${modelId}" nao suporta anexos de imagem`,
+      )
     }
     return {
-      contentPart: { type: 'image_url', image_url: { url: toDataUrl(attachment.mimeType, attachment.blob) } },
+      contentPart: {
+        type: "image_url",
+        image_url: { url: toDataUrl(attachment.mimeType, attachment.blob) },
+      },
       consumedChars: 0,
     }
   }
@@ -546,7 +631,7 @@ function resolveAttachmentPart(
     status: attachment.extractionStatus,
   })
   return {
-    contentPart: block.text ? { type: 'text', text: block.text } : null,
+    contentPart: block.text ? { type: "text", text: block.text } : null,
     consumedChars: block.consumedChars,
   }
 }
@@ -557,26 +642,30 @@ function resolveMessageContent(
   modelCapabilities: ProviderModelCapabilities,
   modelId: string,
 ): ChatMessage {
-  if (typeof message.content === 'string') {
+  if (typeof message.content === "string") {
     return { ...message, content: message.content }
   }
 
   let remainingDocumentChars = MAX_DOCUMENT_CONTEXT_CHARS
   const contentParts: ChatMessageContentPart[] = []
   for (const part of message.content) {
-    if (part.type === 'text' || part.type === 'image_url') {
+    if (part.type === "text" || part.type === "image_url") {
       contentParts.push(part)
       continue
     }
 
     const { contentPart, consumedChars } = resolveAttachmentPart(
-      part, attachmentsById, modelCapabilities, modelId, remainingDocumentChars,
+      part,
+      attachmentsById,
+      modelCapabilities,
+      modelId,
+      remainingDocumentChars,
     )
     if (contentPart) contentParts.push(contentPart)
     remainingDocumentChars = Math.max(0, remainingDocumentChars - consumedChars)
   }
 
-  return { ...message, content: contentParts.length > 0 ? contentParts : '' }
+  return { ...message, content: contentParts.length > 0 ? contentParts : "" }
 }
 
 export async function resolveMessagesForProvider(input: {
@@ -590,7 +679,12 @@ export async function resolveMessagesForProvider(input: {
 }): Promise<ChatMessage[]> {
   const modelCapabilities =
     input.modelCapabilities ??
-    (await getModelCapabilities(input.config, input.modelId, input.credentials, input.userId))
+    (await getModelCapabilities(
+      input.config,
+      input.modelId,
+      input.credentials,
+      input.userId,
+    ))
 
   const attachmentIds = collectAttachmentIds(input.messages)
   const attachmentsById = await loadAttachments(attachmentIds, input.userId)
@@ -602,7 +696,14 @@ export async function resolveMessagesForProvider(input: {
   }
 
   for (const message of input.messages) {
-    resolvedMessages.push(resolveMessageContent(message, attachmentsById, modelCapabilities, input.modelId))
+    resolvedMessages.push(
+      resolveMessageContent(
+        message,
+        attachmentsById,
+        modelCapabilities,
+        input.modelId,
+      ),
+    )
   }
 
   return resolvedMessages
@@ -615,13 +716,13 @@ export async function resolveMessagesForProvider(input: {
  */
 export function messageContentAsText(msg: ChatMessage): string {
   let raw: string
-  if (typeof msg.content === 'string') {
+  if (typeof msg.content === "string") {
     raw = msg.content
   } else {
     raw = msg.content
-      .filter((p): p is { type: 'text'; text: string } => p.type === 'text')
+      .filter((p): p is { type: "text"; text: string } => p.type === "text")
       .map((p) => p.text)
-      .join('\n')
+      .join("\n")
   }
 
   return stripCodingAssistantContext(raw)
@@ -630,80 +731,88 @@ export function messageContentAsText(msg: ChatMessage): string {
 /** Remove known AI coding assistant metadata blocks that simple models echo back. */
 function stripCodingAssistantContext(text: string): string {
   // Strip <environment_details>...</environment_details> blocks (Kilo Code / Cline / Roo Code)
-  let cleaned = text.replace(/<environment_details>[\s\S]*?<\/environment_details>/g, '')
+  let cleaned = text.replace(
+    /<environment_details>[\s\S]*?<\/environment_details>/g,
+    "",
+  )
 
   // Unwrap <task>...</task> to just the inner content
-  cleaned = cleaned.replace(/<task>\s*([\s\S]*?)\s*<\/task>/g, '$1')
+  cleaned = cleaned.replace(/<task>\s*([\s\S]*?)\s*<\/task>/g, "$1")
 
   return cleaned.trim()
 }
 
 function extractSseTextDelta(parsed: OpenAiSseChunk | null): string {
   const delta = parsed?.choices?.[0]?.delta
-  if (!delta) return ''
+  if (!delta) return ""
 
-  if (typeof delta.content === 'string') {
+  if (typeof delta.content === "string") {
     return delta.content
   }
 
   if (Array.isArray(delta.content)) {
     return delta.content
-      .map((part) => (typeof part.text === 'string' ? part.text : ''))
-      .join('')
+      .map((part) => (typeof part.text === "string" ? part.text : ""))
+      .join("")
   }
 
-  return ''
+  return ""
 }
 
 const HIDDEN_REASONING_OPEN_RE = /<\s*(?:thought|think|reasoning)\b[^>]*>/i
 const HIDDEN_REASONING_CLOSE_RE = /<\s*\/\s*(?:thought|think|reasoning)\s*>/i
-const HIDDEN_REASONING_TAG_NAMES = ['thought', 'think', 'reasoning']
+const HIDDEN_REASONING_TAG_NAMES = ["thought", "think", "reasoning"]
 const HIDDEN_REASONING_TAG_BOUNDARY_RE = /^(?:thought|think|reasoning)\b/i
 
 function couldBecomeHiddenReasoningTagName(normalized: string): boolean {
-  return HIDDEN_REASONING_TAG_NAMES.some((tag) => tag.startsWith(normalized)) ||
+  return (
+    HIDDEN_REASONING_TAG_NAMES.some((tag) => tag.startsWith(normalized)) ||
     HIDDEN_REASONING_TAG_BOUNDARY_RE.test(normalized)
+  )
 }
 
-function splitPotentialHiddenReasoningTag(text: string): { emit: string; pending: string } {
-  const lastOpen = text.lastIndexOf('<')
-  if (lastOpen < 0) return { emit: text, pending: '' }
+function splitPotentialHiddenReasoningTag(text: string): {
+  emit: string
+  pending: string
+} {
+  const lastOpen = text.lastIndexOf("<")
+  if (lastOpen < 0) return { emit: text, pending: "" }
 
   const suffix = text.slice(lastOpen).toLowerCase()
-  const normalized = suffix.replace(/^<\s*\/?\s*/, '')
+  const normalized = suffix.replace(/^<\s*\/?\s*/, "")
   const couldBecomeHiddenTag = couldBecomeHiddenReasoningTagName(normalized)
 
-  if (!couldBecomeHiddenTag) return { emit: text, pending: '' }
+  if (!couldBecomeHiddenTag) return { emit: text, pending: "" }
   return { emit: text.slice(0, lastOpen), pending: text.slice(lastOpen) }
 }
 
 function getPotentialHiddenReasoningClose(text: string): string {
-  const lastOpen = text.lastIndexOf('<')
-  if (lastOpen < 0) return ''
+  const lastOpen = text.lastIndexOf("<")
+  if (lastOpen < 0) return ""
 
   const suffix = text.slice(lastOpen).toLowerCase()
-  const normalized = suffix.replace(/^<\s*\/?\s*/, '')
-  const couldBecomeClose = suffix.startsWith('</') &&
-    couldBecomeHiddenReasoningTagName(normalized)
+  const normalized = suffix.replace(/^<\s*\/?\s*/, "")
+  const couldBecomeClose =
+    suffix.startsWith("</") && couldBecomeHiddenReasoningTagName(normalized)
 
-  return couldBecomeClose ? text.slice(lastOpen) : ''
+  return couldBecomeClose ? text.slice(lastOpen) : ""
 }
 
 function createHiddenReasoningSanitizer() {
-  let pending = ''
+  let pending = ""
   let insideHiddenBlock = false
 
   return {
     sanitize(chunk: string, final = false): string {
       let text = pending + chunk
-      pending = ''
-      let out = ''
+      pending = ""
+      let out = ""
 
       while (text.length > 0) {
         if (insideHiddenBlock) {
           const closeMatch = HIDDEN_REASONING_CLOSE_RE.exec(text)
           if (!closeMatch) {
-            pending = final ? '' : getPotentialHiddenReasoningClose(text)
+            pending = final ? "" : getPotentialHiddenReasoningClose(text)
             return out
           }
 
@@ -737,7 +846,7 @@ function createHiddenReasoningSanitizer() {
 
 async function writeFinish(
   writer: WritableStreamDefaultWriter<Uint8Array>,
-  reason = 'stop',
+  reason = "stop",
   usage?: { promptTokens: number; completionTokens: number },
 ): Promise<void> {
   const encoder = new TextEncoder()
@@ -766,11 +875,11 @@ function accumulateToolCallDeltas(
       }
     } else {
       accumulated.set(tc.index, {
-        id: tc.id || '',
-        type: 'function',
+        id: tc.id || "",
+        type: "function",
         function: {
-          name: tc.function?.name || '',
-          arguments: tc.function?.arguments || '',
+          name: tc.function?.name || "",
+          arguments: tc.function?.arguments || "",
         },
       })
     }
@@ -801,19 +910,21 @@ async function processSseLine(
   lineRaw: string,
   writer: WritableStreamDefaultWriter<Uint8Array>,
   toolCallAccumulator: Map<number, AccumulatedToolCall>,
-  usageAccumulator: { value: { promptTokens: number; completionTokens: number } | null },
+  usageAccumulator: {
+    value: { promptTokens: number; completionTokens: number } | null
+  },
   reasoningSanitizer: ReturnType<typeof createHiddenReasoningSanitizer>,
 ): Promise<boolean> {
   const encoder = new TextEncoder()
   const line = lineRaw.trim()
-  if (!line.startsWith('data:')) return false
+  if (!line.startsWith("data:")) return false
 
   const data = line.slice(5).trim()
   if (!data) return false
 
-  if (data === '[DONE]') {
+  if (data === "[DONE]") {
     await flushAccumulatedToolCalls(toolCallAccumulator, writer)
-    await writeFinish(writer, 'stop', usageAccumulator.value ?? undefined)
+    await writeFinish(writer, "stop", usageAccumulator.value ?? undefined)
     return true
   }
 
@@ -830,30 +941,32 @@ async function processSseLine(
     }
 
     // Capture usage from chunks that carry it (sent when stream_options.include_usage=true)
-    const usageRaw = (parsed as Record<string, unknown>).usage as Record<string, unknown> | undefined
-    if (usageRaw && typeof usageRaw.prompt_tokens === 'number') {
+    const usageRaw = (parsed as Record<string, unknown>).usage as
+      Record<string, unknown> | undefined
+    if (usageRaw && typeof usageRaw.prompt_tokens === "number") {
       usageAccumulator.value = {
         promptTokens: usageRaw.prompt_tokens as number,
-        completionTokens: (usageRaw.completion_tokens as number | undefined) ?? 0,
+        completionTokens:
+          (usageRaw.completion_tokens as number | undefined) ?? 0,
       }
     }
 
     const finishReason = parsed.choices?.[0]?.finish_reason
-    if (finishReason && finishReason !== 'null') {
-      const finalText = reasoningSanitizer.sanitize('', true)
+    if (finishReason && finishReason !== "null") {
+      const finalText = reasoningSanitizer.sanitize("", true)
       if (finalText) {
         await writer.write(encoder.encode(`0:${JSON.stringify(finalText)}\n`))
       }
       await flushAccumulatedToolCalls(toolCallAccumulator, writer)
       await writeFinish(
         writer,
-        finishReason === 'tool_calls' ? 'tool-calls' : finishReason,
+        finishReason === "tool_calls" ? "tool-calls" : finishReason,
         usageAccumulator.value ?? undefined,
       )
       return true
     }
   } catch (error) {
-    logParsingIssue('Ignoring malformed upstream SSE chunk.', error)
+    logParsingIssue("Ignoring malformed upstream SSE chunk.", error)
   }
 
   return false
@@ -867,45 +980,52 @@ export function toVercelStreamFromOpenAiSse(
   const { readable, writable } = new TransformStream()
   const writer = writable.getWriter()
   const toolCallAccumulator = new Map<number, AccumulatedToolCall>()
-  const usageAccumulator: { value: { promptTokens: number; completionTokens: number } | null } = { value: null }
+  const usageAccumulator: {
+    value: { promptTokens: number; completionTokens: number } | null
+  } = { value: null }
   const reasoningSanitizer = createHiddenReasoningSanitizer()
 
   ;(async () => {
     let didFinish = false
     try {
       const reader = upstream.body?.getReader()
-      if (!reader) throw new Error('Upstream response has no body stream')
+      if (!reader) throw new Error("Upstream response has no body stream")
 
-      let buffer = ''
+      let buffer = ""
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
+        const lines = buffer.split("\n")
+        buffer = lines.pop() || ""
 
         for (const lineRaw of lines) {
           didFinish =
-            (await processSseLine(lineRaw, writer, toolCallAccumulator, usageAccumulator, reasoningSanitizer)) ||
-            didFinish
+            (await processSseLine(
+              lineRaw,
+              writer,
+              toolCallAccumulator,
+              usageAccumulator,
+              reasoningSanitizer,
+            )) || didFinish
         }
       }
 
       if (!didFinish) {
-        const finalText = reasoningSanitizer.sanitize('', true)
+        const finalText = reasoningSanitizer.sanitize("", true)
         if (finalText) {
           const encoder = new TextEncoder()
           await writer.write(encoder.encode(`0:${JSON.stringify(finalText)}\n`))
         }
         await flushAccumulatedToolCalls(toolCallAccumulator, writer)
-        await writeFinish(writer, 'stop', usageAccumulator.value ?? undefined)
+        await writeFinish(writer, "stop", usageAccumulator.value ?? undefined)
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       const encoder = new TextEncoder()
       await writer.write(encoder.encode(`3:${JSON.stringify(message)}\n`))
-      await writeFinish(writer, 'error')
+      await writeFinish(writer, "error")
     } finally {
       if (usageAccumulator.value && onUsage) {
         onUsage(usageAccumulator.value)
@@ -916,30 +1036,34 @@ export function toVercelStreamFromOpenAiSse(
 
   return new Response(readable, {
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
-      'Transfer-Encoding': 'chunked',
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-cache",
+      "Transfer-Encoding": "chunked",
     },
   })
 }
 
 export function toVercelSingleTextResponse(text: string): Response {
   const sanitizer = createHiddenReasoningSanitizer()
-  const sanitized = sanitizer.sanitize(text) + sanitizer.sanitize('', true)
+  const sanitized = sanitizer.sanitize(text) + sanitizer.sanitize("", true)
   const payload = `0:${JSON.stringify(sanitized)}\nd:{"finishReason":"stop"}\n`
   return new Response(payload, {
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-cache",
     },
   })
 }
 
 export function toVercelToolCallsResponse(
-  toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }>,
+  toolCalls: Array<{
+    id: string
+    type: "function"
+    function: { name: string; arguments: string }
+  }>,
   textContent?: string,
 ): Response {
-  let payload = ''
+  let payload = ""
   if (textContent) {
     payload += `0:${JSON.stringify(textContent)}\n`
   }
@@ -955,8 +1079,8 @@ export function toVercelToolCallsResponse(
   payload += `d:{"finishReason":"tool-calls"}\n`
   return new Response(payload, {
     headers: {
-      'Content-Type': 'text/plain; charset=utf-8',
-      'Cache-Control': 'no-cache',
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-cache",
     },
   })
 }
@@ -966,7 +1090,10 @@ export function toVercelToolCallsResponse(
  * Vercel format: `0:"text"\n`, `9:{toolCall}\n`, `d:{"finishReason":"stop"}\n`
  * OpenAI format: `data: {"choices":[{"delta":{"content":"text"}}]}\n\n`
  */
-export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string): Response {
+export function vercelStreamToOpenAiSse(
+  vercelResponse: Response,
+  model: string,
+): Response {
   // Pass through non-2xx responses as OpenAI-compatible error JSON
   if (!vercelResponse.ok) {
     return vercelResponse
@@ -989,107 +1116,153 @@ export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string)
   ;(async () => {
     try {
       const reader = vercelResponse.body!.getReader()
-      let buffer = ''
-      const toolCalls: Array<{ id: string; type: 'function'; function: { name: string; arguments: string } }> = []
+      let buffer = ""
+      const toolCalls: Array<{
+        id: string
+        type: "function"
+        function: { name: string; arguments: string }
+      }> = []
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
+        const lines = buffer.split("\n")
+        buffer = lines.pop() || ""
 
         for (const line of lines) {
           if (!line) continue
-          const colonIdx = line.indexOf(':')
+          const colonIdx = line.indexOf(":")
           if (colonIdx < 0) continue
 
           const prefix = line.substring(0, colonIdx)
           const payload = line.substring(colonIdx + 1)
 
-          if (prefix === '0') {
+          if (prefix === "0") {
             // Text chunk
             const text = JSON.parse(payload) as string
             const sanitizedText = reasoningSanitizer.sanitize(text)
             if (!sanitizedText) continue
             const chunk = {
               id: chatId,
-              object: 'chat.completion.chunk',
+              object: "chat.completion.chunk",
               created,
               model,
-              choices: [{ index: 0, delta: { content: sanitizedText }, finish_reason: null }],
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: sanitizedText },
+                  finish_reason: null,
+                },
+              ],
             }
-            await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`))
-          } else if (prefix === '9') {
+            await writer.write(
+              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
+            )
+          } else if (prefix === "9") {
             // Tool call
-            const tc = JSON.parse(payload) as { toolCallId: string; toolName: string; args: unknown }
+            const tc = JSON.parse(payload) as {
+              toolCallId: string
+              toolName: string
+              args: unknown
+            }
             toolCalls.push({
               id: tc.toolCallId,
-              type: 'function',
-              function: { name: tc.toolName, arguments: JSON.stringify(tc.args) },
+              type: "function",
+              function: {
+                name: tc.toolName,
+                arguments: JSON.stringify(tc.args),
+              },
             })
-          } else if (prefix === 'd') {
+          } else if (prefix === "d") {
             // Finish
-            const data = JSON.parse(payload) as { finishReason: string; usage?: { promptTokens: number; completionTokens: number } }
-            const finalText = reasoningSanitizer.sanitize('', true)
+            const data = JSON.parse(payload) as {
+              finishReason: string
+              usage?: { promptTokens: number; completionTokens: number }
+            }
+            const finalText = reasoningSanitizer.sanitize("", true)
             if (finalText) {
               const textChunk = {
                 id: chatId,
-                object: 'chat.completion.chunk',
+                object: "chat.completion.chunk",
                 created,
                 model,
-                choices: [{ index: 0, delta: { content: finalText }, finish_reason: null }],
+                choices: [
+                  {
+                    index: 0,
+                    delta: { content: finalText },
+                    finish_reason: null,
+                  },
+                ],
               }
-              await writer.write(encoder.encode(`data: ${JSON.stringify(textChunk)}\n\n`))
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify(textChunk)}\n\n`),
+              )
             }
-            const finishReason = data.finishReason === 'tool-calls' ? 'tool_calls' : data.finishReason
+            const finishReason =
+              data.finishReason === "tool-calls"
+                ? "tool_calls"
+                : data.finishReason
             const delta: Record<string, unknown> = {}
             if (toolCalls.length > 0) {
               delta.tool_calls = toolCalls.map((tc, i) => ({ index: i, ...tc }))
             }
             const chunk = {
               id: chatId,
-              object: 'chat.completion.chunk',
+              object: "chat.completion.chunk",
               created,
               model,
               choices: [{ index: 0, delta, finish_reason: finishReason }],
             }
-            await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`))
+            await writer.write(
+              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
+            )
             // Emit usage chunk if available (OpenAI stream_options.include_usage format)
             if (data.usage) {
               const usageChunk = {
                 id: chatId,
-                object: 'chat.completion.chunk',
+                object: "chat.completion.chunk",
                 created,
                 model,
                 choices: [],
                 usage: {
                   prompt_tokens: data.usage.promptTokens,
                   completion_tokens: data.usage.completionTokens,
-                  total_tokens: data.usage.promptTokens + data.usage.completionTokens,
+                  total_tokens:
+                    data.usage.promptTokens + data.usage.completionTokens,
                 },
               }
-              await writer.write(encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`))
+              await writer.write(
+                encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`),
+              )
             }
-            await writer.write(encoder.encode('data: [DONE]\n\n'))
-          } else if (prefix === '3') {
+            await writer.write(encoder.encode("data: [DONE]\n\n"))
+          } else if (prefix === "3") {
             // Error
             const errMsg = JSON.parse(payload) as string
             const chunk = {
               id: chatId,
-              object: 'chat.completion.chunk',
+              object: "chat.completion.chunk",
               created,
               model,
-              choices: [{ index: 0, delta: { content: `[Error: ${errMsg}]` }, finish_reason: null }],
+              choices: [
+                {
+                  index: 0,
+                  delta: { content: `[Error: ${errMsg}]` },
+                  finish_reason: null,
+                },
+              ],
             }
-            await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`))
+            await writer.write(
+              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
+            )
           }
         }
       }
     } catch {
       // Stream ended unexpectedly — send DONE to close cleanly
-      await writer.write(encoder.encode('data: [DONE]\n\n'))
+      await writer.write(encoder.encode("data: [DONE]\n\n"))
     } finally {
       await writer.close()
     }
@@ -1098,9 +1271,9 @@ export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string)
   return new Response(readable, {
     status: vercelResponse.status,
     headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
     },
   })
 }
@@ -1113,18 +1286,20 @@ function toOpenAiNonStreamingResponse(
 ): Response {
   const body = {
     id: chatId,
-    object: 'chat.completion',
+    object: "chat.completion",
     created,
     model,
-    choices: [{
-      index: 0,
-      message: { role: 'assistant', content: '' },
-      finish_reason: 'stop',
-    }],
+    choices: [
+      {
+        index: 0,
+        message: { role: "assistant", content: "" },
+        finish_reason: "stop",
+      },
+    ],
   }
   return new Response(JSON.stringify(body), {
     status: vercelResponse.status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { "Content-Type": "application/json" },
   })
 }
 
@@ -1136,7 +1311,7 @@ export function jsonErrorResponse(
   const body = details ? { error, ...details } : { error }
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { "Content-Type": "application/json" },
   })
 }
 
@@ -1149,7 +1324,10 @@ function requireEnv(name: string): string {
   return value
 }
 
-export function resolveEnv(name: string, credentials?: Record<string, string>): string {
+export function resolveEnv(
+  name: string,
+  credentials?: Record<string, string>,
+): string {
   const fromCredentials = credentials?.[name]
   if (fromCredentials) {
     return fromCredentials
@@ -1162,17 +1340,23 @@ function getUtf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length
 }
 
-function parseCredentialsHeader(request: { header: (name: string) => string | undefined }): Record<string, string> {
-  const raw = request.header('x-provider-credentials')
+function parseCredentialsHeader(request: {
+  header: (name: string) => string | undefined
+}): Record<string, string> {
+  const raw = request.header("x-provider-credentials")
   if (!raw) return {}
 
   try {
     const decoded = atob(raw)
     const parsed: unknown = JSON.parse(decoded)
-    if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
       const result: Record<string, string> = {}
       for (const [key, value] of Object.entries(parsed)) {
-        if (typeof value === 'string' && value.length > 0) {
+        if (typeof value === "string" && value.length > 0) {
           result[key] = value
         }
       }
@@ -1207,7 +1391,9 @@ async function getUserProviderCredentials(
       try {
         result[row.credentialKey] = decryptCredential(row.credentialValue)
       } catch {
-        console.error(`[${providerId}] Failed to decrypt credential "${row.credentialKey}" for user ${userId}`)
+        console.error(
+          `[${providerId}] Failed to decrypt credential "${row.credentialKey}" for user ${userId}`,
+        )
       }
     }
     return result
@@ -1227,6 +1413,15 @@ function logProviderError(providerId: string, error: unknown): void {
  */
 const MAX_USAGE_LOG_ERROR_CHARS = 8000
 
+/** Uma tentativa de fallback entre provedores/modelos, para exibir nos Bastidores. */
+interface FallbackAttempt {
+  providerId?: string
+  modelId: string
+  status: number
+  durationMs?: number
+  errorSnippet?: string
+}
+
 function logUsage(data: {
   userId: string | undefined
   apiKeyId: string | undefined
@@ -1244,6 +1439,10 @@ function logUsage(data: {
   taskCategory?: string | null
   baselineModelId?: string | null
   baselineCostUsd?: number | null
+  conversationId?: string | null
+  messageId?: string | null
+  ttftMs?: number | null
+  attempts?: FallbackAttempt[] | null
 }): Promise<string | null> {
   if (!data.userId) return Promise.resolve(null)
 
@@ -1252,30 +1451,105 @@ function logUsage(data: {
       ? data.errorDetail.slice(0, MAX_USAGE_LOG_ERROR_CHARS)
       : null
 
-  return prisma.usageLog.create({
-    data: {
-      userId: data.userId,
-      apiKeyId: data.apiKeyId ?? null,
-      providerId: data.providerId,
-      modelId: data.modelId ?? null,
-      endpoint: data.endpoint ?? null,
-      statusCode: data.statusCode,
-      errorDetail,
-      inputTokens: data.inputTokens ?? null,
-      outputTokens: data.outputTokens ?? null,
-      costUsd: data.costUsd ?? null,
-      durationMs: data.durationMs ?? null,
-      routingTier: data.routingTier ?? null,
-      routingReason: data.routingReason ?? null,
-      taskCategory: data.taskCategory ?? null,
-      baselineModelId: data.baselineModelId ?? null,
-      baselineCostUsd: data.baselineCostUsd ?? null,
-    },
-    select: { id: true },
-  }).then((log) => log.id).catch((err: unknown) => {
-    console.error('[usage-log] Failed to record usage', err)
+  return prisma.usageLog
+    .create({
+      data: {
+        userId: data.userId,
+        apiKeyId: data.apiKeyId ?? null,
+        providerId: data.providerId,
+        modelId: data.modelId ?? null,
+        endpoint: data.endpoint ?? null,
+        statusCode: data.statusCode,
+        errorDetail,
+        inputTokens: data.inputTokens ?? null,
+        outputTokens: data.outputTokens ?? null,
+        costUsd: data.costUsd ?? null,
+        durationMs: data.durationMs ?? null,
+        routingTier: data.routingTier ?? null,
+        routingReason: data.routingReason ?? null,
+        taskCategory: data.taskCategory ?? null,
+        baselineModelId: data.baselineModelId ?? null,
+        baselineCostUsd: data.baselineCostUsd ?? null,
+        conversationId: data.conversationId ?? null,
+        messageId: data.messageId ?? null,
+        ttftMs: data.ttftMs ?? null,
+        attempts:
+          (data.attempts as Prisma.InputJsonValue | undefined) ?? undefined,
+      },
+      select: { id: true },
+    })
+    .then((log) => log.id)
+    .catch((err: unknown) => {
+      console.error("[usage-log] Failed to record usage", err)
+      return null
+    })
+}
+
+const MAX_USAGE_CORRELATION_ID_LENGTH = 64
+
+function sanitizeUsageCorrelationId(value: string | undefined): string | null {
+  const normalized = value?.trim()
+  if (
+    !normalized ||
+    normalized.length > MAX_USAGE_CORRELATION_ID_LENGTH ||
+    !/^[A-Za-z0-9_-]+$/.test(normalized)
+  ) {
     return null
-  })
+  }
+  return normalized
+}
+
+async function resolveUsageCorrelation(
+  userId: string | undefined,
+  conversationHeader: string | undefined,
+  messageHeader: string | undefined,
+): Promise<{ conversationId: string | null; messageId: string | null }> {
+  if (!userId) return { conversationId: null, messageId: null }
+
+  const conversationId = sanitizeUsageCorrelationId(conversationHeader)
+  const messageId = sanitizeUsageCorrelationId(messageHeader)
+  if (!conversationId) return { conversationId: null, messageId: null }
+
+  try {
+    const conversation = await prisma.conversation.findFirst({
+      where: { id: conversationId, userId },
+      select: { id: true },
+    })
+    return conversation
+      ? { conversationId, messageId }
+      : { conversationId: null, messageId: null }
+  } catch (error) {
+    console.warn("[usage-log] Failed to validate correlation headers", error)
+    return { conversationId: null, messageId: null }
+  }
+}
+
+async function updateUsageLogTiming(
+  logId: string,
+  ttftMs: number,
+): Promise<void> {
+  await prisma.usageLog
+    .update({
+      where: { id: logId },
+      data: { ttftMs },
+    })
+    .catch((err: unknown) => {
+      console.error("[usage-log] Failed to update TTFT", err)
+    })
+}
+
+async function updateUsageLogDuration(
+  logId: string,
+  durationMs: number,
+): Promise<void> {
+  await prisma.usageLog
+    .update({
+      where: { id: logId },
+      data: { durationMs },
+    })
+    .catch((err: unknown) => {
+      console.error("[usage-log] Failed to update stream duration", err)
+    })
 }
 
 async function updateUsageLogTokens(
@@ -1284,24 +1558,33 @@ async function updateUsageLogTokens(
   providerId: string,
   modelId: string | undefined,
 ): Promise<void> {
-  const { calculateCostUsd } = await import('./model-pricing')
+  const { calculateCostUsd } = await import("./model-pricing")
   // Garante que o cache de preços esteja carregado antes de calcular o custo.
   // updateUsageLogTokens já roda em background, então o await é seguro e evita
   // que a primeira chamada de um modelo dinâmico calcule custo como null.
-  const { ensureOpenRouterPricingFresh } = await import('./openrouter-pricing')
+  const { ensureOpenRouterPricingFresh } = await import("./openrouter-pricing")
   await ensureOpenRouterPricingFresh().catch(() => {})
-  const costUsd = modelId ? calculateCostUsd(providerId, modelId, tokens.inputTokens, tokens.completionTokens) : null
+  const costUsd = modelId
+    ? calculateCostUsd(
+        providerId,
+        modelId,
+        tokens.inputTokens,
+        tokens.completionTokens,
+      )
+    : null
 
-  prisma.usageLog.update({
-    where: { id: logId },
-    data: {
-      inputTokens: tokens.inputTokens,
-      outputTokens: tokens.completionTokens,
-      costUsd,
-    },
-  }).catch((err: unknown) => {
-    console.error('[usage-log] Failed to update token counts', err)
-  })
+  await prisma.usageLog
+    .update({
+      where: { id: logId },
+      data: {
+        inputTokens: tokens.inputTokens,
+        outputTokens: tokens.completionTokens,
+        costUsd,
+      },
+    })
+    .catch((err: unknown) => {
+      console.error("[usage-log] Failed to update token counts", err)
+    })
 }
 
 export function upstreamErrorResponse(
@@ -1312,9 +1595,12 @@ export function upstreamErrorResponse(
 ): Response {
   // Provedores podem ecoar a credencial no corpo do erro (ex.: 401 da Anthropic);
   // redige antes de logar/persistir/devolver ao cliente.
-  const detailsForLog = detailsForLogRaw === undefined ? undefined : scrubSecrets(detailsForLogRaw)
+  const detailsForLog =
+    detailsForLogRaw === undefined ? undefined : scrubSecrets(detailsForLogRaw)
   if (detailsForLog) {
-    console.error(`[${providerName}] upstream error ${status}: ${detailsForLog.slice(0, 500)}`)
+    console.error(
+      `[${providerName}] upstream error ${status}: ${detailsForLog.slice(0, 500)}`,
+    )
   } else {
     console.error(`[${providerName}] upstream error ${status}`)
   }
@@ -1322,7 +1608,8 @@ export function upstreamErrorResponse(
   const upstreamSnippet = detailsForLog?.slice(0, 4000)
   const fromUpstream = upstreamSnippet ? { upstream: upstreamSnippet } : {}
   const details =
-    Object.keys(fromUpstream).length > 0 || (extraFields && Object.keys(extraFields).length > 0)
+    Object.keys(fromUpstream).length > 0 ||
+    (extraFields && Object.keys(extraFields).length > 0)
       ? { ...fromUpstream, ...extraFields }
       : undefined
   const upstreamMessage = extractUpstreamErrorMessage(detailsForLog)
@@ -1332,24 +1619,29 @@ export function upstreamErrorResponse(
   return jsonErrorResponse(status, message, details)
 }
 
-function extractUpstreamErrorMessage(detailsForLog: string | undefined): string {
-  if (!detailsForLog) return ''
+function extractUpstreamErrorMessage(
+  detailsForLog: string | undefined,
+): string {
+  if (!detailsForLog) return ""
 
   try {
     const parsed: unknown = JSON.parse(detailsForLog)
-    if (typeof parsed === 'object' && parsed !== null) {
+    if (typeof parsed === "object" && parsed !== null) {
       const record = parsed as Record<string, unknown>
-      if (typeof record.message === 'string' && record.message.trim()) {
+      if (typeof record.message === "string" && record.message.trim()) {
         return record.message.trim().slice(0, 500)
       }
 
-      if (typeof record.error === 'string' && record.error.trim()) {
+      if (typeof record.error === "string" && record.error.trim()) {
         return record.error.trim().slice(0, 500)
       }
 
-      if (typeof record.error === 'object' && record.error !== null) {
+      if (typeof record.error === "object" && record.error !== null) {
         const errorRecord = record.error as Record<string, unknown>
-        if (typeof errorRecord.message === 'string' && errorRecord.message.trim()) {
+        if (
+          typeof errorRecord.message === "string" &&
+          errorRecord.message.trim()
+        ) {
           return errorRecord.message.trim().slice(0, 500)
         }
       }
@@ -1359,14 +1651,15 @@ function extractUpstreamErrorMessage(detailsForLog: string | undefined): string 
   }
 
   const plain = detailsForLog.trim()
-  return plain.startsWith('{') ? '' : plain.slice(0, 500)
+  return plain.startsWith("{") ? "" : plain.slice(0, 500)
 }
 
 function formatProviderErrorDetail(error: unknown): string {
   if (error instanceof Error) {
     let s = error.message
     if (error.cause !== undefined) {
-      const c = error.cause instanceof Error ? error.cause.message : String(error.cause)
+      const c =
+        error.cause instanceof Error ? error.cause.message : String(error.cause)
       s = `${s} (${c})`
     }
     return s
@@ -1374,7 +1667,10 @@ function formatProviderErrorDetail(error: unknown): string {
   return String(error)
 }
 
-export function internalProviderErrorResponse(providerName: string, error: unknown): Response {
+export function internalProviderErrorResponse(
+  providerName: string,
+  error: unknown,
+): Response {
   console.error(`[${providerName}] internal error`, error)
   const detail = formatProviderErrorDetail(error)
   const max = 2000
@@ -1394,13 +1690,13 @@ function getSetCookieHeaders(headers: Headers): string[] {
     getSetCookie?: () => string[]
   }
 
-  if (typeof headersWithGetSetCookie.getSetCookie === 'function') {
+  if (typeof headersWithGetSetCookie.getSetCookie === "function") {
     return headersWithGetSetCookie.getSetCookie().filter(Boolean)
   }
 
   const collectedHeaders: string[] = []
   headers.forEach((value, key) => {
-    if (key.toLowerCase() === 'set-cookie') {
+    if (key.toLowerCase() === "set-cookie") {
       collectedHeaders.push(...splitCombinedSetCookieHeader(value))
     }
   })
@@ -1409,15 +1705,15 @@ function getSetCookieHeaders(headers: Headers): string[] {
     return collectedHeaders
   }
 
-  const singleHeader = headers.get('set-cookie')
+  const singleHeader = headers.get("set-cookie")
   return singleHeader ? splitCombinedSetCookieHeader(singleHeader) : []
 }
 
 export function getCookieHeaderValue(headers: Headers): string {
   return getSetCookieHeaders(headers)
-    .map((cookie) => cookie.split(';')[0]?.trim())
+    .map((cookie) => cookie.split(";")[0]?.trim())
     .filter(Boolean)
-    .join('; ')
+    .join("; ")
 }
 
 type AppEnv = {
@@ -1430,10 +1726,12 @@ type AppEnv = {
 export function createProviderApp(config: ProviderConfig) {
   const app = new Hono<AppEnv>().basePath(config.basePath)
 
-  app.use('*', securityHeaders)
-  app.use('*', protectedCors)
-  app.use('*', async (c, next) => {
-    const accessError = await ensureProtectedAccess(c, { providerId: config.providerId })
+  app.use("*", securityHeaders)
+  app.use("*", protectedCors)
+  app.use("*", async (c, next) => {
+    const accessError = await ensureProtectedAccess(c, {
+      providerId: config.providerId,
+    })
     if (accessError) {
       return accessError
     }
@@ -1441,29 +1739,42 @@ export function createProviderApp(config: ProviderConfig) {
     await next()
   })
 
-  app.get('/api/models', async (c) => {
-    const userId = c.get('userId') as string | undefined
-    const dbCredentials = await getUserProviderCredentials(userId, config.providerId)
+  app.get("/api/models", async (c) => {
+    const userId = c.get("userId") as string | undefined
+    const dbCredentials = await getUserProviderCredentials(
+      userId,
+      config.providerId,
+    )
     const headerCredentials = parseCredentialsHeader(c.req)
     const credentials = { ...dbCredentials, ...headerCredentials }
 
     if (config.fetchModels) {
-      const models = await fetchCachedProviderModels(config, credentials, userId)
+      const models = await fetchCachedProviderModels(
+        config,
+        credentials,
+        userId,
+      )
       return c.json({ models })
     }
     return c.json({ models: config.models })
   })
 
-  app.post('/api/test', async (c) => {
+  app.post("/api/test", async (c) => {
     try {
       // Merge: header > db > env (mesma lógica do /api/chat)
-      const userId = c.get('userId') as string | undefined
-      const dbCredentials = await getUserProviderCredentials(userId, config.providerId)
+      const userId = c.get("userId") as string | undefined
+      const dbCredentials = await getUserProviderCredentials(
+        userId,
+        config.providerId,
+      )
       const headerCredentials = parseCredentialsHeader(c.req)
       const credentials = { ...dbCredentials, ...headerCredentials }
 
       if (Object.keys(credentials).length === 0) {
-        return c.json({ ok: false, error: 'Nenhuma credencial fornecida para teste.' }, 400)
+        return c.json(
+          { ok: false, error: "Nenhuma credencial fornecida para teste." },
+          400,
+        )
       }
 
       if (!config.testCredentials) {
@@ -1474,48 +1785,56 @@ export function createProviderApp(config: ProviderConfig) {
       const result = await config.testCredentials(credentials)
       return c.json(result, result.ok ? 200 : 401)
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Erro desconhecido ao testar credenciais.'
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Erro desconhecido ao testar credenciais."
       return c.json({ ok: false, error: message }, 500)
     }
   })
 
-  app.post('/api/chat', async (c) => {
+  app.post("/api/chat", async (c) => {
     try {
-      const contentLengthHeader = c.req.header('content-length')
+      const contentLengthHeader = c.req.header("content-length")
       if (contentLengthHeader) {
         const contentLength = Number(contentLengthHeader)
-        if (Number.isFinite(contentLength) && contentLength > MAX_PROVIDER_REQUEST_BODY_BYTES) {
-          return jsonErrorResponse(413, 'Request body too large')
+        if (
+          Number.isFinite(contentLength) &&
+          contentLength > MAX_PROVIDER_REQUEST_BODY_BYTES
+        ) {
+          return jsonErrorResponse(413, "Request body too large")
         }
       }
 
       const rawRequestBody = await c.req.text()
       if (getUtf8ByteLength(rawRequestBody) > MAX_PROVIDER_REQUEST_BODY_BYTES) {
-        return jsonErrorResponse(413, 'Request body too large')
+        return jsonErrorResponse(413, "Request body too large")
       }
 
       let rawJson: unknown
       try {
         rawJson = JSON.parse(rawRequestBody) as unknown
       } catch {
-        return jsonErrorResponse(400, 'Invalid JSON request body')
+        return jsonErrorResponse(400, "Invalid JSON request body")
       }
 
       const parsedBody = providerChatBodySchema.safeParse(rawJson)
       if (!parsedBody.success) {
         const zodIssues = parsedBody.error.issues
         // Alguns clientes só mostram error.message; o Zod guarda a causa em issues.
-        console.error('[modelhub] providerChatBodySchema failed', {
+        console.error("[modelhub] providerChatBodySchema failed", {
           providerId: config.providerId,
           issueCount: zodIssues.length,
           issues: zodIssues.slice(0, 32),
         })
         const issues = zodIssues.slice(0, 12).map((i) => ({
-          path: i.path.map(String).join('.') || '(root)',
+          path: i.path.map(String).join(".") || "(root)",
           message: i.message,
           code: i.code,
         }))
-        return jsonErrorResponse(400, 'Invalid chat request payload', { issues })
+        return jsonErrorResponse(400, "Invalid chat request payload", {
+          issues,
+        })
       }
 
       const rawBody = parsedBody.data as Record<string, unknown>
@@ -1523,14 +1842,18 @@ export function createProviderApp(config: ProviderConfig) {
       const messages = normalizeMessages(parsedBody.data.messages)
 
       if (!messages.length) {
-        return jsonErrorResponse(400, 'messages must be a non-empty array')
+        return jsonErrorResponse(400, "messages must be a non-empty array")
       }
 
       // 1. Credenciais do banco (menor prioridade)
-      const userId = c.get('userId') as string | undefined
-      const apiKeyId = c.get('apiKeyId') as string | undefined
-      const projectId = c.req.header(MODELHUB_PROJECT_HEADER)?.trim() || undefined
-      const dbCredentials = await getUserProviderCredentials(userId, config.providerId)
+      const userId = c.get("userId") as string | undefined
+      const apiKeyId = c.get("apiKeyId") as string | undefined
+      const projectId =
+        c.req.header(MODELHUB_PROJECT_HEADER)?.trim() || undefined
+      const dbCredentials = await getUserProviderCredentials(
+        userId,
+        config.providerId,
+      )
 
       // 2. Credenciais do header (maior prioridade — sobrescrevem as do banco)
       const headerCredentials = parseCredentialsHeader(c.req)
@@ -1572,35 +1895,65 @@ export function createProviderApp(config: ProviderConfig) {
             statusCode: 429,
             errorDetail: `budget_exceeded: ${budgetCheck.periodSpendUsd.toFixed(6)}/${budgetCheck.limitUsd} USD`,
           })
-          return jsonErrorResponse(429, `Limite de orçamento atingido: $${budgetCheck.periodSpendUsd.toFixed(4)} de $${budgetCheck.limitUsd?.toFixed(2)} USD no período`)
+          return jsonErrorResponse(
+            429,
+            `Limite de orçamento atingido: $${budgetCheck.periodSpendUsd.toFixed(4)} de $${budgetCheck.limitUsd?.toFixed(2)} USD no período`,
+          )
         }
       }
 
+      const { conversationId, messageId } = await resolveUsageCorrelation(
+        userId,
+        c.req.header(MODELHUB_CONVERSATION_HEADER),
+        c.req.header(MODELHUB_MESSAGE_HEADER),
+      )
       const startedAt = Date.now()
-      const routingTier = c.req.header('x-modelhub-routing-tier') ?? null
-      const routingReason = c.req.header('x-modelhub-routing-reason') ?? null
-      const taskCategory = c.req.header('x-modelhub-task-category') ?? null
-
-      const response = await config.chat(resolvedMessages, modelId, rawBody, credentials, userId)
+      const routingTier = c.req.header("x-modelhub-routing-tier") ?? null
+      const routingReason = c.req.header("x-modelhub-routing-reason") ?? null
+      const taskCategory = c.req.header("x-modelhub-task-category") ?? null
+      const response = await config.chat(
+        resolvedMessages,
+        modelId,
+        rawBody,
+        credentials,
+        userId,
+      )
 
       const durationMs = Date.now() - startedAt
 
       let errorDetail: string | null = null
+      let attempts: FallbackAttempt[] | null = null
       if (response.status >= 400) {
         try {
-          errorDetail = (await response.clone().text()).slice(0, MAX_USAGE_LOG_ERROR_CHARS)
+          errorDetail = (await response.clone().text()).slice(
+            0,
+            MAX_USAGE_LOG_ERROR_CHARS,
+          )
         } catch {
           errorDetail = null
         }
       } else {
-        const diagB64 = response.headers.get(MODELHUB_FALLBACK_DIAGNOSTIC_HEADER)?.trim()
+        const diagB64 = response.headers
+          .get(MODELHUB_FALLBACK_DIAGNOSTIC_HEADER)
+          ?.trim()
         if (diagB64) {
           try {
-            const json = Buffer.from(diagB64, 'base64url').toString('utf8')
-            const parsed: unknown = JSON.parse(json)
-            errorDetail = JSON.stringify(parsed, null, 2).slice(0, MAX_USAGE_LOG_ERROR_CHARS)
+            const json = Buffer.from(diagB64, "base64url").toString("utf8")
+            const parsed = JSON.parse(json) as {
+              failedAttempts?: Array<{
+                modelId: string
+                status: number
+                upstreamSnippet: string
+              }>
+            }
+            attempts = (parsed.failedAttempts ?? []).map((f) => ({
+              modelId: f.modelId,
+              status: f.status,
+              errorSnippet: f.upstreamSnippet,
+            }))
           } catch {
-            errorDetail = '[model_fallback] diagnóstico em header inválido ou truncado'
+            errorDetail =
+              "[model_fallback] diagnóstico em header inválido ou truncado"
           }
         }
       }
@@ -1617,9 +1970,12 @@ export function createProviderApp(config: ProviderConfig) {
         routingTier,
         routingReason,
         taskCategory,
+        conversationId,
+        messageId,
+        attempts,
       })
 
-      // Tap streaming response to extract token usage asynchronously
+      // Tap streaming response to extract token usage e TTFT (primeiro chunk) asynchronously
       if (response.ok && response.body) {
         const [streamForCaller, streamForMonitor] = response.body.tee()
 
@@ -1628,27 +1984,51 @@ export function createProviderApp(config: ProviderConfig) {
             const logId = await logPromise
             if (!logId) return
 
+            let firstChunkAt: number | null = null
             const reader = streamForMonitor.getReader()
             const decoder = new TextDecoder()
-            let buffer = ''
-            while (true) {
-              const { done, value } = await reader.read()
-              if (done) break
-              buffer += decoder.decode(value, { stream: true })
-              const lines = buffer.split('\n')
-              buffer = lines.pop() || ''
-              for (const line of lines) {
-                if (!line.startsWith('d:')) continue
-                try {
-                  const data = JSON.parse(line.slice(2)) as { finishReason?: string; usage?: { promptTokens: number; completionTokens: number } }
-                  if (data.usage) {
-                    await updateUsageLogTokens(logId, { inputTokens: data.usage.promptTokens, completionTokens: data.usage.completionTokens }, config.providerId, modelId)
-                    return
+            let buffer = ""
+            try {
+              while (true) {
+                const { done, value } = await reader.read()
+                if (done) break
+                if (firstChunkAt === null) {
+                  firstChunkAt = Date.now()
+                  void updateUsageLogTiming(logId, firstChunkAt - startedAt)
+                }
+                buffer += decoder.decode(value, { stream: true })
+                const lines = buffer.split("\n")
+                buffer = lines.pop() || ""
+                for (const line of lines) {
+                  if (!line.startsWith("d:")) continue
+                  try {
+                    const data = JSON.parse(line.slice(2)) as {
+                      finishReason?: string
+                      usage?: { promptTokens: number; completionTokens: number }
+                    }
+                    if (data.usage) {
+                      await updateUsageLogTokens(
+                        logId,
+                        {
+                          inputTokens: data.usage.promptTokens,
+                          completionTokens: data.usage.completionTokens,
+                        },
+                        config.providerId,
+                        modelId,
+                      )
+                      return
+                    }
+                  } catch {
+                    /* ignore parse errors */
                   }
-                } catch { /* ignore parse errors */ }
+                }
               }
+            } finally {
+              await updateUsageLogDuration(logId, Date.now() - startedAt)
             }
-          } catch { /* ignore monitor errors */ }
+          } catch {
+            /* ignore monitor errors */
+          }
         })()
 
         return new Response(streamForCaller, {
@@ -1663,8 +2043,8 @@ export function createProviderApp(config: ProviderConfig) {
         return jsonErrorResponse(error.status, error.message)
       }
 
-      if (error instanceof Error && error.message.startsWith('CONFIG_ERROR:')) {
-        return jsonErrorResponse(503, 'Provider is not configured')
+      if (error instanceof Error && error.message.startsWith("CONFIG_ERROR:")) {
+        return jsonErrorResponse(503, "Provider is not configured")
       }
 
       logProviderError(config.providerId, error)
@@ -1672,8 +2052,8 @@ export function createProviderApp(config: ProviderConfig) {
       // Log falhas também
       const errMsg = error instanceof Error ? error.message : String(error)
       logUsage({
-        userId: c.get('userId') as string | undefined,
-        apiKeyId: c.get('apiKeyId') as string | undefined,
+        userId: c.get("userId") as string | undefined,
+        apiKeyId: c.get("apiKeyId") as string | undefined,
         providerId: config.providerId,
         modelId: undefined,
         endpoint: c.req.path,
@@ -1681,7 +2061,7 @@ export function createProviderApp(config: ProviderConfig) {
         errorDetail: errMsg.slice(0, MAX_USAGE_LOG_ERROR_CHARS),
       })
 
-      return jsonErrorResponse(500, 'Unable to process provider request')
+      return jsonErrorResponse(500, "Unable to process provider request")
     }
   })
 
@@ -1711,7 +2091,7 @@ export async function postJsonWithTimeout(
   },
 ): Promise<Response> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   }
 
   if (init.headers) {
@@ -1721,7 +2101,7 @@ export async function postJsonWithTimeout(
   return fetchWithTimeout(
     url,
     {
-      method: 'POST',
+      method: "POST",
       headers,
       body: JSON.stringify(init.body),
     },

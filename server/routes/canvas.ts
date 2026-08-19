@@ -134,27 +134,35 @@ app.patch("/:id", async (c) => {
       select: { version: true },
     });
 
-    await prisma.$transaction([
-      prisma.canvasVersion.create({
-        data: {
-          canvasId,
-          content,
-          kind: kind ?? canvas.kind,
-          language: language ?? canvas.language,
-          version: (lastVersion?.version ?? 0) + 1,
-        },
-      }),
-      prisma.canvas.update({
+    // Adapter Neon HTTP não suporta $transaction: writes sequenciais.
+    // Se a atualização falhar após criar a versão, remove-a (compensação).
+    const nextVersion = (lastVersion?.version ?? 0) + 1;
+    await prisma.canvasVersion.create({
+      data: {
+        canvasId,
+        content,
+        kind: kind ?? canvas.kind,
+        language: language !== undefined ? language : canvas.language,
+        version: nextVersion,
+      },
+    });
+    try {
+      await prisma.canvas.update({
         where: { id: canvasId },
         data: {
-          activeVersion: (lastVersion?.version ?? 0) + 1,
+          activeVersion: nextVersion,
           ...(content !== undefined ? { content } : {}),
           ...(kind !== undefined ? { kind } : {}),
           ...(language !== undefined ? { language } : {}),
           ...(title !== undefined ? { title } : {}),
         },
-      }),
-    ]);
+      });
+    } catch (error) {
+      await prisma.canvasVersion
+        .delete({ where: { canvasId_version: { canvasId, version: nextVersion } } })
+        .catch(() => undefined);
+      throw error;
+    }
   } else {
     await prisma.canvas.update({
       where: { id: canvasId },
@@ -238,26 +246,34 @@ app.post("/:id/versions/:version/restore", async (c) => {
     select: { version: true },
   });
 
-  await prisma.$transaction([
-    prisma.canvasVersion.create({
-      data: {
-        canvasId,
-        content: source.content,
-        kind: source.kind,
-        language: source.language,
-        version: (lastVersion?.version ?? 0) + 1,
-      },
-    }),
-    prisma.canvas.update({
+  // Adapter Neon HTTP não suporta $transaction: writes sequenciais com
+  // compensação se a atualização do canvas falhar.
+  const nextVersion = (lastVersion?.version ?? 0) + 1;
+  await prisma.canvasVersion.create({
+    data: {
+      canvasId,
+      content: source.content,
+      kind: source.kind,
+      language: source.language,
+      version: nextVersion,
+    },
+  });
+  try {
+    await prisma.canvas.update({
       where: { id: canvasId },
       data: {
-        activeVersion: (lastVersion?.version ?? 0) + 1,
+        activeVersion: nextVersion,
         content: source.content,
         kind: source.kind,
         language: source.language,
       },
-    }),
-  ]);
+    });
+  } catch (error) {
+    await prisma.canvasVersion
+      .delete({ where: { canvasId_version: { canvasId, version: nextVersion } } })
+      .catch(() => undefined);
+    throw error;
+  }
 
   const detail = await resolveCanvasDetail(canvasId);
   if (!detail) return jsonErrorResponse(404, "Canvas not found");
@@ -317,6 +333,8 @@ app.post("/:id/pin", async (c) => {
     return c.json({ artifactId: existing.id }, 409);
   }
 
+  // Adapter Neon HTTP não suporta writes aninhados: artefato + versão 1
+  // sequenciais, com compensação se a versão falhar.
   const artifact = await prisma.projectArtifact.create({
     data: {
       currentVersion: 1,
@@ -326,11 +344,26 @@ app.post("/:id/pin", async (c) => {
       sourceCanvasId: canvasId,
       sourceConversationId: canvas.conversationId,
       title: canvas.title,
-      versions: {
-        create: { content: canvas.content, version: 1 },
-      },
     },
-    include: { versions: { orderBy: { version: "desc" }, select: { createdAt: true, version: true } } },
+  });
+
+  try {
+    await prisma.artifactVersion.create({
+      data: {
+        artifactId: artifact.id,
+        content: canvas.content,
+        version: 1,
+      },
+    });
+  } catch (error) {
+    await prisma.projectArtifact.delete({ where: { id: artifact.id } }).catch(() => undefined);
+    throw error;
+  }
+
+  const versions = await prisma.artifactVersion.findMany({
+    where: { artifactId: artifact.id },
+    orderBy: { version: "desc" },
+    select: { createdAt: true, version: true },
   });
 
   const activeContent = await prisma.artifactVersion.findUnique({
@@ -353,7 +386,7 @@ app.post("/:id/pin", async (c) => {
         sourceConversationId: artifact.sourceConversationId,
         title: artifact.title,
         updatedAt: artifact.updatedAt,
-        versions: artifact.versions,
+        versions,
       },
     },
     201,

@@ -1,9 +1,10 @@
 import { ProjectDetailPage } from "@/components/projects/project-detail-page";
 
-export default function ProjectRoutePage({
+export default async function ProjectRoutePage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
-  return <ProjectDetailPage projectIdPromise={params} />;
+  const { id } = await params;
+  return <ProjectDetailPage projectId={id} />;
 }

@@ -417,11 +417,13 @@ app.post("/:id/artifacts/:artifactId/refresh", async (c) => {
   });
 
   const nextVersion = (lastVersion?.version ?? 0) + 1;
-  await prisma.$transaction([
-    prisma.artifactVersion.create({
-      data: { artifactId, content: canvas.content, version: nextVersion },
-    }),
-    prisma.projectArtifact.update({
+  // Adapter Neon HTTP não suporta $transaction: writes sequenciais com
+  // compensação se a atualização do artefato falhar.
+  await prisma.artifactVersion.create({
+    data: { artifactId, content: canvas.content, version: nextVersion },
+  });
+  try {
+    await prisma.projectArtifact.update({
       where: { id: artifactId },
       data: {
         currentVersion: nextVersion,
@@ -429,8 +431,13 @@ app.post("/:id/artifacts/:artifactId/refresh", async (c) => {
         language: canvas.language,
         title: canvas.title,
       },
-    }),
-  ]);
+    });
+  } catch (error) {
+    await prisma.artifactVersion
+      .delete({ where: { artifactId_version: { artifactId, version: nextVersion } } })
+      .catch(() => undefined);
+    throw error;
+  }
 
   const refreshed = await prisma.projectArtifact.findFirst({
     where: { id: artifactId, projectId },

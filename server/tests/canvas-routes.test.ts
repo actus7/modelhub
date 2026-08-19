@@ -135,6 +135,20 @@ const mockPrisma = {
       state.artifactVersions.push(version);
       return version;
     }),
+    delete: vi.fn(async ({ where }: { where: { artifactId_version: { artifactId: string; version: number } } }) => {
+      state.artifactVersions = state.artifactVersions.filter(
+        (version) =>
+          !(
+            version.artifactId === where.artifactId_version.artifactId &&
+            version.version === where.artifactId_version.version
+          ),
+      );
+      return { id: "removed" };
+    }),
+    findMany: vi.fn(async ({ where }: { where: { artifactId: string } }) =>
+      state.artifactVersions
+        .filter((version) => version.artifactId === where.artifactId)
+        .sort((left, right) => right.version - left.version)),
     findUnique: vi.fn(async ({ where }: { where: { artifactId_version: { artifactId: string; version: number } } }) =>
       state.artifactVersions.find(
         (version) =>
@@ -414,6 +428,23 @@ describe("canvas routes", () => {
     expect(payload.canvas.activeVersion).toBe(2);
     expect(payload.canvas.content).toContain("revisado");
     expect(state.canvasVersions.filter((version) => version.canvasId === canvas.id)).toHaveLength(2);
+  });
+
+  it("registra language null na nova versao quando o cliente limpa a linguagem", async () => {
+    const canvas = seedCanvas({ kind: "code", language: "typescript" });
+
+    const response = await canvasFetch(new Request(`http://localhost/canvas/${canvas.id}`, {
+      body: JSON.stringify({ content: "const value = 2", language: null }),
+      headers: { "content-type": "application/json" },
+      method: "PATCH",
+    }));
+
+    expect(response.status).toBe(200);
+    const latest = state.canvasVersions
+      .filter((version) => version.canvasId === canvas.id)
+      .sort((left, right) => right.version - left.version)[0];
+    expect(latest?.language).toBeNull();
+    expect(state.canvases.find((entry) => entry.id === canvas.id)?.language).toBeNull();
   });
 
   it("restaura uma versão anterior como nova versão ativa", async () => {

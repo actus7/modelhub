@@ -11,7 +11,7 @@
     <a href="https://github.com/actus7/modelhub/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/actus7/modelhub/actions/workflows/ci.yml/badge.svg" /></a>
     <a href="LICENSE"><img alt="Licença MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg" /></a>
     <a href="https://nodejs.org"><img alt="Node.js >= 22" src="https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen" /></a>
-    <a href="https://nextjs.org/"><img alt="Next.js 16.2" src="https://img.shields.io/badge/Next.js-16.2-black" /></a>
+    <a href="https://nextjs.org/"><img alt="Next.js 16.3" src="https://img.shields.io/badge/Next.js-16.3-black" /></a>
     <a href="https://www.typescriptlang.org/"><img alt="TypeScript 5" src="https://img.shields.io/badge/TypeScript-5.x-blue" /></a>
     <a href="https://hono.dev/"><img alt="Hono 4" src="https://img.shields.io/badge/Hono-4.x-E36002?logo=hono&logoColor=white" /></a>
     <a href="https://www.prisma.io/"><img alt="Prisma 7" src="https://img.shields.io/badge/Prisma-7.x-2D3748?logo=prisma&logoColor=white" /></a>
@@ -55,6 +55,10 @@ Em vez de cada aplicação integrar vários provedores separadamente, o ModelHub
   <tr>
     <td><strong>Roteamento inteligente</strong><br />Tiers por complexidade, overrides por tarefa e fallbacks automáticos.</td>
     <td><strong>Anexos no chat</strong><br />Suporte a imagens, PDFs e documentos.</td>
+  </tr>
+  <tr>
+    <td><strong>Canvas versionado</strong><br />Edite, visualize, restaure e compartilhe conteúdo Markdown, código, HTML, React e Mermaid.</td>
+    <td><strong>Projetos</strong><br />Agrupe conversas, instruções, arquivos de conhecimento e artefatos reutilizáveis.</td>
   </tr>
   <tr>
     <td><strong>Catálogo dinâmico</strong><br />Modelos locais e busca remota quando o provider suporta.</td>
@@ -200,6 +204,7 @@ O campo `model` segue o formato `provider/model`, por exemplo:
 | Rota | Descrição |
 |---|---|
 | `/chat` | Conversa com provedores configurados |
+| `/projects` | Projetos, arquivos de conhecimento e artefatos de canvas |
 | `/setup` | Integrações e credenciais por provider |
 | `/dashboard` | API keys, uso, custos, logs e routing |
 | `/account` | Informações da conta |
@@ -240,7 +245,7 @@ A aplicação usa duas camadas:
 
 O banco é PostgreSQL via Neon, acessado com Prisma 7 e `@prisma/adapter-neon`.
 
-Modelos importantes: `User`, `ApiKey`, `ProviderCredential`, `Conversation`, `Message`, `ConversationAttachment`, `UsageLog`, `UserMemory` e `UserSettings`.
+Modelos importantes: `User`, `ApiKey`, `ProviderCredential`, `Conversation`, `Message`, `ConversationAttachment`, `Project`, `ProjectFile`, `ProjectArtifact`, `Canvas`, `UsageLog`, `UserMemory` e `UserSettings`.
 
 Para mudanças de schema:
 

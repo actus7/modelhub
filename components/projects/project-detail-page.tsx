@@ -60,11 +60,10 @@ type ProjectConversationSummary = {
 };
 
 export function ProjectDetailPage({
-  projectIdPromise,
+  projectId,
 }: {
-  projectIdPromise: Promise<{ id: string }>;
+  projectId: string;
 }) {
-  const [projectId, setProjectId] = useState<string | null>(null);
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -76,13 +75,11 @@ export function ProjectDetailPage({
   const [uploading, setUploading] = useState(false);
   const [workingArtifact, setWorkingArtifact] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const loadRequestRef = useRef(0);
   const router = useRouter();
 
-  useEffect(() => {
-    void projectIdPromise.then(({ id }) => setProjectId(id));
-  }, [projectIdPromise]);
-
   const loadAll = useCallback(async (id: string) => {
+    const requestId = ++loadRequestRef.current;
     setError(null);
     try {
       const [projectData, conversationsData, filesData, artifactsData] = await Promise.all([
@@ -91,19 +88,28 @@ export function ProjectDetailPage({
         apiJson<{ files: ProjectFileSummary[] }>(`/projects/${id}/files`),
         apiJson<{ artifacts: ProjectArtifactSummary[] }>(`/projects/${id}/artifacts`),
       ]);
+      if (requestId !== loadRequestRef.current) return;
       setProject(projectData.project);
       setConversations(conversationsData.conversations);
       setFiles(filesData.files);
       setArtifacts(artifactsData.artifacts);
     } catch {
-      setError("Falha ao carregar o projeto.");
+      if (requestId === loadRequestRef.current) {
+        setError("Falha ao carregar o projeto.");
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    if (projectId) void loadAll(projectId);
+    setLoading(true);
+    void loadAll(projectId);
+    return () => {
+      loadRequestRef.current += 1;
+    };
   }, [projectId, loadAll]);
 
   const handleUpload = async (fileList: FileList | null) => {
@@ -176,8 +182,12 @@ export function ProjectDetailPage({
       toast.error("Este artefato não possui link de compartilhamento.");
       return;
     }
-    await navigator.clipboard.writeText(`${globalThis.location.origin}/share/${artifact.shareToken}`);
-    toast.success("Link copiado.");
+    try {
+      await navigator.clipboard.writeText(`${globalThis.location.origin}/share/${artifact.shareToken}`);
+      toast.success("Link copiado.");
+    } catch {
+      toast.error("Não foi possível copiar o link.");
+    }
   };
 
   const handleDeleteProject = async () => {

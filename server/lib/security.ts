@@ -57,8 +57,17 @@ function resolveCorsOrigin(origin: string): string | null {
 }
 
 export const protectedCors = cors({
-  allowHeaders: ["Content-Type", "Authorization", "X-Proxy-Auth", "X-Provider-Credentials"],
-  allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
+  allowHeaders: [
+    "Content-Type",
+    "Authorization",
+    "X-Proxy-Auth",
+    "X-Provider-Credentials",
+    "X-ModelHub-Project-Id",
+    "X-ModelHub-Conversation-Id",
+    "X-ModelHub-Message-Id",
+    "X-ModelHub-Tier",
+  ],
+  allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
   maxAge: 86400,
   origin: resolveCorsOrigin,

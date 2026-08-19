@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { apiJson } from "@/lib/api";
 import { isValidAccentColor, type AccentColorId } from "@/lib/accent-colors";
@@ -30,20 +30,37 @@ function applyAccentToDocument(accent: AccentColorId | null) {
  */
 export function AccentProvider({ children }: { children: React.ReactNode }) {
   const [accent, setAccentState] = useState<AccentColorId | null>(null);
+  const localChangeVersionRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadAccent() {
+      const loadVersion = localChangeVersionRef.current;
+      const locallyApplied = document.documentElement.getAttribute("data-accent");
+      if (isValidAccentColor(locallyApplied)) {
+        setAccentState(locallyApplied);
+      }
+
       try {
         const data = await apiJson<{ settings?: { accentColor?: string | null } }>(
           "/user/settings",
         );
-        if (cancelled) return;
-        const stored = data.settings?.accentColor;
-        if (isValidAccentColor(stored)) {
-          setAccentState(stored);
-          applyAccentToDocument(stored);
+        if (cancelled || loadVersion !== localChangeVersionRef.current) return;
+        if (data.settings && "accentColor" in data.settings) {
+          const stored = data.settings.accentColor;
+          const next = isValidAccentColor(stored) ? stored : "default";
+          setAccentState(next);
+          applyAccentToDocument(next);
+          try {
+            if (next === "default") {
+              window.localStorage.removeItem(ACCENT_STORAGE_KEY);
+            } else {
+              window.localStorage.setItem(ACCENT_STORAGE_KEY, next);
+            }
+          } catch {
+            // localStorage bloqueado: o valor do servidor ainda vale nesta aba.
+          }
         }
       } catch {
         // Sem sessão ou offline: mantém o que o script inline aplicou.
@@ -57,6 +74,7 @@ export function AccentProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setAccent = useCallback((next: AccentColorId | null) => {
+    localChangeVersionRef.current += 1;
     setAccentState(next);
     applyAccentToDocument(next);
     try {
