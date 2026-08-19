@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BrainIcon, CheckIcon, Loader2Icon, PaletteIcon, SaveIcon, Trash2Icon, UserIcon } from "lucide-react";
+import { BrainIcon, CheckIcon, Loader2Icon, PaletteIcon, PlusIcon, SaveIcon, SparklesIcon, Trash2Icon, UserIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAccent } from "@/app/accent-provider";
@@ -32,13 +32,35 @@ type UserMemory = {
   createdAt: string;
 };
 
+type McpServer = {
+  id: string;
+  name: string;
+  status: string;
+  url: string;
+};
+
+type HarnessSkill = {
+  content: string;
+  description: string | null;
+  enabled: boolean;
+  id: string;
+  name: string;
+};
+
+type HarnessCapability = {
+  available: boolean;
+  description: string;
+  id: string;
+  reason?: string;
+};
+
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
 export function SettingsDialog({ open, onOpenChange }: Props) {
-  const [tab, setTab] = useState<"instructions" | "appearance" | "memory">("instructions");
+  const [tab, setTab] = useState<"instructions" | "appearance" | "memory" | "harness">("instructions");
   const [loading, setLoading] = useState(false);
 
   // Custom instructions state
@@ -55,6 +77,17 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
   const [memories, setMemories] = useState<UserMemory[]>([]);
   const [newMemory, setNewMemory] = useState("");
   const [loadingMemories, setLoadingMemories] = useState(false);
+
+  // Harness integrations state
+  const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
+  const [skills, setSkills] = useState<HarnessSkill[]>([]);
+  const [capabilities, setCapabilities] = useState<HarnessCapability[]>([]);
+  const [loadingHarness, setLoadingHarness] = useState(false);
+  const [mcpName, setMcpName] = useState("");
+  const [mcpUrl, setMcpUrl] = useState("");
+  const [mcpHeaders, setMcpHeaders] = useState("");
+  const [skillName, setSkillName] = useState("");
+  const [skillContent, setSkillContent] = useState("");
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -81,12 +114,31 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
     }
   }, []);
 
+  const fetchHarness = useCallback(async () => {
+    setLoadingHarness(true);
+    try {
+      const [mcp, skillData, capabilityData] = await Promise.all([
+        apiJson<{ servers: McpServer[] }>("/harness/mcp-servers"),
+        apiJson<{ skills: HarnessSkill[] }>("/harness/skills"),
+        apiJson<{ capabilities: HarnessCapability[] }>("/harness/capabilities"),
+      ]);
+      setMcpServers(mcp.servers);
+      setSkills(skillData.skills);
+      setCapabilities(capabilityData.capabilities);
+    } catch {
+      // Harness settings remain optional when the migration is not deployed yet.
+    } finally {
+      setLoadingHarness(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (open) {
       void fetchSettings();
       void fetchMemories();
+      void fetchHarness();
     }
-  }, [open, fetchSettings, fetchMemories]);
+  }, [open, fetchSettings, fetchMemories, fetchHarness]);
 
   async function handleSaveInstructions() {
     setSavingInstructions(true);
@@ -145,6 +197,71 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
     }
   }
 
+  async function handleAddMcpServer() {
+    if (!mcpName.trim() || !mcpUrl.trim()) return;
+    let headers: Record<string, string> | undefined;
+    try {
+      if (mcpHeaders.trim()) {
+        const parsed = JSON.parse(mcpHeaders) as unknown;
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+          throw new Error("Os headers devem ser um objeto JSON.");
+        }
+        headers = Object.fromEntries(
+          Object.entries(parsed as Record<string, unknown>).map(([key, value]) => {
+            if (typeof value !== "string") throw new Error("Todos os headers devem ter valor textual.");
+            return [key, value];
+          }),
+        );
+      }
+      const data = await apiJsonRequest<{ server: McpServer }>("/harness/mcp-servers", "POST", {
+        headers,
+        name: mcpName.trim(),
+        url: mcpUrl.trim(),
+      });
+      setMcpServers((current) => [...current, data.server].sort((a, b) => a.name.localeCompare(b.name)));
+      setMcpName("");
+      setMcpUrl("");
+      setMcpHeaders("");
+      toast.success("Servidor MCP salvo; a conexão será validada no primeiro uso.");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Falha ao salvar servidor MCP.");
+    }
+  }
+
+  async function handleDeleteMcpServer(id: string) {
+    try {
+      await apiJsonRequest(`/harness/mcp-servers/${id}`, "DELETE");
+      setMcpServers((current) => current.filter((server) => server.id !== id));
+    } catch {
+      toast.error("Falha ao remover servidor MCP.");
+    }
+  }
+
+  async function handleAddSkill() {
+    if (!skillName.trim() || !skillContent.trim()) return;
+    try {
+      const data = await apiJsonRequest<{ skill: HarnessSkill }>("/harness/skills", "POST", {
+        content: skillContent.trim(),
+        name: skillName.trim(),
+      });
+      setSkills((current) => [data.skill, ...current]);
+      setSkillName("");
+      setSkillContent("");
+      toast.success("Skill adicionada ao harness.");
+    } catch {
+      toast.error("Falha ao adicionar skill.");
+    }
+  }
+
+  async function handleDeleteSkill(id: string) {
+    try {
+      await apiJsonRequest(`/harness/skills/${id}`, "DELETE");
+      setSkills((current) => current.filter((skill) => skill.id !== id));
+    } catch {
+      toast.error("Falha ao remover skill.");
+    }
+  }
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full gap-0 p-0 sm:max-w-2xl">
@@ -186,6 +303,16 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             >
               <BrainIcon className="mr-1 inline-block size-3" />
               Memória ({memories.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("harness")}
+              className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                tab === "harness" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <SparklesIcon className="mr-1 inline-block size-3" />
+              Harness
             </button>
           </div>
         </div>
@@ -267,7 +394,7 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                   })}
                 </div>
               </div>
-            ) : (
+            ) : tab === "memory" ? (
               <div className="flex flex-col gap-3">
                 <p className="text-xs text-muted-foreground">
                   Memórias são fatos que a IA lembra entre conversas. Adicione apenas o que deve persistir.
@@ -319,6 +446,168 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                     )}
                   </div>
                 </ScrollArea>
+              </div>
+            ) : loadingHarness ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2Icon className="size-4 animate-spin" />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-6">
+                <section className="space-y-3 rounded-xl border border-border/60 bg-card p-4">
+                  <div>
+                    <h3 className="text-sm font-medium">Capacidades do runtime</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Recursos indisponíveis são declarados explicitamente e nunca simulados.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {capabilities.map((capability) => (
+                      <div key={capability.id} className="rounded-lg border border-border/60 bg-background p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium">{capability.id}</span>
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-medium",
+                              capability.available
+                                ? "bg-primary/10 text-primary"
+                                : "bg-muted text-muted-foreground",
+                            )}
+                          >
+                            {capability.available ? "Disponível" : "Indisponível"}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                          {capability.reason ?? capability.description}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="space-y-3 rounded-xl border border-border/60 bg-card p-4">
+                  <div>
+                    <h3 className="text-sm font-medium">MCP remoto</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Conecte endpoints HTTP/SSE públicos. Headers são criptografados e não voltam para o navegador.
+                    </p>
+                  </div>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <input
+                      value={mcpName}
+                      onChange={(event) => setMcpName(event.target.value)}
+                      placeholder="Nome do servidor"
+                      maxLength={80}
+                      className="rounded-lg border border-border bg-background px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    <input
+                      value={mcpUrl}
+                      onChange={(event) => setMcpUrl(event.target.value)}
+                      placeholder="https://mcp.exemplo.com"
+                      type="url"
+                      className="rounded-lg border border-border bg-background px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <textarea
+                    value={mcpHeaders}
+                    onChange={(event) => setMcpHeaders(event.target.value)}
+                    placeholder={'Headers opcionais em JSON, ex.: {"Authorization":"Bearer ..."}'}
+                    className="min-h-20 w-full resize-y rounded-lg border border-border bg-background p-2.5 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={() => void handleAddMcpServer()}
+                      disabled={!mcpName.trim() || !mcpUrl.trim()}
+                    >
+                      <PlusIcon className="mr-1 size-3" />
+                      Conectar MCP
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {mcpServers.length === 0 ? (
+                      <p className="rounded-lg bg-muted/50 px-3 py-4 text-center text-xs text-muted-foreground">
+                        Nenhum servidor MCP conectado.
+                      </p>
+                    ) : (
+                      mcpServers.map((server) => (
+                        <div key={server.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-medium">{server.name}</p>
+                            <p className="truncate text-[10px] text-muted-foreground">{server.url}</p>
+                          </div>
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            title="Remover servidor MCP"
+                            onClick={() => void handleDeleteMcpServer(server.id)}
+                          >
+                            <Trash2Icon className="size-3" />
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
+
+                <section className="space-y-3 rounded-xl border border-border/60 bg-card p-4">
+                  <div>
+                    <h3 className="text-sm font-medium">Skills persistentes</h3>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Instruções especializadas carregadas no prompt do agente em todas as conversas.
+                    </p>
+                  </div>
+                  <input
+                    value={skillName}
+                    onChange={(event) => setSkillName(event.target.value)}
+                    placeholder="Nome da skill"
+                    maxLength={100}
+                    className="w-full rounded-lg border border-border bg-background px-2.5 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <textarea
+                    value={skillContent}
+                    onChange={(event) => setSkillContent(event.target.value)}
+                    placeholder="Instruções que o agente deve seguir..."
+                    maxLength={100000}
+                    className="min-h-28 w-full resize-y rounded-lg border border-border bg-background p-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      onClick={() => void handleAddSkill()}
+                      disabled={!skillName.trim() || !skillContent.trim()}
+                    >
+                      <PlusIcon className="mr-1 size-3" />
+                      Adicionar skill
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {skills.length === 0 ? (
+                      <p className="rounded-lg bg-muted/50 px-3 py-4 text-center text-xs text-muted-foreground">
+                        Nenhuma skill cadastrada.
+                      </p>
+                    ) : (
+                      skills.map((skill) => (
+                        <div key={skill.id} className="flex items-start gap-3 rounded-lg border border-border/60 bg-background px-3 py-2">
+                          <SparklesIcon className="mt-0.5 size-3 shrink-0 text-primary" />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium">{skill.name}</p>
+                            <p className="mt-0.5 line-clamp-2 text-[10px] leading-relaxed text-muted-foreground">
+                              {skill.description ?? skill.content}
+                            </p>
+                          </div>
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            title="Remover skill"
+                            onClick={() => void handleDeleteSkill(skill.id)}
+                          >
+                            <Trash2Icon className="size-3" />
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </section>
               </div>
             )}
           </div>

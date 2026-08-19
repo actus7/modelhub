@@ -161,6 +161,8 @@ import {
   validateFileSelection,
 } from "@/lib/chat-attachments"
 import { parseChatStream, type ParsedToolCall } from "@/lib/chat-stream"
+import { consumeHarnessStream } from "@/lib/harness/client"
+import type { HarnessEvent } from "@/lib/harness/contracts"
 import {
   providerAuthMode,
   providerCredentialIds,
@@ -203,7 +205,12 @@ import {
 
 const AUTO_PROVIDER_ID = "modelhub-auto"
 const AUTO_MODEL: ProviderModel = {
-  capabilities: { documents: true, images: true, reasoning: true },
+  capabilities: {
+    documents: true,
+    images: true,
+    reasoning: true,
+    tools: true,
+  },
   id: "auto",
   name: "Auto · Smart Routing",
 }
@@ -1058,6 +1065,220 @@ export function ChatPage() {
     )
   }
 
+  async function handleHarnessApproval(
+    assistantMessageId: string,
+    toolCall: ParsedToolCall,
+    decision: "approved" | "denied",
+  ) {
+    if (!toolCall.approvalId || pending) return
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+    setPending(true)
+    updateAssistantToolCall(assistantMessageId, {
+      ...toolCall,
+      status: "running",
+    })
+
+    try {
+      const resolved = await apiJsonRequest<{
+        result: unknown
+        runId: string
+        status: string
+      }>(`/harness/tool-approvals/${toolCall.approvalId}/resolve`, "POST", {
+        decision,
+      })
+      updateAssistantToolCall(assistantMessageId, {
+        ...toolCall,
+        result: resolved.result,
+        status: "completed",
+      })
+      if (resolved.status !== "yielded") {
+        setSidebarRefreshKey((key) => key + 1)
+        return
+      }
+      const continuationTools = new Map<string, ParsedToolCall>([
+        [
+          toolCall.toolCallId,
+          { ...toolCall, result: resolved.result, status: "completed" },
+        ],
+      ])
+      let runId = resolved.runId
+      let finalMessageId: string | undefined
+      let finalContent = ""
+
+      for (let continuation = 0; continuation < 64; continuation++) {
+        const response = await apiFetch(
+          `/harness/agent-runs/${runId}/continue`,
+          { method: "POST", signal: controller.signal },
+        )
+        const result = await consumeHarnessStream(response, (event) => {
+          if (
+            event.type === "assistant/chunk" &&
+            event.payload.live === true &&
+            typeof event.payload.delta === "string"
+          ) {
+            finalContent += event.payload.delta
+            setMessages((current) =>
+              current.map((message) =>
+                message.id === assistantMessageId
+                  ? {
+                      ...message,
+                      content: `${message.content}${event.payload.delta as string}`,
+                    }
+                  : message,
+              ),
+            )
+          }
+          if (event.type === "tool/call") {
+            const call: ParsedToolCall = {
+              args: event.payload.args ?? {},
+              status: "running",
+              toolCallId: String(event.payload.toolCallId ?? ""),
+              toolName: String(event.payload.toolName ?? "unknown_tool"),
+            }
+            continuationTools.set(call.toolCallId, call)
+            updateAssistantToolCall(assistantMessageId, call)
+          }
+          if (event.type === "tool/approval-required") {
+            const toolCallId = String(event.payload.toolCallId ?? "")
+            const previous = continuationTools.get(toolCallId)
+            const call: ParsedToolCall = {
+              approvalId: String(event.payload.approvalId ?? ""),
+              args: event.payload.args ?? previous?.args ?? {},
+              requiresApproval: true,
+              status: "pending-approval",
+              toolCallId,
+              toolName: String(
+                event.payload.toolName ?? previous?.toolName ?? "unknown_tool",
+              ),
+            }
+            continuationTools.set(toolCallId, call)
+            updateAssistantToolCall(assistantMessageId, call)
+          }
+          if (event.type === "tool/result") {
+            const toolCallId = String(event.payload.toolCallId ?? "")
+            const previous = continuationTools.get(toolCallId)
+            if (!previous) return
+            const call: ParsedToolCall = {
+              ...previous,
+              result: event.payload.result ?? null,
+              status: "completed",
+            }
+            continuationTools.set(toolCallId, call)
+            updateAssistantToolCall(assistantMessageId, call)
+          }
+          if (
+            event.type === "assistant/message" &&
+            typeof event.payload.content === "string"
+          ) {
+            finalContent = event.payload.content
+          }
+        })
+        finalMessageId = result.assistantMessageId ?? finalMessageId
+        runId = result.runId ?? runId
+        if (result.status !== "yielded") break
+      }
+
+      if (finalMessageId) {
+        let projectedContent = finalContent
+        let projectedParts: HydratedConversationMessagePart[] = [
+          { text: finalContent, type: "text" },
+        ]
+        const suggestion = detectCanvas(finalContent)
+        if (suggestion && activeConversationId) {
+          try {
+            const activeInConversation =
+              activeCanvas?.conversationId === activeConversationId
+            const canvas = activeInConversation
+              ? await updateCanvas(activeCanvas.id, {
+                  content: suggestion.content,
+                  kind: suggestion.kind,
+                  language: suggestion.language,
+                })
+              : await createCanvas(activeConversationId, {
+                  content: suggestion.content,
+                  kind: suggestion.kind,
+                  language: suggestion.language,
+                  title: suggestion.title,
+                })
+            setActiveCanvas(canvas)
+            setCanvasPanelOpen(true)
+            projectedContent = buildDisplayText(finalContent, suggestion)
+            const canvasPart: CanvasReferencePart = {
+              canvasId: canvas.id,
+              kind: canvas.kind,
+              title: canvas.title,
+              type: "canvas",
+            }
+            projectedParts = projectedContent
+              ? [{ text: projectedContent, type: "text" }, canvasPart]
+              : [canvasPart]
+          } catch (error) {
+            console.error("[harness] falha ao projetar canvas", error)
+          }
+        }
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === assistantMessageId
+              ? {
+                  ...message,
+                  content: projectedContent,
+                  id: finalMessageId,
+                  parts: projectedParts,
+                }
+              : message,
+          ),
+        )
+        setConversation((current) => {
+          const existingIndex = current.findIndex(
+            (message) => message.id === assistantMessageId,
+          )
+          if (existingIndex === -1) {
+            return [
+              ...current,
+              {
+                id: finalMessageId,
+                parts: projectedParts,
+                role: "assistant" as const,
+              },
+            ]
+          }
+          return current.map((message, index) =>
+            index === existingIndex
+              ? {
+                  id: finalMessageId,
+                  parts: projectedParts,
+                  role: "assistant" as const,
+                }
+              : message,
+          )
+        })
+        if (activeConversationId) {
+          await apiJsonRequest(
+            `/harness/conversations/${activeConversationId}/messages/${finalMessageId}/projection`,
+            "PATCH",
+            { content: projectedContent, parts: projectedParts },
+          ).catch((error) => {
+            console.error("[harness] falha ao atualizar projeção", error)
+          })
+        }
+      }
+      setSidebarRefreshKey((key) => key + 1)
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === "AbortError")) {
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Falha ao resolver aprovação.",
+        )
+        updateAssistantToolCall(assistantMessageId, toolCall)
+      }
+    } finally {
+      setPending(false)
+      abortControllerRef.current = null
+    }
+  }
+
   async function sendMessage(options?: {
     baseConversation?: ConversationMessage[]
     overrideAttachments?: HydratedAttachmentPart[]
@@ -1242,6 +1463,10 @@ export function ChatPage() {
     try {
       let fullText = ""
       let effectiveModelLabel = assistantModelLabel
+      let harnessPersisted = false
+      let harnessConversationId: string | null = null
+      let harnessAssistantMessageId: string | undefined
+      let harnessRunStatus: string | undefined
       if (browserProviderAdapter) {
         if (browserProviderAuthState !== "signed-in") {
           setBrowserProviderAuthState("loading")
@@ -1265,6 +1490,114 @@ export function ChatPage() {
           },
         })
         setBrowserProviderAuthState("signed-in")
+      } else if (
+        !temporaryChat &&
+        selectedProviderId !== AUTO_PROVIDER_ID &&
+        selectedModel?.capabilities.tools === true
+      ) {
+        harnessConversationId = await ensureConversationId(
+          (text || currentAttachments[0]?.fileName || "Nova conversa").slice(
+            0,
+            200,
+          ),
+        )
+        harnessPersisted = true
+        const harnessModel =
+          selectedProviderId === AUTO_PROVIDER_ID
+            ? selectedModelId
+            : `${selectedProvider.id}/${selectedModelId}`
+        const toolMap = new Map<string, ParsedToolCall>()
+        let endpoint = `/harness/conversations/${harnessConversationId}/turns`
+        let requestBody: Record<string, unknown> | undefined = {
+          // Contextual canvas/project snapshots influence this request but are
+          // intentionally not durable user turns in the event log.
+          enteredMessages: [nextConversation.at(-1)!],
+          idempotencyKey: crypto.randomUUID(),
+          maxSteps: 16,
+          messages: messagesToSend,
+          model: harnessModel,
+          projectId: activeProjectId ?? undefined,
+        }
+
+        for (let continuation = 0; continuation < 64; continuation++) {
+          const response = await apiFetch(endpoint, {
+            body: requestBody ? JSON.stringify(requestBody) : undefined,
+            headers: {
+              "Content-Type": "application/json",
+              ...projectHeaders,
+              ...backstageHeaders,
+            },
+            method: "POST",
+            signal: controller.signal,
+          })
+          const result = await consumeHarnessStream(
+            response,
+            (event: HarnessEvent) => {
+              if (
+                event.type === "assistant/chunk" &&
+                event.payload.live === true &&
+                typeof event.payload.delta === "string"
+              ) {
+                setMessages((current) =>
+                  current.map((message) =>
+                    message.id === assistantMessageId
+                      ? {
+                          ...message,
+                          content: `${message.content}${event.payload.delta as string}`,
+                        }
+                      : message,
+                  ),
+                )
+              }
+              if (event.type === "tool/call") {
+                const call: ParsedToolCall = {
+                  args: event.payload.args ?? {},
+                  status: "running",
+                  toolCallId: String(event.payload.toolCallId ?? ""),
+                  toolName: String(event.payload.toolName ?? "unknown_tool"),
+                }
+                toolMap.set(call.toolCallId, call)
+                updateAssistantToolCall(assistantMessageId, call)
+              }
+              if (event.type === "tool/approval-required") {
+                const toolCallId = String(event.payload.toolCallId ?? "")
+                const previous = toolMap.get(toolCallId)
+                const call: ParsedToolCall = {
+                  args: event.payload.args ?? previous?.args ?? {},
+                  approvalId: String(event.payload.approvalId ?? ""),
+                  requiresApproval: true,
+                  status: "pending-approval",
+                  toolCallId,
+                  toolName: String(
+                    event.payload.toolName ?? previous?.toolName ?? "unknown_tool",
+                  ),
+                }
+                toolMap.set(toolCallId, call)
+                updateAssistantToolCall(assistantMessageId, call)
+              }
+              if (event.type === "tool/result") {
+                const toolCallId = String(event.payload.toolCallId ?? "")
+                const previous = toolMap.get(toolCallId)
+                if (previous) {
+                  const call: ParsedToolCall = {
+                    ...previous,
+                    result: event.payload.result ?? null,
+                    status: "completed",
+                  }
+                  toolMap.set(toolCallId, call)
+                  updateAssistantToolCall(assistantMessageId, call)
+                }
+              }
+            },
+          )
+          fullText += result.text
+          harnessAssistantMessageId =
+            result.assistantMessageId ?? harnessAssistantMessageId
+          harnessRunStatus = result.status
+          if (result.status !== "yielded" || !result.runId) break
+          endpoint = `/harness/agent-runs/${result.runId}/continue`
+          requestBody = undefined
+        }
       } else {
         let parsedStream: Awaited<ReturnType<typeof parseChatStream>> | null =
           null
@@ -1400,8 +1733,8 @@ export function ChatPage() {
           { text: fullText, type: "text" },
         ]
         let displayContent = fullText
-        let convIdEarly = activeConversationId
-        let createdConversation = false
+        let convIdEarly = harnessConversationId ?? activeConversationId
+        let createdConversation = harnessPersisted && !activeConversationId
 
         const suggestion = temporaryChat
           ? null
@@ -1461,17 +1794,107 @@ export function ChatPage() {
           }
         }
 
+        const projectedAssistantId =
+          harnessRunStatus === "completed" && harnessAssistantMessageId
+            ? harnessAssistantMessageId
+            : assistantMessageId
         setConversation((current) => [
           ...current,
           {
-            id: assistantMessageId,
+            id: projectedAssistantId,
             parts: assistantParts,
             role: "assistant",
           },
         ])
 
+        if (harnessPersisted) {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === assistantMessageId
+                ? {
+                    ...message,
+                    content: displayContent,
+                    id: projectedAssistantId,
+                    modelLabel: effectiveModelLabel,
+                    parts: assistantParts,
+                  }
+                : message,
+            ),
+          )
+          if (
+            harnessRunStatus === "completed" &&
+            harnessConversationId &&
+            harnessAssistantMessageId
+          ) {
+            await apiJsonRequest(
+              `/harness/conversations/${harnessConversationId}/messages/${harnessAssistantMessageId}/projection`,
+              "PATCH",
+              {
+                content: displayContent,
+                modelLabel: effectiveModelLabel,
+                parts: assistantParts,
+              },
+            ).catch((error) => {
+              console.error("[harness] falha ao atualizar projeção", error)
+            })
+          }
+          setSidebarRefreshKey((key) => key + 1)
+          if (!activeConversationId && harnessConversationId) {
+            const titleConversationId = harnessConversationId
+            void (async () => {
+              try {
+                const titleMessages = [
+                  {
+                    role: "user",
+                    parts: [
+                      {
+                        text: buildTitleGenerationPrompt(text, fullText),
+                        type: "text",
+                      },
+                    ],
+                  },
+                ]
+                const titleResponse = await apiFetch(
+                  selectedProviderId === AUTO_PROVIDER_ID
+                    ? "/v1/chat/completions"
+                    : `${selectedProvider.base}/api/chat`,
+                  {
+                    body: JSON.stringify(
+                      selectedProviderId === AUTO_PROVIDER_ID
+                        ? { messages: titleMessages, model: selectedModelId }
+                        : {
+                            messages: titleMessages,
+                            modelId: selectedProvider.hasModels
+                              ? selectedModelId
+                              : undefined,
+                          },
+                    ),
+                    headers: { "Content-Type": "application/json" },
+                    method: "POST",
+                  },
+                )
+                if (!titleResponse.ok) return
+                const titleResult = await parseChatStream(titleResponse, {})
+                const cleanTitle = titleResult.text
+                  .trim()
+                  .replaceAll(/^["']|["']$/g, "")
+                  .slice(0, 100)
+                if (!cleanTitle) return
+                await apiJsonRequest(
+                  `/conversations/${titleConversationId}`,
+                  "PATCH",
+                  { title: cleanTitle },
+                )
+                setSidebarRefreshKey((key) => key + 1)
+              } catch {
+                // Title generation remains best effort.
+              }
+            })()
+          }
+        }
+
         // Persist conversation (skip in temporary chat mode)
-        if (!temporaryChat)
+        if (!temporaryChat && !harnessPersisted)
           try {
             let convId = convIdEarly
             let isNewConversation = createdConversation
@@ -2439,8 +2862,21 @@ export function ChatPage() {
                       ) : (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           <Loader2Icon className="size-3 animate-spin" />
-                          <span>Gerando resposta</span>
-                          <span className="inline-flex gap-0.5">
+                          <span>
+                            {message.toolCalls.some(
+                              (toolCall) =>
+                                toolCall.status === "pending-approval",
+                            )
+                              ? "Aguardando sua aprovação"
+                              : message.toolCalls.length > 0
+                                ? "Executando ferramentas"
+                                : "Gerando resposta"}
+                          </span>
+                          {!message.toolCalls.some(
+                            (toolCall) =>
+                              toolCall.status === "pending-approval",
+                          ) ? (
+                            <span className="inline-flex gap-0.5">
                             <span className="animate-bounce delay-0">.</span>
                             <span
                               className="animate-bounce"
@@ -2454,7 +2890,8 @@ export function ChatPage() {
                             >
                               .
                             </span>
-                          </span>
+                            </span>
+                          ) : null}
                         </div>
                       )}
 
@@ -2496,6 +2933,40 @@ export function ChatPage() {
                                   2,
                                 )}
                               </pre>
+                              {toolCall.status === "pending-approval" &&
+                              toolCall.approvalId ? (
+                                <div className="mt-2 flex justify-end gap-2">
+                                  <Button
+                                    disabled={pending}
+                                    onClick={() =>
+                                      void handleHarnessApproval(
+                                        message.id,
+                                        toolCall,
+                                        "denied",
+                                      )
+                                    }
+                                    size="sm"
+                                    type="button"
+                                    variant="ghost"
+                                  >
+                                    Negar
+                                  </Button>
+                                  <Button
+                                    disabled={pending}
+                                    onClick={() =>
+                                      void handleHarnessApproval(
+                                        message.id,
+                                        toolCall,
+                                        "approved",
+                                      )
+                                    }
+                                    size="sm"
+                                    type="button"
+                                  >
+                                    Aprovar
+                                  </Button>
+                                </div>
+                              ) : null}
                             </div>
                           ))}
                         </div>

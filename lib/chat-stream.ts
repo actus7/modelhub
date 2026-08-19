@@ -28,6 +28,10 @@ type LineProcessorState = {
   errorMessage?: string;
   finishReason?: string;
   fullText: string;
+  openAiToolCalls: Map<
+    number,
+    { arguments: string; emitted: boolean; id: string; name: string }
+  >;
 };
 
 function emitTextDelta(delta: string, handlers: ParseStreamHandlers, state: LineProcessorState) {
@@ -147,6 +151,48 @@ function processRawOpenAiChoices(payload: Record<string, any>, handlers: ParseSt
   const delta = choice?.delta;
   if (!delta) return;
 
+  if (Array.isArray(delta.tool_calls)) {
+    for (const rawToolCall of delta.tool_calls) {
+      const index =
+        typeof rawToolCall?.index === "number"
+          ? rawToolCall.index
+          : state.openAiToolCalls.size;
+      const current = state.openAiToolCalls.get(index) ?? {
+        arguments: "",
+        emitted: false,
+        id: "",
+        name: "",
+      };
+      if (typeof rawToolCall?.id === "string") current.id = rawToolCall.id;
+      if (typeof rawToolCall?.function?.name === "string") {
+        current.name += rawToolCall.function.name;
+      }
+      if (typeof rawToolCall?.function?.arguments === "string") {
+        current.arguments += rawToolCall.function.arguments;
+      }
+      state.openAiToolCalls.set(index, current);
+    }
+  }
+
+  if (choice?.finish_reason && state.openAiToolCalls.size > 0) {
+    for (const [index, toolCall] of state.openAiToolCalls) {
+      if (toolCall.emitted || !toolCall.name) continue;
+      let args: unknown = {};
+      try {
+        args = toolCall.arguments ? JSON.parse(toolCall.arguments) : {};
+      } catch {
+        args = { _raw: toolCall.arguments };
+      }
+      emitToolStart(
+        toolCall.id || `tool_${index}`,
+        toolCall.name,
+        args,
+        handlers,
+      );
+      toolCall.emitted = true;
+    }
+  }
+
   const text = extractDeltaText(delta);
   if (text) emitTextDelta(text, handlers, state);
 }
@@ -183,7 +229,10 @@ export async function parseChatStream(
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  const state: LineProcessorState = { fullText: "" };
+  const state: LineProcessorState = {
+    fullText: "",
+    openAiToolCalls: new Map(),
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -198,6 +247,10 @@ export async function parseChatStream(
       if (line) processLine(line, handlers, state);
     }
   }
+
+  buffer += decoder.decode();
+  const finalLine = buffer.trim();
+  if (finalLine) processLine(finalLine, handlers, state);
 
   return {
     errorMessage: state.errorMessage,

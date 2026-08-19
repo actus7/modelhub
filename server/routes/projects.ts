@@ -233,17 +233,52 @@ app.post("/:id/files", async (c) => {
       ? await extractDocumentText({ buffer, mimeType: fileValue.type })
       : { extractedText: null, extractionStatus: "completed" as const };
 
-  const file = await prisma.projectFile.create({
-    data: {
-      blob: buffer,
-      byteSize: fileValue.size,
-      extractedText: extraction.extractedText,
-      fileName: fileValue.name,
-      mimeType: fileValue.type,
-      projectId,
-    },
-    select: { byteSize: true, createdAt: true, fileName: true, id: true, mimeType: true },
-  });
+  let file;
+  try {
+    file = await prisma.$transaction(async (tx) => {
+      const created = await tx.projectFile.create({
+        data: {
+          blob: buffer,
+          byteSize: fileValue.size,
+          extractedText: extraction.extractedText,
+          fileName: fileValue.name,
+          mimeType: fileValue.type,
+          projectId,
+        },
+        select: {
+          blob: true,
+          byteSize: true,
+          createdAt: true,
+          extractedText: true,
+          fileName: true,
+          id: true,
+          mimeType: true,
+        },
+      });
+      await tx.projectFileVersion.create({
+        data: {
+          blob: created.blob,
+          byteSize: created.byteSize,
+          extractedText: created.extractedText,
+          mimeType: created.mimeType,
+          projectFileId: created.id,
+          version: 1,
+        },
+      });
+      return {
+        byteSize: created.byteSize,
+        createdAt: created.createdAt,
+        fileName: created.fileName,
+        id: created.id,
+        mimeType: created.mimeType,
+      };
+    });
+  } catch (error) {
+    if ((error as { code?: string }).code === "P2002") {
+      return jsonErrorResponse(409, "A project file with this name already exists");
+    }
+    throw error;
+  }
 
   return c.json({ file }, 201);
 });

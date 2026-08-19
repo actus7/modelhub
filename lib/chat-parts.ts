@@ -32,6 +32,19 @@ type MetaPart = {
   type: "meta";
 };
 
+export type HarnessMessagePart = {
+  toolCalls: Array<{
+    approvalId?: string;
+    args: unknown;
+    requiresApproval?: boolean;
+    result?: unknown;
+    status: "completed" | "pending-approval" | "running";
+    toolCallId: string;
+    toolName: string;
+  }>;
+  type: "harness";
+};
+
 export type CanvasReferencePart = {
   canvasId: string;
   /** CanvasKind: markdown | code | html | react | mermaid */
@@ -43,6 +56,7 @@ export type CanvasReferencePart = {
 export type ConversationMessagePart =
   | AttachmentReferencePart
   | CanvasReferencePart
+  | HarnessMessagePart
   | MetaPart
   | TextPart;
 
@@ -60,6 +74,7 @@ export type HydratedAttachmentPart = AttachmentReferencePart & ConversationAttac
 
 export type HydratedConversationMessagePart =
   | CanvasReferencePart
+  | HarnessMessagePart
   | HydratedAttachmentPart
   | MetaPart
   | TextPart;
@@ -73,6 +88,9 @@ export function createMessageContentFallback(
         return part.text;
       }
       if (part.type === "meta") {
+        return "";
+      }
+      if (part.type === "harness") {
         return "";
       }
       if (part.type === "canvas") {

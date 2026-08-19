@@ -751,10 +751,31 @@ app.delete("/:id/messages", async (c) => {
     return c.json({ deletedMessageIds: [] })
   }
 
-  await prisma.message.deleteMany({
-    where: { conversationId, id: { in: idsToDelete } },
+  const deletedIds = new Set(idsToDelete)
+  await prisma.$transaction(async (tx) => {
+    const projectedEvents = await tx.sessionEvent.findMany({
+      where: {
+        conversationId,
+        type: { in: ["assistant/message", "user/message"] },
+      },
+      select: { id: true, payload: true },
+    })
+    const eventIdsToDelete = projectedEvents
+      .filter((event) => {
+        const payload = event.payload as Record<string, unknown>
+        return typeof payload.messageId === "string" && deletedIds.has(payload.messageId)
+      })
+      .map((event) => event.id)
+    if (eventIdsToDelete.length > 0) {
+      await tx.sessionEvent.deleteMany({
+        where: { conversationId, id: { in: eventIdsToDelete } },
+      })
+    }
+    await tx.message.deleteMany({
+      where: { conversationId, id: { in: idsToDelete } },
+    })
+    await tx.conversation.update({ where: { id: conversationId }, data: {} })
   })
-  await prisma.conversation.update({ where: { id: conversationId }, data: {} })
 
   return c.json({ deletedMessageIds: idsToDelete })
 })

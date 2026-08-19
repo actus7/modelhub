@@ -24,6 +24,7 @@ import cloudFetch from "./routes/cloud";
 import projectsFetch from "./routes/projects";
 import userFetch from "./routes/user";
 import conversationsFetch from "./routes/conversations";
+import harnessFetch from "./routes/harness";
 import v1Fetch from "./routes/v1";
 
 type ApiAppEnv = {
@@ -196,6 +197,7 @@ export function createApiApp() {
   app.use("/user/cloud/*", async (c) => await cloudFetch(c.req.raw));
   app.use("/user/*", async (c) => await userFetch(c.req.raw));
   app.use("/conversations/*", async (c) => await conversationsFetch(c.req.raw));
+  app.use("/harness/*", async (c) => await harnessFetch(c.req.raw));
   app.use("/projects/*", async (c) => await projectsFetch(c.req.raw));
   app.use("/canvas/*", async (c) => await canvasFetch(c.req.raw));
   app.use("/v1/*", async (c) => await v1Fetch(c.req.raw));
