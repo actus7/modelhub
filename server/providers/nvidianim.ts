@@ -9,10 +9,19 @@ export function isNvidiaNimChatModel(model: { id: string }): boolean {
   return !NON_CHAT_MODEL_RE.test(model.id)
 }
 
+const NVIDIA_NIM_MODEL_ALIASES: Record<string, string> = {
+  'meta/codellama-70b': 'nvidia/nemotron-3-ultra-550b-a55b',
+  'nvidia/llama-3.1-nemotron-ultra-253b-v1': 'nvidia/nemotron-3-ultra-550b-a55b',
+}
+
+export function resolveNvidiaNimModelId(modelId: string): string {
+  return NVIDIA_NIM_MODEL_ALIASES[modelId] ?? modelId
+}
+
 export const models = [
   { capabilities: { documents: true, images: false, tools: true }, id: 'nvidia/nemotron-3-super-120b-a12b', name: 'Nemotron 3 Super 120B A12B' },
+  { capabilities: { documents: true, images: false, tools: true }, id: 'nvidia/nemotron-3-ultra-550b-a55b', name: 'Nemotron 3 Ultra 550B A55B' },
   { capabilities: { documents: true, images: false, tools: true }, id: 'nvidia/llama-3.3-nemotron-super-49b-v1.5', name: 'Nemotron Super 49B v1.5' },
-  { capabilities: { documents: true, images: false, tools: true }, id: 'nvidia/llama-3.1-nemotron-ultra-253b-v1', name: 'Nemotron Ultra 253B' },
   { capabilities: { documents: true, images: false, tools: true }, id: 'nvidia/llama-3.1-nemotron-70b-instruct', name: 'Nemotron 70B Instruct' },
   { capabilities: { documents: true, images: false, tools: true }, id: 'nvidia/nemotron-3-nano-30b-a3b', name: 'Nemotron-3 Nano 30B' },
   { capabilities: { documents: true, images: false, tools: true }, id: 'nvidia/nemotron-nano-9b-v2', name: 'Nemotron Nano 9B v2' },
@@ -86,7 +95,7 @@ const app = createProviderApp({
         fallbackModelIds: FALLBACK_MODEL_IDS,
         isModelUnavailableError: isNvidiaNimModelUnavailableError,
       },
-      { messages, modelId, rawBody },
+      { messages, modelId: resolveNvidiaNimModelId(modelId), rawBody },
       credentials,
     ),
   fetchModels: createOpenAiFetchModels({

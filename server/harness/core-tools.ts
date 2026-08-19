@@ -97,7 +97,27 @@ export async function safeFetchPublicHttpUrl(
   const headers = Object.fromEntries(new Headers(init.headers).entries())
   headers.host = url.host
   const pinnedLookup: LookupFunction = (_hostname, _options, callback) => {
-    callback(null, address, family)
+    const wantsAll =
+      typeof _options === "object" &&
+      _options !== null &&
+      "all" in _options &&
+      _options.all === true
+    if (wantsAll) {
+      ;(
+        callback as (
+          error: NodeJS.ErrnoException | null,
+          addresses: Array<{ address: string; family: number }>,
+        ) => void
+      )(null, [{ address, family }])
+      return
+    }
+    ;(
+      callback as (
+        error: NodeJS.ErrnoException | null,
+        resolvedAddress: string,
+        resolvedFamily: number,
+      ) => void
+    )(null, address, family)
   }
   return new Promise<Response>((resolve, reject) => {
     const request = (url.protocol === "https:" ? httpsRequest : httpRequest)(

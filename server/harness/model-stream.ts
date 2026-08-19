@@ -3,8 +3,19 @@ import type { HarnessToolCall } from "../../lib/harness/contracts"
 
 export type HarnessModelResult = {
   finishReason: string
+  routing?: {
+    modelId: string
+    providerId: string
+    tier: string | null
+  }
   text: string
   toolCalls: HarnessToolCall[]
+}
+
+export function isModelOutputLimitFinishReason(finishReason: string): boolean {
+  return /^(?:length|max[_-]?(?:output[_-]?)?tokens?|token[_-]?limit)$/i.test(
+    finishReason.trim(),
+  )
 }
 
 export async function consumeHarnessModelResponse(
@@ -36,8 +47,19 @@ export async function consumeHarnessModelResponse(
   await pendingDeltaWrites
 
   if (parsed.errorMessage) throw new Error(parsed.errorMessage)
+  const routingProviderId = response.headers.get("x-modelhub-provider")
+  const routingModelId = response.headers.get("x-modelhub-model")
   return {
     finishReason: parsed.finishReason ?? (toolCalls.size > 0 ? "tool-calls" : "stop"),
+    ...(routingProviderId && routingModelId
+      ? {
+          routing: {
+            modelId: routingModelId,
+            providerId: routingProviderId,
+            tier: response.headers.get("x-modelhub-tier"),
+          },
+        }
+      : {}),
     text: parsed.text,
     toolCalls: [...toolCalls.values()],
   }
