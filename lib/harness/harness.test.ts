@@ -156,6 +156,28 @@ describe("harness stream protocol", () => {
     ])
   })
 
+  it("accepts an idempotent continuation replay after the run is terminal", async () => {
+    const terminalEvent: HarnessEvent = {
+      conversationId: "conversation-1",
+      createdAt: new Date(0).toISOString(),
+      eventId: "event-terminal-replay",
+      payload: { status: "completed" },
+      runId: "run-1",
+      seq: "4",
+      stepId: null,
+      turnId: "turn-1",
+      type: "run/status",
+    }
+    const body = `event: harness\ndata: ${JSON.stringify(terminalEvent)}\n\n`
+
+    await expect(consumeHarnessStream(new Response(body))).resolves.toEqual({
+      assistantMessageId: undefined,
+      runId: "run-1",
+      status: "completed",
+      text: "",
+    })
+  })
+
   it("collects OpenAI tool calls emitted in the final delta", async () => {
     const toolStarts = vi.fn()
     const response = new Response(

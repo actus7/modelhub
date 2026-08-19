@@ -139,11 +139,14 @@ function dispatchFromRequest(request: Request): ModelDispatcher {
 async function streamRun(input: {
   initialMessages?: ModelMessage[]
   request: Request
-  runId: string
+  run: {
+    conversationId: string
+    id: string
+    status: string
+  }
   userId: string
 }): Promise<Response> {
-  const run = await prisma.agentRun.findFirst({ where: { id: input.runId, userId: input.userId } })
-  if (!run) return jsonErrorResponse(404, "Agent run not found")
+  const run = input.run
   let lease: Awaited<ReturnType<typeof acquireRunLease>> = null
   if (["queued", "yielded", "running"].includes(run.status)) {
     lease = await acquireRunLease(run.id, input.userId)
@@ -177,12 +180,24 @@ async function streamRun(input: {
             })
         }
 
-        const statusEvent = await appendHarnessEvent({
-          conversationId: run.conversationId,
-          payload: { status },
-          runId: run.id,
-          type: "run/status",
-        })
+        const statusEvent: HarnessEvent = lease
+          ? await appendHarnessEvent({
+              conversationId: run.conversationId,
+              payload: { status },
+              runId: run.id,
+              type: "run/status",
+            })
+          : {
+              conversationId: run.conversationId,
+              createdAt: new Date().toISOString(),
+              eventId: `replay_${run.id}_${status}`,
+              payload: { status },
+              runId: run.id,
+              seq: "0",
+              stepId: null,
+              turnId: null,
+              type: "run/status",
+            }
         send(statusEvent)
         controller.close()
       } catch (error) {
@@ -386,7 +401,7 @@ app.post("/conversations/:id/turns", async (c) => {
       ? undefined
       : normalizeRequestMessages(body.messages),
     request: c.req.raw,
-    runId: run.id,
+    run,
     userId,
   })
 })
@@ -666,10 +681,10 @@ app.post("/agent-runs/:id/continue", async (c) => {
   if (typeof userId !== "string") return userId
   const run = await prisma.agentRun.findFirst({ where: { id: c.req.param("id"), userId } })
   if (!run) return jsonErrorResponse(404, "Agent run not found")
-  if (!["yielded", "queued", "running"].includes(run.status)) {
-    return jsonErrorResponse(409, `Run cannot continue from status ${run.status}`)
-  }
-  return await streamRun({ request: c.req.raw, runId: run.id, userId })
+  // A continuation can race with the worker that just made the run terminal.
+  // Replaying the terminal status over the normal stream keeps this endpoint
+  // idempotent and prevents a harmless retry from surfacing as a chat error.
+  return await streamRun({ request: c.req.raw, run, userId })
 })
 
 app.post("/agent-runs/:id/cancel", async (c) => {
