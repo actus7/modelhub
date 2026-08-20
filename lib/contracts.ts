@@ -199,6 +199,45 @@ export type ProviderCredentialSummary = {
   updatedAt: string
 }
 
+export type ProviderQuotaProfile = {
+  providerId: string
+  label: string | null
+  isEnabled: boolean
+  windowHours: number
+  requestLimit: number | null
+  tokenLimit: number | null
+  costLimitUsd: number | null
+  updatedAt: string | null
+}
+
+export type ProviderQuotaModelUsage = {
+  modelId: string
+  requests: number
+  tokens: number
+  costUsd: number
+  errors: number
+}
+
+export type ProviderQuotaAccount = {
+  providerId: string
+  connectedAt: string | null
+  lastActivityAt: string | null
+  resetAt: string | null
+  requests: number
+  tokens: number
+  costUsd: number
+  errors: number
+  percentage: number | null
+  status: "available" | "warning" | "exhausted" | "monitoring" | "disabled"
+  profile: ProviderQuotaProfile
+  models: ProviderQuotaModelUsage[]
+}
+
+export type ProviderQuotaResponse = {
+  accounts: ProviderQuotaAccount[]
+  generatedAt: string
+}
+
 export const cloudDeploymentStatusSchema = z.enum([
   "provisioning",
   "healthy",
@@ -273,6 +312,24 @@ export const providerCredentialSchema = z.object({
   providerId: z.string().min(1).max(64),
   credentialKey: z.string().min(1).max(128),
   credentialValue: z.string().min(1).max(4096),
+})
+
+const nullablePositiveInteger = z.number().int().positive().max(1_000_000_000).nullable().optional()
+const nullablePositiveAmount = z.number().positive().max(1_000_000).nullable().optional()
+
+export const providerQuotaSchema = z.object({
+  label: z.string().trim().max(100).nullable().optional(),
+  isEnabled: z.boolean().optional(),
+  windowHours: z.union([
+    z.literal(1),
+    z.literal(6),
+    z.literal(24),
+    z.literal(168),
+    z.literal(720),
+  ]).optional(),
+  requestLimit: nullablePositiveInteger,
+  tokenLimit: nullablePositiveInteger,
+  costLimitUsd: nullablePositiveAmount,
 })
 
 export const cloudRenderConnectionSchema = z.object({

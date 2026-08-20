@@ -32,6 +32,7 @@ model User {
   memories             UserMemory[]
   routingConfig        RoutingConfig?
   budget               UserBudget?
+  providerQuotas       ProviderQuota[]
 }
 
 model Project {
@@ -525,6 +526,25 @@ model UserBudget {
   updatedAt       DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ProviderQuota {
+  id              String   @id @default(cuid())
+  userId          String
+  providerId      String
+  label           String?
+  isEnabled       Boolean  @default(true)
+  windowHours     Int      @default(24)
+  requestLimit    Int?
+  tokenLimit      Int?
+  costLimitUsd    Float?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, providerId])
+  @@index([userId, isEnabled])
 }
 
 model ConversationAttachment {

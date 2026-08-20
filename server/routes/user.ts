@@ -1,7 +1,12 @@
 import { Hono } from "hono"
 import { z } from "zod"
-import { apiKeyLabelSchema, providerCredentialSchema } from "@/lib/contracts"
+import {
+  apiKeyLabelSchema,
+  providerCredentialSchema,
+  providerQuotaSchema,
+} from "@/lib/contracts"
 import { isValidAccentColor } from "@/lib/accent-colors"
+import { buildProviderQuotaAccounts } from "@/lib/provider-quota"
 
 import { encryptCredential, generateApiKey } from "../lib/crypto"
 import { prisma } from "../lib/db"
@@ -319,6 +324,97 @@ app.get("/usage/recent", async (c) => {
   })
 
   return c.json({ logs })
+})
+
+app.get("/quotas", async (c) => {
+  const userId = requireAuth(c)
+  if (typeof userId !== "string") return userId
+
+  const profiles = await prisma.providerQuota.findMany({
+    where: { userId },
+    orderBy: { providerId: "asc" },
+  })
+  const windowHours = Array.from(new Set([
+    24,
+    ...profiles.map((profile) => Math.min(profile.windowHours, 720)),
+  ]))
+  const generatedAt = new Date()
+  const [credentials, groupedUsage] = await Promise.all([
+    prisma.providerCredential.findMany({
+      where: { userId },
+      select: { providerId: true, updatedAt: true },
+    }),
+    Promise.all(windowHours.map(async (hours) => {
+      const rows = await prisma.usageLog.groupBy({
+        by: ["providerId", "modelId", "statusCode"],
+        where: {
+          createdAt: { gte: new Date(generatedAt.getTime() - hours * 60 * 60 * 1000) },
+          userId,
+        },
+        _count: { id: true },
+        _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+        _min: { createdAt: true },
+        _max: { createdAt: true },
+      })
+      return rows.map((row) => ({
+        providerId: row.providerId,
+        modelId: row.modelId,
+        statusCode: row.statusCode,
+        requests: row._count.id,
+        tokens: (row._sum.inputTokens ?? 0) + (row._sum.outputTokens ?? 0),
+        costUsd: row._sum.costUsd ?? 0,
+        oldestAt: row._min.createdAt,
+        lastAt: row._max.createdAt,
+        windowHours: hours,
+      }))
+    })),
+  ])
+  const logs = groupedUsage.flat()
+
+  return c.json({
+    accounts: buildProviderQuotaAccounts({
+      credentials,
+      logs,
+      profiles,
+    }),
+    generatedAt: generatedAt.toISOString(),
+  })
+})
+
+app.patch("/quotas/:providerId", async (c) => {
+  const userId = requireAuth(c)
+  if (typeof userId !== "string") return userId
+
+  const providerId = c.req.param("providerId").trim()
+  if (!/^[a-zA-Z0-9._-]{1,64}$/.test(providerId)) {
+    return jsonErrorResponse(400, "Invalid provider id")
+  }
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = providerQuotaSchema.safeParse(body)
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid quota profile")
+
+  const profile = await prisma.providerQuota.upsert({
+    where: { userId_providerId: { providerId, userId } },
+    create: { ...parsed.data, providerId, userId },
+    update: parsed.data,
+  })
+
+  return c.json({
+    profile: {
+      ...profile,
+      createdAt: profile.createdAt.toISOString(),
+      updatedAt: profile.updatedAt.toISOString(),
+    },
+  })
+})
+
+app.delete("/quotas/:providerId", async (c) => {
+  const userId = requireAuth(c)
+  if (typeof userId !== "string") return userId
+
+  const providerId = c.req.param("providerId").trim()
+  await prisma.providerQuota.deleteMany({ where: { providerId, userId } })
+  return c.json({ success: true })
 })
 
 // GET /user/routing-config

@@ -9,6 +9,7 @@ import {
   CloudIcon,
   FileTextIcon,
   FlaskConicalIcon,
+  GaugeIcon,
   LayoutDashboardIcon,
   Loader2Icon,
   LogOutIcon,
@@ -88,6 +89,13 @@ function getPageCopy(pathname: string) {
     return {
       description: "Conecte provedores de IA, configure credenciais e escolha os modelos disponíveis.",
       title: "Provedores",
+    };
+  }
+
+  if (pathname.startsWith("/dashboard/quotas")) {
+    return {
+      description: "Monitore consumo, limites configurados e janelas de renovação por provedor.",
+      title: "Quota Tracker",
     };
   }
 
@@ -198,13 +206,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     asChild
                     isActive={
                       pathname.startsWith("/dashboard") &&
-                      !pathname.startsWith("/dashboard/credentials")
+                      !pathname.startsWith("/dashboard/credentials") &&
+                      !pathname.startsWith("/dashboard/quotas")
                     }
                     tooltip="Dashboard"
                   >
                     <Link href="/dashboard">
                       <LayoutDashboardIcon />
                       <span>Dashboard</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith("/dashboard/quotas")}
+                    tooltip="Quota Tracker"
+                  >
+                    <Link href="/dashboard/quotas">
+                      <GaugeIcon />
+                      <span>Quotas</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
