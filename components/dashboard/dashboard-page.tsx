@@ -15,13 +15,11 @@ import {
   CheckCircle2Icon,
   CheckIcon,
   CopyIcon,
-  ExternalLinkIcon,
   FileTextIcon,
   KeyRoundIcon,
   Loader2Icon,
   PlusIcon,
   TerminalSquareIcon,
-  ShieldCheckIcon,
   Trash2Icon,
 } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
@@ -30,6 +28,7 @@ import { toast } from "sonner";
 import { AnalyticsSection } from "@/components/dashboard/analytics-section";
 import { ApiQuickStartCard } from "@/components/dashboard/api-quick-start-card";
 import { RoutingSection } from "@/components/dashboard/routing-section";
+import { ProviderCatalog } from "@/components/dashboard/providers/provider-catalog";
 import { useAppState } from "@/components/app-state-provider";
 import {
   AlertDialog,
@@ -51,7 +50,6 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -62,8 +60,7 @@ import {
 } from "@/components/ui/table";
 
 import { apiJson, apiJsonRequest } from "@/lib/api";
-import { saveProviderCredentials } from "@/lib/save-provider-credentials";
-import { providerHasRequiredCredentials, providerUsesStoredCredentials } from "@/lib/provider-credentials";
+import { providerHasRequiredCredentials } from "@/lib/provider-credentials";
 
 export type DashboardSection = "overview" | "keys" | "credentials" | "logs" | "analytics" | "routing" | "budget";
 
@@ -123,7 +120,7 @@ function getErrorRateTone(errorRate: number) {
 }
 
 export function DashboardPage({ section = "overview" }: { section?: DashboardSection }) {
-  const { credentials, providers, refreshCredentials, refreshUser, user } = useAppState();
+  const { credentials, providers, refreshUser, user } = useAppState();
   const shouldLoadDashboardData = sectionNeedsDashboardData(section);
   const [apiKeys, setApiKeys] = useState<ApiKeySummary[]>([]);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
@@ -134,21 +131,8 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
   const [newApiKey, setNewApiKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedCommandId, setCopiedCommandId] = useState<string | null>(null);
-  const [credentialDialogOpen, setCredentialDialogOpen] = useState(false);
-  const [selectedProviderId, setSelectedProviderId] = useState("");
-  const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
-  const [savingCredentials, setSavingCredentials] = useState(false);
   const [usageLogDetail, setUsageLogDetail] = useState<RecentUsageLog | null>(null);
   const [pendingApiKeyRevoke, setPendingApiKeyRevoke] = useState<ApiKeySummary | null>(null);
-  const [pendingCredentialDelete, setPendingCredentialDelete] = useState<{
-    id: string;
-    label: string;
-  } | null>(null);
-
-  const selectedProvider = useMemo(
-    () => providers.find((provider) => provider.id === selectedProviderId) ?? null,
-    [providers, selectedProviderId],
-  );
   const hasAnyApiKey = apiKeys.length > 0 || Boolean(newApiKey);
   const readyProvidersCount = useMemo(
     () =>
@@ -229,53 +213,6 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
     }
   }
 
-  async function handleDeleteCredential(credentialId: string) {
-    try {
-      await apiJsonRequest(`/user/credentials/${credentialId}`, "DELETE");
-      setPendingCredentialDelete(null);
-      await Promise.all([refreshCredentials(), refreshUser()]);
-      toast.success("Credencial removida.");
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao remover credencial.");
-    }
-  }
-
-  async function handleSaveCredentials() {
-    if (!selectedProvider) {
-      toast.error("Selecione um provider.");
-      return;
-    }
-
-    const requiredKeys = selectedProvider.requiredKeys ?? [];
-    if (requiredKeys.length === 0) {
-      toast.error("Esse provider não exige credenciais adicionais.");
-      return;
-    }
-
-    if (requiredKeys.some((field) => !credentialValues[field.envName]?.trim())) {
-      toast.error("Preencha todos os campos do provider.");
-      return;
-    }
-
-    setSavingCredentials(true);
-    try {
-      const result = await saveProviderCredentials(selectedProvider, credentialValues);
-      if (!result.ok) {
-        toast.error(result.error);
-        return;
-      }
-
-      setCredentialDialogOpen(false);
-      setCredentialValues({});
-      await Promise.all([refreshCredentials(), refreshUser()]);
-      toast.success(`Credenciais salvas para ${selectedProvider.label}.`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao salvar credenciais.");
-    } finally {
-      setSavingCredentials(false);
-    }
-  }
-
   if (shouldLoadDashboardData && loading && !usage) {
     return (
       <div
@@ -299,7 +236,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
   const sectionLinks: Array<{ count?: number; href: string; id: DashboardSection; label: string }> = [
     { href: "/dashboard", id: "overview", label: "Visão geral" },
     { count: shouldLoadDashboardData ? apiKeys.length : undefined, href: "/dashboard/api-keys", id: "keys", label: "API Keys" },
-    { count: credentials.length, href: "/dashboard/credentials", id: "credentials", label: "Credenciais" },
+    { count: providers.length, href: "/dashboard/credentials", id: "credentials", label: "Provedores" },
     { count: shouldLoadDashboardData ? logs.length : undefined, href: "/dashboard/logs", id: "logs", label: "Logs de uso" },
     { href: "/dashboard/analytics", id: "analytics", label: "Analytics" },
     { href: "/dashboard/routing", id: "routing", label: "Roteamento" },
@@ -696,102 +633,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
       ) : null}
 
       {section === "credentials" ? (
-        <Card className="border-border/60">
-          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex flex-col gap-1">
-              <CardTitle>Credenciais de providers</CardTitle>
-              <CardDescription>Gerencie as chaves usadas para conectar providers pagos e autenticados.</CardDescription>
-            </div>
-            <Button onClick={() => setCredentialDialogOpen(true)}>
-              <PlusIcon data-icon="inline-start" />
-              Adicionar
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {credentials.length === 0 ? (
-              <Empty className="border-border/60">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <ShieldCheckIcon />
-                  </EmptyMedia>
-                  <EmptyTitle>Nenhuma credencial salva</EmptyTitle>
-                  <EmptyDescription>Adicione as chaves dos providers pagos ou autenticados.</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <>
-                <div className="grid gap-3 md:hidden">
-                  {credentials.map((credential) => (
-                    <Card key={credential.id} className="border-border/60">
-                      <CardContent className="space-y-3 p-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <p className="text-sm font-medium">{providerLabel(credential.providerId, providers)}</p>
-                            <code className="text-xs text-muted-foreground">{credential.credentialKey}</code>
-                          </div>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setPendingCredentialDelete({
-                              id: credential.id,
-                              label: providerLabel(credential.providerId, providers),
-                            })}
-                          >
-                            <Trash2Icon data-icon="inline-start" />
-                            Remover
-                          </Button>
-                        </div>
-                        <div className="grid gap-1 text-xs text-muted-foreground">
-                          <p>Identificador salvo para este provider</p>
-                          <p>Atualizada em {formatDate(credential.updatedAt)}</p>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-                <div className="hidden overflow-x-auto md:block">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Provider</TableHead>
-                        <TableHead>Credencial</TableHead>
-                        <TableHead>Atualizada</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {credentials.map((credential) => (
-                        <TableRow key={credential.id}>
-                          <TableCell>{providerLabel(credential.providerId, providers)}</TableCell>
-                          <TableCell>
-                            <div className="flex flex-col gap-0.5">
-                              <code>{credential.credentialKey}</code>
-                              <span className="text-[10px] text-muted-foreground">Identificador salvo para este provider</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>{formatDate(credential.updatedAt)}</TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => setPendingCredentialDelete({
-                                id: credential.id,
-                                label: providerLabel(credential.providerId, providers),
-                              })}
-                            >
-                              <Trash2Icon data-icon="inline-start" />
-                              Remover
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+        <ProviderCatalog />
       ) : null}
 
       {section === "logs" ? (
@@ -991,28 +833,6 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!pendingCredentialDelete} onOpenChange={(open) => { if (!open) setPendingCredentialDelete(null); }}>
-        <AlertDialogContent size="sm">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remover credencial?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {pendingCredentialDelete
-                ? `A integração com ${pendingCredentialDelete.label} pode parar de funcionar até que uma nova chave seja salva.`
-                : "A integração pode parar de funcionar até que uma nova chave seja salva."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => pendingCredentialDelete ? void handleDeleteCredential(pendingCredentialDelete.id) : undefined}
-            >
-              Remover credencial
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       <Dialog open={newKeyDialogOpen} onOpenChange={setNewKeyDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -1035,73 +855,6 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
         </DialogContent>
       </Dialog>
 
-      <Dialog open={credentialDialogOpen} onOpenChange={setCredentialDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Adicionar credenciais</DialogTitle>
-            <DialogDescription>Selecione um provider e informe as chaves exigidas por ele.</DialogDescription>
-          </DialogHeader>
-          <div className="flex flex-col gap-5">
-            <FieldGroup>
-              <Field>
-                <FieldLabel>Provider</FieldLabel>
-                <Select value={selectedProviderId} onValueChange={setSelectedProviderId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Selecione um provider" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {providers.filter(providerUsesStoredCredentials).map((provider) => (
-                        <SelectItem key={provider.id} value={provider.id}>
-                          {provider.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
-              </Field>
-              {selectedProvider?.signupUrl && (
-                <div className="flex items-center gap-2 rounded-lg bg-blue-500/5 px-3 py-2.5 text-sm text-blue-600 dark:text-blue-400">
-                  <ExternalLinkIcon className="size-4 shrink-0" />
-                  <span>
-                    Não tem chave?{" "}
-                    <a
-                      href={selectedProvider.signupUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium underline underline-offset-2"
-                    >
-                      {selectedProvider.signupLabel ?? "Clique aqui para obter"}
-                    </a>
-                  </span>
-                </div>
-              )}
-              {(selectedProvider?.requiredKeys ?? []).map((field) => (
-                <Field key={field.envName}>
-                  <FieldLabel htmlFor={field.envName}>{field.label}</FieldLabel>
-                  <Input
-                    id={field.envName}
-                    type="password"
-                    placeholder={field.placeholder}
-                    value={credentialValues[field.envName] ?? ""}
-                    onChange={(event) =>
-                      setCredentialValues((current) => ({
-                        ...current,
-                        [field.envName]: event.target.value,
-                      }))
-                    }
-                  />
-                  <FieldDescription>Informe a chave recebida no painel deste provider.</FieldDescription>
-                </Field>
-              ))}
-            </FieldGroup>
-            <Button disabled={savingCredentials} onClick={() => void handleSaveCredentials()}>
-              {savingCredentials && <Loader2Icon className="size-3 animate-spin" />}
-              {savingCredentials ? "Testando conexão…" : "Salvar credenciais"}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

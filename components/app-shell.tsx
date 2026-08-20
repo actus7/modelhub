@@ -86,8 +86,8 @@ function getPageCopy(pathname: string) {
 
   if (pathname.startsWith("/dashboard/credentials")) {
     return {
-      description: "Gerencie as credenciais usadas pelas integrações autenticadas.",
-      title: "Credenciais",
+      description: "Conecte provedores de IA, configure credenciais e escolha os modelos disponíveis.",
+      title: "Provedores",
     };
   }
 
@@ -194,7 +194,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname.startsWith("/dashboard")} tooltip="Dashboard">
+                  <SidebarMenuButton
+                    asChild
+                    isActive={
+                      pathname.startsWith("/dashboard") &&
+                      !pathname.startsWith("/dashboard/credentials")
+                    }
+                    tooltip="Dashboard"
+                  >
                     <Link href="/dashboard">
                       <LayoutDashboardIcon />
                       <span>Dashboard</span>
@@ -210,10 +217,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname.startsWith("/setup")} tooltip="Integrações">
-                    <Link href="/setup">
+                  <SidebarMenuButton
+                    asChild
+                    isActive={
+                      pathname.startsWith("/setup") ||
+                      pathname.startsWith("/dashboard/credentials")
+                    }
+                    tooltip="Provedores"
+                  >
+                    <Link href="/dashboard/credentials">
                       <PlugIcon />
-                      <span>Integrações</span>
+                      <span>Provedores</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
