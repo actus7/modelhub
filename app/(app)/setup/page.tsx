@@ -1,6 +1,5 @@
-import { SetupPage } from "@/components/setup/setup-page";
+import { redirect } from "next/navigation"
 
 export default function Setup() {
-  return <SetupPage />;
+  redirect("/dashboard/credentials")
 }
-
