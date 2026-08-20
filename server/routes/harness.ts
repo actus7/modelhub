@@ -8,6 +8,11 @@ import { assertPublicHttpUrl } from "../harness/core-tools"
 import { assertSecureMcpUrl } from "../harness/mcp"
 import { normalizeRequestMessages, type ModelMessage } from "../harness/prompt"
 import {
+  buildRunReplaySnapshot,
+  findActiveRootRun,
+  reconcileStaleRootRuns,
+} from "../harness/run-lifecycle"
+import {
   acquireRunLease,
   abortActiveHarnessRun,
   createHarnessRegistry,
@@ -136,6 +141,26 @@ function dispatchFromRequest(request: Request): ModelDispatcher {
   }
 }
 
+function activeRunConflictResponse(
+  activeRun: NonNullable<Awaited<ReturnType<typeof findActiveRootRun>>>,
+): Response {
+  const retryAfterMs = activeRun.leaseExpiresAt
+    ? Math.max(0, activeRun.leaseExpiresAt.getTime() - Date.now())
+    : null
+  return jsonErrorResponse(
+    409,
+    "Conversation still has an active generation",
+    {
+      canCancel: true,
+      code: "HARNESS_ACTIVE_RUN",
+      leaseExpiresAt: activeRun.leaseExpiresAt?.toISOString() ?? null,
+      retryAfterMs,
+      runId: activeRun.id,
+      status: activeRun.status,
+    },
+  )
+}
+
 async function streamRun(input: {
   initialMessages?: ModelMessage[]
   request: Request
@@ -151,7 +176,23 @@ async function streamRun(input: {
   if (["queued", "yielded", "running"].includes(run.status)) {
     lease = await acquireRunLease(run.id, input.userId)
     if (!lease) {
-      return jsonErrorResponse(409, "Agent run is already owned by another worker; retry with the same run id")
+      const current = await prisma.agentRun.findFirst({
+        where: { id: run.id, userId: input.userId },
+        select: { leaseExpiresAt: true, status: true },
+      })
+      return jsonErrorResponse(
+        409,
+        "Agent run is still owned by another worker",
+        {
+          code: "HARNESS_RUN_BUSY",
+          leaseExpiresAt: current?.leaseExpiresAt?.toISOString() ?? null,
+          retryAfterMs: current?.leaseExpiresAt
+            ? Math.max(0, current.leaseExpiresAt.getTime() - Date.now())
+            : 1_000,
+          runId: run.id,
+          status: current?.status ?? run.status,
+        },
+      )
     }
   }
   const encoder = new TextEncoder()
@@ -163,7 +204,18 @@ async function streamRun(input: {
     async start(controller) {
       const send = (event: HarnessEvent) => {
         if (!abortController.signal.aborted) {
-          controller.enqueue(encoder.encode(`event: harness\ndata: ${JSON.stringify(event)}\n\n`))
+          try {
+            controller.enqueue(encoder.encode(`event: harness\ndata: ${JSON.stringify(event)}\n\n`))
+          } catch {
+            abortController.abort("Harness response stream closed")
+          }
+        }
+      }
+      const close = () => {
+        try {
+          controller.close()
+        } catch {
+          // The browser can close the stream before the server observes abort.
         }
       }
 
@@ -178,6 +230,37 @@ async function streamRun(input: {
               runId: run.id,
               signal: abortController.signal,
             })
+        }
+
+        if (!lease && status === "completed") {
+          const replayEvents = await prisma.sessionEvent.findMany({
+            where: {
+              runId: run.id,
+              type: { in: ["assistant/chunk", "assistant/message"] },
+            },
+            orderBy: { seq: "asc" },
+            select: { payload: true, type: true },
+          })
+          const snapshot = buildRunReplaySnapshot(replayEvents)
+          if (snapshot) {
+            send({
+              conversationId: run.conversationId,
+              createdAt: new Date().toISOString(),
+              eventId: `replay_snapshot_${run.id}`,
+              payload: {
+                content: snapshot.content,
+                messageId: snapshot.messageId,
+                modelLabel: snapshot.modelLabel,
+                replaySnapshot: true,
+                toolCalls: [],
+              },
+              runId: run.id,
+              seq: "0",
+              stepId: null,
+              turnId: null,
+              type: "assistant/message",
+            })
+          }
         }
 
         const statusEvent: HarnessEvent = lease
@@ -199,11 +282,17 @@ async function streamRun(input: {
               type: "run/status",
             }
         send(statusEvent)
-        controller.close()
+        close()
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
-        controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ message })}\n\n`))
-        controller.close()
+        if (!abortController.signal.aborted) {
+          try {
+            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ message })}\n\n`))
+          } catch {
+            abortController.abort("Harness response stream closed")
+          }
+        }
+        close()
       } finally {
         input.request.signal.removeEventListener("abort", abort)
       }
@@ -219,6 +308,7 @@ async function streamRun(input: {
       "Cache-Control": "no-cache, no-transform",
       Connection: "keep-alive",
       "Content-Type": "text/event-stream; charset=utf-8",
+      "X-ModelHub-Run-Id": run.id,
       "X-Accel-Buffering": "no",
     },
   })
@@ -294,22 +384,16 @@ app.post("/conversations/:id/turns", async (c) => {
     if (!project) return jsonErrorResponse(404, "Project not found")
   }
 
+  await reconcileStaleRootRuns({ conversationId, userId })
+
   const existing = await prisma.agentRun.findUnique({
     where: { conversationId_idempotencyKey: { conversationId, idempotencyKey: body.idempotencyKey } },
   })
   let run = existing
   if (!run) {
-    const activeRun = await prisma.agentRun.findFirst({
-      where: {
-        conversationId,
-        parentRunId: null,
-        status: { in: ["queued", "running", "yielded", "waiting_approval"] },
-      },
-      orderBy: { createdAt: "asc" },
-      select: { id: true, status: true },
-    })
+    const activeRun = await findActiveRootRun(conversationId, userId)
     if (activeRun) {
-      return jsonErrorResponse(409, `Conversation already has active run ${activeRun.id} (${activeRun.status})`)
+      return activeRunConflictResponse(activeRun)
     }
     await ensureLegacyMessageEvents(conversationId)
     const lastUser = [...body.messages].reverse().find((message) => message.role === "user")
@@ -380,16 +464,10 @@ app.post("/conversations/:id/turns", async (c) => {
         },
       })
       if (!run) {
-        const activeRun = await prisma.agentRun.findFirst({
-          where: {
-            conversationId,
-            parentRunId: null,
-            status: { in: ["queued", "running", "yielded", "waiting_approval"] },
-          },
-          select: { id: true, status: true },
-        })
+        await reconcileStaleRootRuns({ conversationId, userId })
+        const activeRun = await findActiveRootRun(conversationId, userId)
         if (activeRun) {
-          return jsonErrorResponse(409, `Conversation already has active run ${activeRun.id} (${activeRun.status})`)
+          return activeRunConflictResponse(activeRun)
         }
         throw error
       }

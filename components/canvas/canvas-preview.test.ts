@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { transform } from "@babel/standalone";
 
-import { buildSandboxedHtmlDocument, escapeInlineScript } from "./canvas-preview";
+import {
+  buildMermaidConfig,
+  buildSandboxedHtmlDocument,
+  escapeInlineScript,
+} from "./canvas-preview";
 
 describe("canvas preview sandbox", () => {
   it("injects the restrictive CSP before content in a complete document", () => {
@@ -25,6 +29,14 @@ describe("canvas preview sandbox", () => {
     expect(escapeInlineScript('const value = "</ScRiPt><p>escape</p>";')).toBe(
       'const value = "<\\/script><p>escape</p>";',
     );
+  });
+
+  it("suppresses Mermaid's body-level error renderer", () => {
+    expect(buildMermaidConfig("dark")).toMatchObject({
+      securityLevel: "strict",
+      suppressErrorRendering: true,
+      theme: "dark",
+    });
   });
 
   it("compiles React imports into the preview require shim", () => {
