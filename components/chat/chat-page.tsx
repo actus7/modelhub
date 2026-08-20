@@ -161,7 +161,11 @@ import {
   validateFileSelection,
 } from "@/lib/chat-attachments"
 import { parseChatStream, type ParsedToolCall } from "@/lib/chat-stream"
-import { consumeHarnessStream } from "@/lib/harness/client"
+import {
+  consumeHarnessStream,
+  HarnessActiveRunError,
+  HarnessRunBusyError,
+} from "@/lib/harness/client"
 import type { HarnessEvent } from "@/lib/harness/contracts"
 import {
   providerAuthMode,
@@ -215,6 +219,24 @@ const AUTO_MODEL: ProviderModel = {
   },
   id: "auto",
   name: "Auto · Smart Routing",
+}
+
+function waitForHarnessRetry(delayMs: number, signal: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("Aborted", "AbortError"))
+      return
+    }
+    const onAbort = () => {
+      window.clearTimeout(timeout)
+      reject(new DOMException("Aborted", "AbortError"))
+    }
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort)
+      resolve()
+    }, delayMs)
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
 }
 
 export function ChatPage() {
@@ -344,6 +366,40 @@ export function ChatPage() {
 
   // Stop generation
   const abortControllerRef = useRef<AbortController | null>(null)
+  const activeGenerationIdRef = useRef<string | null>(null)
+  const activeHarnessRunIdRef = useRef<string | null>(null)
+
+  const cancelActiveGeneration = useCallback(() => {
+    const runId = activeHarnessRunIdRef.current
+    activeHarnessRunIdRef.current = null
+    activeGenerationIdRef.current = null
+    const controller = abortControllerRef.current
+    abortControllerRef.current = null
+    controller?.abort()
+    setPending(false)
+    if (runId) {
+      void apiJsonRequest(`/harness/agent-runs/${runId}/cancel`, "POST")
+        .catch((error) => {
+          console.error("[harness] falha ao cancelar execução", error)
+        })
+    }
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      const runId = activeHarnessRunIdRef.current
+      activeHarnessRunIdRef.current = null
+      activeGenerationIdRef.current = null
+      abortControllerRef.current?.abort()
+      abortControllerRef.current = null
+      if (runId) {
+        void apiFetch(`/harness/agent-runs/${runId}/cancel`, {
+          keepalive: true,
+          method: "POST",
+        })
+      }
+    }
+  }, [])
 
   // Smart auto-scroll: só acompanha o fim enquanto o usuário não rolar para cima
   const stickToBottomRef = useRef(true)
@@ -883,8 +939,7 @@ export function ChatPage() {
   const handleNewChat = useCallback(() => {
     conversationLoadRequestRef.current += 1
     canvasOpenRequestRef.current += 1
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = null
+    cancelActiveGeneration()
     attachmentsRef.current.forEach(releaseAttachmentPreview)
     setActiveConversationId(null)
     setMessages([])
@@ -893,17 +948,14 @@ export function ChatPage() {
     setEditingMessageId(null)
     setAttachments([])
     setTemporaryChat(false)
-    setPending(false)
     setActiveCanvas(null)
     setCanvasPanelOpen(false)
-  }, [])
+  }, [cancelActiveGeneration])
 
   // Stop generation
   const handleStopGeneration = useCallback(() => {
-    abortControllerRef.current?.abort()
-    abortControllerRef.current = null
-    setPending(false)
-  }, [])
+    cancelActiveGeneration()
+  }, [cancelActiveGeneration])
 
   // Copy message content
   const handleCopyMessage = useCallback(
@@ -959,9 +1011,7 @@ export function ChatPage() {
     async (id: string) => {
       const requestId = ++conversationLoadRequestRef.current
       canvasOpenRequestRef.current += 1
-      abortControllerRef.current?.abort()
-      abortControllerRef.current = null
-      setPending(false)
+      cancelActiveGeneration()
       setActiveCanvas(null)
       try {
         const data = await apiJson<{
@@ -1031,7 +1081,7 @@ export function ChatPage() {
         }
       }
     },
-    [providers, setSelectedModelId],
+    [cancelActiveGeneration, providers, setSelectedModelId],
   )
 
   function updateAssistantToolCall(
@@ -1074,6 +1124,8 @@ export function ChatPage() {
   ) {
     if (!toolCall.approvalId || pending) return
     const controller = new AbortController()
+    const generationId = crypto.randomUUID()
+    activeGenerationIdRef.current = generationId
     abortControllerRef.current = controller
     setPending(true)
     updateAssistantToolCall(assistantMessageId, {
@@ -1105,80 +1157,118 @@ export function ChatPage() {
         ],
       ])
       let runId = resolved.runId
+      activeHarnessRunIdRef.current = runId
       let finalMessageId: string | undefined
       let finalContent = ""
+      let finalRunStatus = resolved.status
 
-      for (let continuation = 0; continuation < 64; continuation++) {
+      for (let continuation = 0; continuation < 128; continuation++) {
         const response = await apiFetch(
           `/harness/agent-runs/${runId}/continue`,
           { method: "POST", signal: controller.signal },
         )
-        const result = await consumeHarnessStream(response, (event) => {
-          if (
-            event.type === "assistant/chunk" &&
-            event.payload.live === true &&
-            typeof event.payload.delta === "string"
-          ) {
-            finalContent += event.payload.delta
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantMessageId
-                  ? {
-                      ...message,
-                      content: `${message.content}${event.payload.delta as string}`,
-                    }
-                  : message,
-              ),
+        const responseRunId = response.headers.get("x-modelhub-run-id")
+        if (responseRunId && activeGenerationIdRef.current === generationId) {
+          activeHarnessRunIdRef.current = responseRunId
+        }
+        let result: Awaited<ReturnType<typeof consumeHarnessStream>>
+        try {
+          result = await consumeHarnessStream(response, (event) => {
+            if (activeGenerationIdRef.current !== generationId) return
+            if (event.runId) activeHarnessRunIdRef.current = event.runId
+            if (
+              event.type === "run/status" &&
+              ["cancelled", "completed", "failed", "waiting_approval"].includes(
+                String(event.payload.status ?? ""),
+              )
+            ) {
+              activeHarnessRunIdRef.current = null
+            }
+            if (
+              event.type === "assistant/chunk" &&
+              event.payload.live === true &&
+              typeof event.payload.delta === "string"
+            ) {
+              finalContent += event.payload.delta
+              setMessages((current) =>
+                current.map((message) =>
+                  message.id === assistantMessageId
+                    ? {
+                        ...message,
+                        content: `${message.content}${event.payload.delta as string}`,
+                      }
+                    : message,
+                ),
+              )
+            }
+            if (event.type === "tool/call") {
+              const call: ParsedToolCall = {
+                args: event.payload.args ?? {},
+                status: "running",
+                toolCallId: String(event.payload.toolCallId ?? ""),
+                toolName: String(event.payload.toolName ?? "unknown_tool"),
+              }
+              continuationTools.set(call.toolCallId, call)
+              updateAssistantToolCall(assistantMessageId, call)
+            }
+            if (event.type === "tool/approval-required") {
+              const toolCallId = String(event.payload.toolCallId ?? "")
+              const previous = continuationTools.get(toolCallId)
+              const call: ParsedToolCall = {
+                approvalId: String(event.payload.approvalId ?? ""),
+                args: event.payload.args ?? previous?.args ?? {},
+                requiresApproval: true,
+                status: "pending-approval",
+                toolCallId,
+                toolName: String(
+                  event.payload.toolName ?? previous?.toolName ?? "unknown_tool",
+                ),
+              }
+              continuationTools.set(toolCallId, call)
+              updateAssistantToolCall(assistantMessageId, call)
+            }
+            if (event.type === "tool/result") {
+              const toolCallId = String(event.payload.toolCallId ?? "")
+              const previous = continuationTools.get(toolCallId)
+              if (!previous) return
+              const call: ParsedToolCall = {
+                ...previous,
+                result: event.payload.result ?? null,
+                status: "completed",
+              }
+              continuationTools.set(toolCallId, call)
+              updateAssistantToolCall(assistantMessageId, call)
+            }
+            if (
+              event.type === "assistant/message" &&
+              typeof event.payload.content === "string"
+            ) {
+              finalContent = event.payload.content
+            }
+          })
+        } catch (error) {
+          if (error instanceof HarnessRunBusyError) {
+            runId = error.runId
+            activeHarnessRunIdRef.current = error.runId
+            await waitForHarnessRetry(
+              Math.min(Math.max(error.retryAfterMs ?? 1_000, 500), 5_000),
+              controller.signal,
             )
+            continue
           }
-          if (event.type === "tool/call") {
-            const call: ParsedToolCall = {
-              args: event.payload.args ?? {},
-              status: "running",
-              toolCallId: String(event.payload.toolCallId ?? ""),
-              toolName: String(event.payload.toolName ?? "unknown_tool"),
-            }
-            continuationTools.set(call.toolCallId, call)
-            updateAssistantToolCall(assistantMessageId, call)
-          }
-          if (event.type === "tool/approval-required") {
-            const toolCallId = String(event.payload.toolCallId ?? "")
-            const previous = continuationTools.get(toolCallId)
-            const call: ParsedToolCall = {
-              approvalId: String(event.payload.approvalId ?? ""),
-              args: event.payload.args ?? previous?.args ?? {},
-              requiresApproval: true,
-              status: "pending-approval",
-              toolCallId,
-              toolName: String(
-                event.payload.toolName ?? previous?.toolName ?? "unknown_tool",
-              ),
-            }
-            continuationTools.set(toolCallId, call)
-            updateAssistantToolCall(assistantMessageId, call)
-          }
-          if (event.type === "tool/result") {
-            const toolCallId = String(event.payload.toolCallId ?? "")
-            const previous = continuationTools.get(toolCallId)
-            if (!previous) return
-            const call: ParsedToolCall = {
-              ...previous,
-              result: event.payload.result ?? null,
-              status: "completed",
-            }
-            continuationTools.set(toolCallId, call)
-            updateAssistantToolCall(assistantMessageId, call)
-          }
-          if (
-            event.type === "assistant/message" &&
-            typeof event.payload.content === "string"
-          ) {
-            finalContent = event.payload.content
-          }
-        })
+          throw error
+        }
         finalMessageId = result.assistantMessageId ?? finalMessageId
-        runId = result.runId ?? runId
-        if (result.status !== "yielded") break
+        runId = result.runId ?? responseRunId ?? runId
+        finalRunStatus = result.status
+        if (!["running", "yielded"].includes(result.status)) break
+        if (result.status === "running") {
+          await waitForHarnessRetry(750, controller.signal)
+        }
+      }
+
+      if (["queued", "running", "yielded"].includes(finalRunStatus)) {
+        throw new Error("A geração não atingiu um estado terminal após várias tentativas de reconexão.")
       }
 
       if (finalMessageId) {
@@ -1276,8 +1366,14 @@ export function ChatPage() {
         updateAssistantToolCall(assistantMessageId, toolCall)
       }
     } finally {
-      setPending(false)
-      abortControllerRef.current = null
+      if (activeGenerationIdRef.current === generationId) {
+        activeGenerationIdRef.current = null
+        activeHarnessRunIdRef.current = null
+        setPending(false)
+      }
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null
+      }
     }
   }
 
@@ -1460,6 +1556,9 @@ export function ChatPage() {
     stickToBottomRef.current = true
 
     const controller = new AbortController()
+    const generationId = crypto.randomUUID()
+    activeGenerationIdRef.current = generationId
+    activeHarnessRunIdRef.current = null
     abortControllerRef.current = controller
 
     try {
@@ -1522,7 +1621,7 @@ export function ChatPage() {
           projectId: activeProjectId ?? undefined,
         }
 
-        for (let continuation = 0; continuation < 64; continuation++) {
+        for (let continuation = 0; continuation < 128; continuation++) {
           const response = await apiFetch(endpoint, {
             body: requestBody ? JSON.stringify(requestBody) : undefined,
             headers: {
@@ -1533,9 +1632,25 @@ export function ChatPage() {
             method: "POST",
             signal: controller.signal,
           })
-          const result = await consumeHarnessStream(
-            response,
-            (event: HarnessEvent) => {
+          const responseRunId = response.headers.get("x-modelhub-run-id")
+          if (responseRunId && activeGenerationIdRef.current === generationId) {
+            activeHarnessRunIdRef.current = responseRunId
+          }
+          let result: Awaited<ReturnType<typeof consumeHarnessStream>>
+          try {
+            result = await consumeHarnessStream(
+              response,
+              (event: HarnessEvent) => {
+              if (activeGenerationIdRef.current !== generationId) return
+              if (event.runId) activeHarnessRunIdRef.current = event.runId
+              if (
+                event.type === "run/status" &&
+                ["cancelled", "completed", "failed", "waiting_approval"].includes(
+                  String(event.payload.status ?? ""),
+                )
+              ) {
+                activeHarnessRunIdRef.current = null
+              }
               if (
                 event.type === "assistant/chunk" &&
                 event.payload.live === true &&
@@ -1597,15 +1712,43 @@ export function ChatPage() {
               ) {
                 effectiveModelLabel = event.payload.modelLabel
               }
-            },
-          )
-          fullText += result.text
+              },
+            )
+          } catch (error) {
+            if (error instanceof HarnessRunBusyError) {
+              activeHarnessRunIdRef.current = error.runId
+              endpoint = `/harness/agent-runs/${error.runId}/continue`
+              requestBody = undefined
+              await waitForHarnessRetry(
+                Math.min(Math.max(error.retryAfterMs ?? 1_000, 500), 5_000),
+                controller.signal,
+              )
+              continue
+            }
+            throw error
+          }
+          fullText = result.replaceText ? result.text : `${fullText}${result.text}`
+          const resultRunId = result.runId ?? responseRunId ?? undefined
           harnessAssistantMessageId =
             result.assistantMessageId ?? harnessAssistantMessageId
           harnessRunStatus = result.status
-          if (result.status !== "yielded" || !result.runId) break
-          endpoint = `/harness/agent-runs/${result.runId}/continue`
+          if (
+            !["running", "yielded"].includes(result.status) ||
+            !resultRunId
+          ) break
+          endpoint = `/harness/agent-runs/${resultRunId}/continue`
           requestBody = undefined
+          if (result.status === "running") {
+            await waitForHarnessRetry(750, controller.signal)
+          }
+        }
+        if (
+          harnessRunStatus &&
+          ["queued", "running", "yielded"].includes(harnessRunStatus)
+        ) {
+          throw new Error(
+            "A geração não atingiu um estado terminal após várias tentativas de reconexão.",
+          )
         }
       } else {
         let parsedStream: Awaited<ReturnType<typeof parseChatStream>> | null =
@@ -2038,6 +2181,38 @@ export function ChatPage() {
         return
       }
 
+      if (error instanceof HarnessActiveRunError) {
+        setConversation(baseConversation)
+        setMessages((current) =>
+          current.filter(
+            (message) =>
+              message.id !== userMessageId && message.id !== assistantMessageId,
+          ),
+        )
+        if (!options?.overrideText) setInput(text)
+        if (!options?.overrideAttachments) setAttachments(attachments)
+        toast.error(error.message, {
+          action: {
+            label: "Cancelar execução",
+            onClick: () => {
+              void apiJsonRequest(
+                `/harness/agent-runs/${error.runId}/cancel`,
+                "POST",
+              )
+                .then(() => toast.success("Execução anterior cancelada."))
+                .catch((cancelError) => {
+                  toast.error(
+                    cancelError instanceof Error
+                      ? cancelError.message
+                      : "Não foi possível cancelar a execução.",
+                  )
+                })
+            },
+          },
+        })
+        return
+      }
+
       const requestError = error as ChatRequestError
       if (browserProviderAdapter) {
         setBrowserProviderAuthState("signed-out")
@@ -2063,8 +2238,14 @@ export function ChatPage() {
         )
       }
     } finally {
-      setPending(false)
-      abortControllerRef.current = null
+      if (activeGenerationIdRef.current === generationId) {
+        activeGenerationIdRef.current = null
+        activeHarnessRunIdRef.current = null
+        setPending(false)
+      }
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null
+      }
     }
   }
 

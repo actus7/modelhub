@@ -42,6 +42,17 @@ export function escapeInlineScript(value: string): string {
   return value.replace(/<\/script/gi, "<\\/script");
 }
 
+export function buildMermaidConfig(resolvedTheme: string | undefined) {
+  return {
+    securityLevel: "strict" as const,
+    startOnLoad: false,
+    // Mermaid otherwise renders its own error SVG and throws before removing
+    // the temporary element, leaking raw parser output into document.body.
+    suppressErrorRendering: true,
+    theme: resolvedTheme === "dark" ? ("dark" as const) : ("default" as const),
+  };
+}
+
 export function CanvasPreview({ content, kind, language }: CanvasPreviewProps) {
   if (kind === "markdown") {
     return <div className="p-5"><MarkdownRenderer content={content} /></div>;
@@ -110,9 +121,12 @@ function MermaidPreview({ content }: { content: string }) {
     let cancelled = false;
     async function render() {
       try {
+        const container = containerRef.current;
+        if (!container) return;
+        container.replaceChildren();
         const mermaid = (await import("mermaid")).default;
-        mermaid.initialize({ securityLevel: "strict", startOnLoad: false, theme: resolvedTheme === "dark" ? "dark" : "default" });
-        const result = await mermaid.render(`canvas-${id}`, content);
+        mermaid.initialize(buildMermaidConfig(resolvedTheme));
+        const result = await mermaid.render(`canvas-${id}`, content, container);
         if (!cancelled && containerRef.current) {
           containerRef.current.innerHTML = result.svg;
           setError(null);

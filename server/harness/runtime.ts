@@ -18,14 +18,18 @@ import {
 } from "./prompt"
 import { HarnessRegistry, type HarnessToolDefinition } from "./registry"
 import { coreHarnessPlugin } from "./core-tools"
+import {
+  RUN_LEASE_HEARTBEAT_MS,
+  RUN_LEASE_MS,
+} from "./run-lifecycle"
 
 const EXECUTION_SLICE_MS = 50_000
-const LEASE_MS = 60_000
 export const MAX_TOOL_CALLS_PER_STEP = 16
 export const MAX_SUBAGENTS_PER_RUN = 4
 export const MAX_OUTPUT_LIMIT_CONTINUATIONS = 8
 const APPROVAL_EXECUTION_MS = 60_000
 const activeToolExecutions = new Map<string, Set<AbortController>>()
+const activeRunExecutions = new Map<string, Set<AbortController>>()
 
 type OpenAiHarnessToolSchema = ReturnType<HarnessRegistry["openAiSchemas"]>[number]
 
@@ -91,6 +95,7 @@ function resolvedHarnessModelLabel(
 }
 
 export function abortActiveHarnessRun(runId: string): void {
+  for (const controller of activeRunExecutions.get(runId) ?? []) controller.abort("Harness run cancelled")
   for (const controller of activeToolExecutions.get(runId) ?? []) controller.abort("Harness run cancelled")
 }
 
@@ -134,9 +139,50 @@ async function emit(
 async function renewRunLease(runId: string, leaseToken: string): Promise<void> {
   const renewed = await prisma.agentRun.updateMany({
     where: { id: runId, leaseToken, status: "running" },
-    data: { leaseExpiresAt: new Date(Date.now() + LEASE_MS) },
+    data: { leaseExpiresAt: new Date(Date.now() + RUN_LEASE_MS) },
   })
   if (renewed.count !== 1) throw new HarnessLeaseLostError()
+}
+
+export function createRunLeaseHeartbeat(input: {
+  intervalMs?: number
+  parentSignal: AbortSignal
+  renew: () => Promise<void>
+}) {
+  const leaseController = new AbortController()
+  const signal = AbortSignal.any([input.parentSignal, leaseController.signal])
+  let inFlight: Promise<void> | null = null
+  let leaseLost = false
+  let stopped = false
+
+  const tick = () => {
+    if (stopped || inFlight) return
+    inFlight = input.renew()
+      .catch((error) => {
+        if (error instanceof HarnessLeaseLostError) {
+          leaseLost = true
+          leaseController.abort(error)
+        }
+      })
+      .finally(() => {
+        inFlight = null
+      })
+  }
+  const timer = setInterval(tick, input.intervalMs ?? RUN_LEASE_HEARTBEAT_MS)
+  timer.unref?.()
+
+  return {
+    controller: leaseController,
+    get leaseLost() {
+      return leaseLost
+    },
+    signal,
+    async stop() {
+      stopped = true
+      clearInterval(timer)
+      await inFlight
+    },
+  }
 }
 
 async function setRunStatus(
@@ -149,7 +195,7 @@ async function setRunStatus(
     where: { id: runId, leaseToken, status: "running" },
     data: {
       error: error?.slice(0, 4_000) ?? null,
-      leaseExpiresAt: status === "running" ? new Date(Date.now() + LEASE_MS) : null,
+      leaseExpiresAt: status === "running" ? new Date(Date.now() + RUN_LEASE_MS) : null,
       leaseToken: status === "running" ? undefined : null,
       status,
     },
@@ -169,7 +215,7 @@ export async function acquireRunLease(runId: string, userId: string): Promise<Ha
       OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lt: new Date() } }],
     },
     data: {
-      leaseExpiresAt: new Date(Date.now() + LEASE_MS),
+      leaseExpiresAt: new Date(Date.now() + RUN_LEASE_MS),
       leaseToken: token,
       leaseVersion: { increment: 1 },
       status: "running",
@@ -551,6 +597,45 @@ async function unresolvedToolCalls(runId: string): Promise<{ assistantMessageId:
   return pending.size > 0 && assistantMessageId ? { assistantMessageId, calls: [...pending.values()] } : null
 }
 
+async function interruptedAssistantStep(runId: string): Promise<{ content: string } | null> {
+  const lastStart = await prisma.sessionEvent.findFirst({
+    where: { runId, type: "step/start" },
+    orderBy: { seq: "desc" },
+    select: { stepId: true },
+  })
+  if (!lastStart?.stepId) return null
+
+  const completedStep = await prisma.sessionEvent.findFirst({
+    where: { runId, stepId: lastStart.stepId, type: "step/end" },
+    select: { seq: true },
+  })
+  if (completedStep) return null
+
+  const events = await prisma.sessionEvent.findMany({
+    where: {
+      runId,
+      stepId: lastStart.stepId,
+      type: { in: ["assistant/chunk", "assistant/message"] },
+    },
+    orderBy: { seq: "asc" },
+    select: { payload: true, type: true },
+  })
+  if (events.some((event) => event.type === "assistant/message")) {
+    return { content: "" }
+  }
+
+  const content = events
+    .filter((event) => event.type === "assistant/chunk")
+    .flatMap((event) => {
+      const deltas = (event.payload as Record<string, unknown>).deltas
+      return Array.isArray(deltas)
+        ? deltas.filter((delta): delta is string => typeof delta === "string")
+        : []
+    })
+    .join("")
+  return content ? { content } : null
+}
+
 export async function refreshRunToolProjection(runId: string): Promise<void> {
   const run = await prisma.agentRun.findUnique({ where: { id: runId }, select: { conversationId: true, modelId: true } })
   if (!run) return
@@ -583,10 +668,26 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
   if (!run) throw new Error("Agent run not found")
   const startedAt = Date.now()
   let turnId = crypto.randomUUID()
-  const registry = await createHarnessRegistry(run.userId, input.signal)
+  await renewRunLease(run.id, input.leaseToken)
+  const heartbeat = createRunLeaseHeartbeat({
+    parentSignal: input.signal,
+    renew: () => renewRunLease(run.id, input.leaseToken),
+  })
+  const runControllers = activeRunExecutions.get(run.id) ?? new Set<AbortController>()
+  runControllers.add(heartbeat.controller)
+  activeRunExecutions.set(run.id, runControllers)
+  let registry: HarnessRegistry
 
   try {
-    await renewRunLease(run.id, input.leaseToken)
+    registry = await createHarnessRegistry(run.userId, heartbeat.signal)
+  } catch (error) {
+    await heartbeat.stop()
+    runControllers.delete(heartbeat.controller)
+    if (runControllers.size === 0) activeRunExecutions.delete(run.id)
+    throw error
+  }
+
+  try {
     await ensureLegacyMessageEvents(run.conversationId)
     const existingTurn = await prisma.sessionEvent.findFirst({ where: { runId: run.id, type: "turn/start" } })
     turnId = existingTurn?.turnId ?? turnId
@@ -606,6 +707,19 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
     }
 
     let messages = input.initialMessages?.length ? input.initialMessages : await deriveMessagesFromEvents(run.conversationId)
+    const interruptedStep = input.initialMessages?.length
+      ? null
+      : await interruptedAssistantStep(run.id)
+    if (interruptedStep) {
+      if (interruptedStep.content) {
+        messages.push({ content: interruptedStep.content, role: "assistant" })
+      }
+      messages.push({
+        content:
+          "The previous worker stopped during an assistant response. Continue exactly where it stopped without repeating completed content, then finish the original request.",
+        role: "system",
+      })
+    }
     const systemPrompt = await buildHarnessSystemPrompt({ projectId: run.conversation.projectId, registry, userId: run.userId })
     let currentStepCount = run.stepCount
     let outputLimitContinuations = 0
@@ -624,7 +738,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
         projectId: run.conversation.projectId,
         registry,
         runId: run.id,
-        signal: input.signal,
+        signal: heartbeat.signal,
         stepNumber,
         userId: run.userId,
       })))
@@ -643,7 +757,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
       currentStepCount = stepNumber
       const advanced = await prisma.agentRun.updateMany({
         where: { id: run.id, leaseToken: input.leaseToken, status: "running" },
-        data: { stepCount: stepNumber, leaseExpiresAt: new Date(Date.now() + LEASE_MS) },
+        data: { stepCount: stepNumber, leaseExpiresAt: new Date(Date.now() + RUN_LEASE_MS) },
       })
       if (advanced.count !== 1) throw new HarnessLeaseLostError()
       await emit({ conversationId: run.conversationId, payload: { finishReason: "recovered-tools", resumed: true, stepNumber }, runId: run.id, stepId, turnId, type: "step/end" }, input.onEvent, input.leaseToken)
@@ -651,7 +765,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
     }
 
     for (let stepNumber = currentStepCount + 1; stepNumber <= run.maxSteps; stepNumber++) {
-      if (input.signal.aborted) {
+      if (heartbeat.signal.aborted) {
         await setRunStatus(run.id, input.leaseToken, "cancelled")
         return "cancelled"
       }
@@ -684,7 +798,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
             tools: registry.openAiSchemas(),
           }),
         },
-        signal: input.signal,
+        signal: heartbeat.signal,
       })
       let chunkIndex = 0
       let durableChunks: string[] = []
@@ -771,7 +885,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
           const advanced = await prisma.agentRun.updateMany({
             where: { id: run.id, leaseToken: input.leaseToken, status: "running" },
             data: {
-              leaseExpiresAt: new Date(Date.now() + LEASE_MS),
+              leaseExpiresAt: new Date(Date.now() + RUN_LEASE_MS),
               stepCount: stepNumber,
             },
           })
@@ -831,7 +945,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
               status: "running",
             },
             data: {
-              leaseExpiresAt: new Date(Date.now() + LEASE_MS),
+              leaseExpiresAt: new Date(Date.now() + RUN_LEASE_MS),
               stepCount: stepNumber,
             },
           })
@@ -894,7 +1008,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
         runId: run.id,
         leaseToken: input.leaseToken,
         stepNumber,
-        signal: input.signal,
+        signal: heartbeat.signal,
         userId: run.userId,
       })
       const results = new Map<string, Awaited<ReturnType<typeof execute>>>()
@@ -936,7 +1050,7 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
       await emit({ conversationId: run.conversationId, payload: { finishReason: "tool-calls", stepNumber }, runId: run.id, stepId, turnId, type: "step/end" }, input.onEvent, input.leaseToken)
       const advanced = await prisma.agentRun.updateMany({
         where: { id: run.id, leaseToken: input.leaseToken, status: "running" },
-        data: { stepCount: stepNumber, leaseExpiresAt: new Date(Date.now() + LEASE_MS) },
+        data: { stepCount: stepNumber, leaseExpiresAt: new Date(Date.now() + RUN_LEASE_MS) },
       })
       if (advanced.count !== 1) throw new HarnessLeaseLostError()
     }
@@ -948,7 +1062,11 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
     return "failed"
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    if (error instanceof HarnessLeaseLostError) {
+    if (
+      error instanceof HarnessLeaseLostError ||
+      heartbeat.leaseLost ||
+      (heartbeat.controller.signal.aborted && !input.signal.aborted)
+    ) {
       const current = await prisma.agentRun.findUnique({ where: { id: run.id }, select: { status: true } })
       return (current?.status ?? "failed") as HarnessRunStatus
     }
@@ -960,6 +1078,9 @@ export async function runHarness(input: RunHarnessInput): Promise<HarnessRunStat
     await setRunStatus(run.id, input.leaseToken, "failed", message)
     return "failed"
   } finally {
+    await heartbeat.stop()
+    runControllers.delete(heartbeat.controller)
+    if (runControllers.size === 0) activeRunExecutions.delete(run.id)
     registry.dispose()
   }
 }

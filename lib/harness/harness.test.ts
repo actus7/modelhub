@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 import { parseChatStream } from "../chat-stream"
-import { consumeHarnessStream } from "./client"
+import {
+  consumeHarnessStream,
+  HarnessActiveRunError,
+  HarnessRunBusyError,
+} from "./client"
 import type { HarnessEvent } from "./contracts"
 import {
   compactModelMessages,
@@ -24,10 +28,17 @@ import { toHarnessJson } from "../../server/harness/json"
 import { assertSecureMcpUrl, mcpToolRisk, readMcpRpcResponse, safeMcpToolName } from "../../server/harness/mcp"
 import { parseSingleMessagePart } from "../../server/lib/conversation-attachments"
 import {
+  createRunLeaseHeartbeat,
   limitHarnessToolCalls,
   MAX_TOOL_CALLS_PER_STEP,
   selectHarnessToolSchemas,
 } from "../../server/harness/runtime"
+import { HarnessLeaseLostError } from "../../server/harness/events"
+import {
+  RUN_APPROVAL_GRACE_MS,
+  RUN_IDLE_GRACE_MS,
+  staleRootRunWhere,
+} from "../../server/harness/run-lifecycle"
 
 describe("harness stream protocol", () => {
   it("keeps ordinary multi-role refinement from pausing for internal tracking approval", () => {
@@ -207,9 +218,155 @@ describe("harness stream protocol", () => {
 
     await expect(consumeHarnessStream(new Response(body))).resolves.toEqual({
       assistantMessageId: undefined,
+      replaceText: false,
       runId: "run-1",
       status: "completed",
       text: "",
+    })
+  })
+
+  it("parses active-run conflicts without exposing raw JSON to the chat", async () => {
+    const response = new Response(
+      JSON.stringify({
+        code: "HARNESS_ACTIVE_RUN",
+        error: "Conversation still has an active generation",
+        retryAfterMs: 1_500,
+        runId: "run-active",
+        status: "running",
+      }),
+      { status: 409 },
+    )
+
+    await expect(consumeHarnessStream(response)).rejects.toMatchObject({
+      message: expect.stringContaining("geração ativa"),
+      name: "HarnessActiveRunError",
+      retryAfterMs: 1_500,
+      runId: "run-active",
+      runStatus: "running",
+    } satisfies Partial<HarnessActiveRunError>)
+  })
+
+  it("parses busy leases so the client can reconnect automatically", async () => {
+    const response = new Response(
+      JSON.stringify({
+        code: "HARNESS_RUN_BUSY",
+        retryAfterMs: 4_000,
+        runId: "run-busy",
+        status: "running",
+      }),
+      { status: 409 },
+    )
+
+    await expect(consumeHarnessStream(response)).rejects.toMatchObject({
+      name: "HarnessRunBusyError",
+      retryAfterMs: 4_000,
+      runId: "run-busy",
+    } satisfies Partial<HarnessRunBusyError>)
+  })
+
+  it("replaces partial text with a durable replay snapshot", async () => {
+    const events: HarnessEvent[] = [
+      {
+        conversationId: "conversation-1",
+        createdAt: new Date(0).toISOString(),
+        eventId: "event-live",
+        payload: { delta: "partial", live: true },
+        runId: "run-1",
+        seq: "1",
+        stepId: "step-1",
+        turnId: "turn-1",
+        type: "assistant/chunk",
+      },
+      {
+        conversationId: "conversation-1",
+        createdAt: new Date(0).toISOString(),
+        eventId: "event-replay",
+        payload: {
+          content: "complete durable response",
+          messageId: "message-1",
+          replaySnapshot: true,
+        },
+        runId: "run-1",
+        seq: "2",
+        stepId: null,
+        turnId: null,
+        type: "assistant/message",
+      },
+      {
+        conversationId: "conversation-1",
+        createdAt: new Date(0).toISOString(),
+        eventId: "event-status",
+        payload: { status: "completed" },
+        runId: "run-1",
+        seq: "3",
+        stepId: null,
+        turnId: null,
+        type: "run/status",
+      },
+    ]
+    const body = events
+      .map((event) => `event: harness\ndata: ${JSON.stringify(event)}\n\n`)
+      .join("")
+
+    await expect(consumeHarnessStream(new Response(body))).resolves.toMatchObject({
+      replaceText: true,
+      status: "completed",
+      text: "complete durable response",
+    })
+  })
+
+  it("renews leases in the background and aborts when ownership is lost", async () => {
+    vi.useFakeTimers()
+    try {
+      const renew = vi.fn().mockResolvedValue(undefined)
+      const heartbeat = createRunLeaseHeartbeat({
+        intervalMs: 20,
+        parentSignal: new AbortController().signal,
+        renew,
+      })
+      await vi.advanceTimersByTimeAsync(65)
+      expect(renew).toHaveBeenCalledTimes(3)
+      await heartbeat.stop()
+      const callsAfterStop = renew.mock.calls.length
+      await vi.advanceTimersByTimeAsync(100)
+      expect(renew).toHaveBeenCalledTimes(callsAfterStop)
+
+      const lostHeartbeat = createRunLeaseHeartbeat({
+        intervalMs: 20,
+        parentSignal: new AbortController().signal,
+        renew: vi.fn().mockRejectedValue(new HarnessLeaseLostError()),
+      })
+      await vi.advanceTimersByTimeAsync(25)
+      expect(lostHeartbeat.leaseLost).toBe(true)
+      expect(lostHeartbeat.signal.aborted).toBe(true)
+      await lostHeartbeat.stop()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("classifies expired leases and abandoned queued/yielded runs as stale", () => {
+    const now = new Date("2026-08-20T12:00:00.000Z")
+    const where = staleRootRunWhere(now)
+    expect(where).toMatchObject({
+      parentRunId: null,
+      OR: [
+        { leaseExpiresAt: { lt: now }, status: "running" },
+        {
+          leaseExpiresAt: null,
+          status: { in: ["queued", "yielded"] },
+          updatedAt: {
+            lt: new Date(now.getTime() - RUN_IDLE_GRACE_MS),
+          },
+        },
+        {
+          leaseExpiresAt: null,
+          status: "waiting_approval",
+          updatedAt: {
+            lt: new Date(now.getTime() - RUN_APPROVAL_GRACE_MS),
+          },
+        },
+      ],
     })
   })
 
