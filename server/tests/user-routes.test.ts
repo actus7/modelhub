@@ -3,6 +3,7 @@
 const mockPrisma = {
   apiKey: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
   providerCredential: { findMany: vi.fn(), findFirst: vi.fn(), upsert: vi.fn(), delete: vi.fn() },
+  providerQuota: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
   usageLog: { count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
   user: { findUnique: vi.fn() },
   userSettings: { findUnique: vi.fn(), upsert: vi.fn() },
@@ -152,6 +153,67 @@ describe("GET /user/usage/recent", () => {
     expect(mockPrisma.usageLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     }));
+  });
+});
+
+describe("provider quota routes", () => {
+  it("returns configured accounts and observed usage", async () => {
+    mockPrisma.providerQuota.findMany.mockResolvedValue([]);
+    mockPrisma.providerCredential.findMany.mockResolvedValue([
+      { providerId: "groq", updatedAt: new Date("2026-08-20T10:00:00.000Z") },
+    ]);
+    mockPrisma.usageLog.groupBy.mockResolvedValue([]);
+
+    const res = await mkApp().request("/user/quotas", { headers: AUTH });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.accounts[0]).toMatchObject({
+      providerId: "groq",
+      percentage: null,
+      status: "monitoring",
+    });
+  });
+
+  it("validates and persists a provider quota profile", async () => {
+    const now = new Date("2026-08-20T10:00:00.000Z");
+    mockPrisma.providerQuota.upsert.mockResolvedValue({
+      id: "quota-1",
+      userId: UID,
+      providerId: "groq",
+      label: "Conta principal",
+      isEnabled: true,
+      windowHours: 24,
+      requestLimit: 1000,
+      tokenLimit: null,
+      costLimitUsd: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const res = await mkApp().request("/user/quotas/groq", {
+      method: "PATCH",
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ label: "Conta principal", requestLimit: 1000, windowHours: 24 }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.providerQuota.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId_providerId: { providerId: "groq", userId: UID } },
+      }),
+    );
+  });
+
+  it("rejects invalid quota limits", async () => {
+    const res = await mkApp().request("/user/quotas/groq", {
+      method: "PATCH",
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({ requestLimit: -1 }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(mockPrisma.providerQuota.upsert).not.toHaveBeenCalled();
   });
 });
 

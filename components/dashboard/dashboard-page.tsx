@@ -29,6 +29,7 @@ import { AnalyticsSection } from "@/components/dashboard/analytics-section";
 import { ApiQuickStartCard } from "@/components/dashboard/api-quick-start-card";
 import { RoutingSection } from "@/components/dashboard/routing-section";
 import { ProviderCatalog } from "@/components/dashboard/providers/provider-catalog";
+import { QuotaTracker } from "@/components/dashboard/quota-tracker";
 import { useAppState } from "@/components/app-state-provider";
 import {
   AlertDialog,
@@ -62,7 +63,7 @@ import {
 import { apiJson, apiJsonRequest } from "@/lib/api";
 import { providerHasRequiredCredentials } from "@/lib/provider-credentials";
 
-export type DashboardSection = "overview" | "keys" | "credentials" | "logs" | "analytics" | "routing" | "budget";
+export type DashboardSection = "overview" | "keys" | "credentials" | "quotas" | "logs" | "analytics" | "routing" | "budget";
 
 function sectionNeedsDashboardData(section: DashboardSection) {
   return section === "overview" || section === "keys" || section === "logs";
@@ -237,6 +238,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
     { href: "/dashboard", id: "overview", label: "Visão geral" },
     { count: shouldLoadDashboardData ? apiKeys.length : undefined, href: "/dashboard/api-keys", id: "keys", label: "API Keys" },
     { count: providers.length, href: "/dashboard/credentials", id: "credentials", label: "Provedores" },
+    { href: "/dashboard/quotas", id: "quotas", label: "Quotas" },
     { count: shouldLoadDashboardData ? logs.length : undefined, href: "/dashboard/logs", id: "logs", label: "Logs de uso" },
     { href: "/dashboard/analytics", id: "analytics", label: "Analytics" },
     { href: "/dashboard/routing", id: "routing", label: "Roteamento" },
@@ -635,6 +637,8 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
       {section === "credentials" ? (
         <ProviderCatalog />
       ) : null}
+
+      {section === "quotas" ? <QuotaTracker /> : null}
 
       {section === "logs" ? (
         <Card className="border-border/60">
