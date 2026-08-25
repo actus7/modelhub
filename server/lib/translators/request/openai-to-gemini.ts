@@ -102,7 +102,7 @@ function openaiToGeminiBase(model: string, body: Record<string, unknown>, _strea
                 const idParts = fid.split('-');
                 name = idParts.length > 2 ? idParts.slice(0, -2).join('-') : fid;
               }
-              let resp: unknown = toolResponses[fid];
+              const resp: unknown = toolResponses[fid];
               let parsedResp = tryParseJSON(resp);
               if (parsedResp === null) parsedResp = { result: resp };
               else if (typeof parsedResp !== 'object') parsedResp = { result: parsedResp };

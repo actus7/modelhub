@@ -14,7 +14,7 @@ function safeJSONParse(str: unknown, fallback: unknown): unknown {
 }
 
 function convertMessages(messages: Array<Record<string, unknown>>, model: string): { history: unknown[]; currentMessage: unknown } {
-  let history: Record<string, unknown>[] = [];
+  const history: Record<string, unknown>[] = [];
   let currentMessage: Record<string, unknown> | null = null;
   let pendingUserContent: string[] = [];
   let pendingAssistantContent: string[] = [];
