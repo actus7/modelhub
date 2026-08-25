@@ -98,6 +98,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@lobehub/icons-static-svg": "^1.94.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/babel__standalone": "^7.1.9",
     "@types/jsdom": "^30.0.0",

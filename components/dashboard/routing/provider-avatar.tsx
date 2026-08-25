@@ -1,11 +1,12 @@
 import { cn } from "@/lib/utils"
 
+import { providerLogoSrc } from "./provider-logos"
 import { providerHue } from "./routing-utils"
 
 /**
- * O repo não versiona logos de provedor, então o avatar é a inicial sobre um
- * hue derivado do id — estável entre sessões e suficiente para o olho encontrar
- * o mesmo provedor em lanes diferentes.
+ * Logo oficial quando existe (public/providers/<id>.svg, ver provider-logos.ts);
+ * senão a inicial sobre um hue derivado do id — estável entre sessões e
+ * suficiente para o olho encontrar o mesmo provedor em lanes diferentes.
  */
 export function ProviderAvatar({
   className,
@@ -18,6 +19,24 @@ export function ProviderAvatar({
   providerId: string
   size?: number
 }) {
+  const logoSrc = providerLogoSrc(providerId)
+
+  if (logoSrc) {
+    return (
+      <span
+        className={cn(
+          "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted",
+          className,
+        )}
+        style={{ height: size, width: size }}
+        title={label}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element -- ícone estático pequeno, next/image não agrega nada aqui */}
+        <img alt="" className="h-[65%] w-[65%] object-contain" src={logoSrc} />
+      </span>
+    )
+  }
+
   const hue = providerHue(providerId)
 
   return (
