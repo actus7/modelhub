@@ -66,7 +66,7 @@
     "@neondatabase/auth": "0.2.0-beta.1",
     "@neondatabase/serverless": "^1.1.0",
     "@prisma/adapter-neon": "^7.9.1",
-    "@prisma/client": "^7.9.1",
+    "@prisma/client": "^7.10.0",
     "@uiw/react-codemirror": "^4.25.11",
     "@vercel/analytics": "^2.0.1",
     "class-variance-authority": "^0.7.1",
