@@ -57,7 +57,7 @@
     "vercel:env:sync": "node scripts/vercel-env-sync.mjs --pull"
   },
   "dependencies": {
-    "@babel/standalone": "^8.0.4",
+    "@babel/standalone": "^8.0.7",
     "@codemirror/lang-css": "^6.3.1",
     "@codemirror/lang-html": "^6.4.12",
     "@codemirror/lang-javascript": "^6.2.5",
