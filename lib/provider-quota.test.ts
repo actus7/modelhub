@@ -52,8 +52,8 @@ describe("buildProviderQuotaAccounts", () => {
       percentage: 90,
       status: "warning",
     })
-    expect(account.models[0]).toMatchObject({ modelId: "llama", requests: 2 })
-    expect(account.resetAt).toBe("2026-08-21T10:00:00.000Z")
+    expect(account?.models[0]).toMatchObject({ modelId: "llama", requests: 2 })
+    expect(account?.resetAt).toBe("2026-08-21T10:00:00.000Z")
   })
 
   it("não inventa percentual quando nenhum limite foi informado", () => {
@@ -63,9 +63,9 @@ describe("buildProviderQuotaAccounts", () => {
       logs: [],
     })
 
-    expect(account.percentage).toBeNull()
-    expect(account.status).toBe("monitoring")
-    expect(account.profile.windowHours).toBe(24)
+    expect(account?.percentage).toBeNull()
+    expect(account?.status).toBe("monitoring")
+    expect(account?.profile.windowHours).toBe(24)
   })
 
   it("marca a conta como esgotada quando qualquer limite chega a cem por cento", () => {
@@ -94,7 +94,7 @@ describe("buildProviderQuotaAccounts", () => {
       }],
     })
 
-    expect(account.status).toBe("exhausted")
-    expect(account.percentage).toBe(100)
+    expect(account?.status).toBe("exhausted")
+    expect(account?.percentage).toBe(100)
   })
 })

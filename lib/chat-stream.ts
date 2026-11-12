@@ -100,6 +100,26 @@ function processVercelStreamLine(line: string, handlers: ParseStreamHandlers, st
   return false;
 }
 
+type OpenAiToolCallDelta = {
+  index?: number;
+  id?: string;
+  function?: { name?: string; arguments?: string };
+};
+
+/** Payload de uma linha SSE: eventos internos do gateway ou um chunk OpenAI cru. Vem da rede, então todo campo é opcional e conferido em runtime. */
+type SsePayload = {
+  type?: string;
+  delta?: string;
+  toolCallId?: string;
+  toolName?: string;
+  args?: Record<string, unknown>;
+  result?: unknown;
+  choices?: Array<{
+    finish_reason?: string | null;
+    delta?: { content?: unknown; tool_calls?: OpenAiToolCallDelta[] };
+  }>;
+};
+
 function extractDeltaText(delta: Record<string, unknown>): string {
   if (typeof delta.content === "string") return delta.content;
   if (Array.isArray(delta.content)) {
@@ -110,18 +130,17 @@ function extractDeltaText(delta: Record<string, unknown>): string {
   return "";
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function processInternalSsePayload(payload: Record<string, any>, handlers: ParseStreamHandlers, state: LineProcessorState): boolean {
+function processInternalSsePayload(payload: SsePayload, handlers: ParseStreamHandlers, state: LineProcessorState): boolean {
   if (payload.type === "text-delta" && payload.delta) {
-    emitTextDelta(payload.delta as string, handlers, state);
+    emitTextDelta(payload.delta, handlers, state);
     return true;
   }
 
   if (payload.type === "tool-call" && payload.toolCallId && payload.toolName) {
     emitToolStart(
-      payload.toolCallId as string,
-      payload.toolName as string,
-      (payload.args as Record<string, unknown>) ?? {},
+      payload.toolCallId,
+      payload.toolName,
+      payload.args ?? {},
       handlers,
     );
     return true;
@@ -129,8 +148,8 @@ function processInternalSsePayload(payload: Record<string, any>, handlers: Parse
 
   if (payload.type === "tool-result" && payload.toolCallId) {
     emitToolResult(
-      payload.toolCallId as string,
-      (payload.result as unknown) ?? null,
+      payload.toolCallId,
+      payload.result ?? null,
       handlers,
     );
     return true;
@@ -139,8 +158,7 @@ function processInternalSsePayload(payload: Record<string, any>, handlers: Parse
   return false;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function processRawOpenAiChoices(payload: Record<string, any>, handlers: ParseStreamHandlers, state: LineProcessorState) {
+function processRawOpenAiChoices(payload: SsePayload, handlers: ParseStreamHandlers, state: LineProcessorState) {
   if (!Array.isArray(payload.choices)) return;
 
   const choice = payload.choices[0];
@@ -197,8 +215,7 @@ function processRawOpenAiChoices(payload: Record<string, any>, handlers: ParseSt
   if (text) emitTextDelta(text, handlers, state);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function processOpenAiSseLine(payload: Record<string, any>, handlers: ParseStreamHandlers, state: LineProcessorState) {
+function processOpenAiSseLine(payload: SsePayload, handlers: ParseStreamHandlers, state: LineProcessorState) {
   if (!processInternalSsePayload(payload, handlers, state)) {
     processRawOpenAiChoices(payload, handlers, state);
   }
@@ -213,8 +230,7 @@ function processLine(line: string, handlers: ParseStreamHandlers, state: LinePro
     const dataContent = line.slice(6).trim();
     if (dataContent === "[DONE]") return;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    processOpenAiSseLine(JSON.parse(dataContent) as Record<string, any>, handlers, state);
+        processOpenAiSseLine(JSON.parse(dataContent) as SsePayload, handlers, state);
   }
 }
 

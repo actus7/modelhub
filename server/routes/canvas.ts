@@ -18,7 +18,7 @@ const canvasUpdateSchema = z.object({
 
 const pinSchema = z.object({ projectId: z.string().min(1) });
 
-async function requireCanvas(c: Context, userId: string, canvasId: string) {
+async function requireCanvas(userId: string, canvasId: string) {
   const canvas = await prisma.canvas.findFirst({
     where: { id: canvasId, conversation: { userId } },
   });
@@ -69,7 +69,7 @@ async function authorizeCanvas(c: Context): Promise<AuthorizedCanvas | Response>
   const canvasId = c.req.param("id");
   if (!canvasId) return jsonErrorResponse(404, "Canvas not found");
 
-  const canvas = await requireCanvas(c, userId, canvasId);
+  const canvas = await requireCanvas(userId, canvasId);
   if (!canvas) return jsonErrorResponse(404, "Canvas not found");
 
   return { canvas, canvasId, userId };

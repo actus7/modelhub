@@ -2055,6 +2055,7 @@ export function ChatPage() {
     if (lastUserMsgIndex === -1) return
 
     const lastUserMsg = messages[lastUserMsgIndex]
+    if (!lastUserMsg) return
     const regenerateText = getUserMessageText(lastUserMsg)
     const regenerateAttachments = (lastUserMsg.parts ?? []).filter(
       isHydratedAttachmentPart,
@@ -2192,6 +2193,7 @@ export function ChatPage() {
 
     const editText = editingContent.trim()
     const editedMessage = messages[msgIndex]
+    if (!editedMessage) return
     const editedAttachments = (editedMessage.parts ?? []).filter(
       isHydratedAttachmentPart,
     )

@@ -127,7 +127,7 @@ export function getOpenRouterPrice(providerId: string, modelId: string): ModelPr
   }
   if (matches.length === 0) return null
   matches.sort((a, b) => b.k.length - a.k.length)
-  return matches[0].price
+  return matches[0]?.price ?? null
 }
 
 /** Limpa o cache — usado em testes. */

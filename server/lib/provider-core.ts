@@ -1515,7 +1515,7 @@ export function createProviderApp(config: ProviderConfig) {
       return accessError
     }
 
-    await next()
+    return next()
   })
 
   app.get("/api/models", async (c) => {

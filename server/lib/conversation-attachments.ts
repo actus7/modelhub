@@ -103,7 +103,7 @@ function extractTaggedText(xml: string, tagName: string): string[] {
   const values: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = regex.exec(xml)) !== null) {
-    const value = decodeXmlEntities(match[1].replace(/[<>]/g, ""));
+    const value = decodeXmlEntities((match[1] ?? "").replace(/[<>]/g, ""));
     if (value.trim()) {
       values.push(value.trim());
     }
@@ -192,8 +192,9 @@ function extractWorksheetRows(xml: string, sharedStrings: string[]): string[] {
     const cells = new Map<number, string>();
     let cellMatch: RegExpExecArray | null;
 
-    while ((cellMatch = cellRegex.exec(rowMatch[1])) !== null) {
-      const attrs = cellMatch[1];
+    while ((cellMatch = cellRegex.exec(rowMatch[1] ?? "")) !== null) {
+      const attrs = cellMatch[1] ?? "";
+      const cellBody = cellMatch[2] ?? "";
       const cellRef = /r="([A-Z]+)\d+"/.exec(attrs)?.[1];
       const cellType = /t="([^"]+)"/.exec(attrs)?.[1];
       if (!cellRef) {
@@ -202,8 +203,8 @@ function extractWorksheetRows(xml: string, sharedStrings: string[]): string[] {
 
       const cellIndex = columnLabelToIndex(cellRef);
       let value = "";
-      const sharedIndex = /<v>(.*?)<\/v>/s.exec(cellMatch[2])?.[1];
-      const inlineValue = extractTaggedText(cellMatch[2], "t").join(" ");
+      const sharedIndex = /<v>(.*?)<\/v>/s.exec(cellBody)?.[1];
+      const inlineValue = extractTaggedText(cellBody, "t").join(" ");
 
       if (cellType === "s" && sharedIndex) {
         value = sharedStrings[Number.parseInt(sharedIndex, 10)] ?? "";

@@ -198,6 +198,7 @@ async function dispatchToProvider(
   signal?: AbortSignal,
 ): Promise<Response> {
   const entry = providerRegistry[providerId]
+  if (!entry) return jsonErrorResponse(404, "Provider not available")
 
   const proxyBody: Record<string, unknown> = { ...body, modelId }
   delete proxyBody.model
@@ -346,8 +347,7 @@ async function forwardAutoWithFallback(
   let lastError: Response | null = null
   let skippedByCooldown = false
 
-  for (let i = 0; i < candidates.length; i++) {
-    const cand = candidates[i]
+  for (const [i, cand] of candidates.entries()) {
 
     const invalid = validateProviderForForward(cand.providerId)
     if (invalid) {

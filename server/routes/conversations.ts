@@ -221,7 +221,6 @@ function hydrateMessages(
 }
 
 async function requireConversation(
-  c: Context,
   userId: string,
   conversationId: string,
 ) {
@@ -257,7 +256,7 @@ async function authorizeConversation(
   const conversationId = c.req.param("id")
   if (!conversationId) return jsonErrorResponse(404, "Conversation not found")
 
-  const conversation = await requireConversation(c, userId, conversationId)
+  const conversation = await requireConversation(userId, conversationId)
   if (!conversation) return jsonErrorResponse(404, "Conversation not found")
 
   return { conversation, conversationId, userId }

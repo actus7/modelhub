@@ -10,6 +10,14 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "off",
     },
   },
+  {
+    // O servidor loga pelo logger estruturado (server/lib/logger.ts), nunca por console.
+    files: ["server/**/*.ts"],
+    ignores: ["server/lib/logger.ts", "**/*.test.ts"],
+    rules: {
+      "no-console": "error",
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

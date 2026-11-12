@@ -30,7 +30,7 @@ const projectUpdateSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
 });
 
-async function requireProject(c: Context, userId: string, projectId: string) {
+async function requireProject(userId: string, projectId: string) {
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId },
   });
@@ -50,7 +50,7 @@ async function authorizeProject(c: Context): Promise<AuthorizedProject | Respons
   const projectId = c.req.param("id");
   if (!projectId) return jsonErrorResponse(404, "Project not found");
 
-  const project = await requireProject(c, userId, projectId);
+  const project = await requireProject(userId, projectId);
   if (!project) return jsonErrorResponse(404, "Project not found");
 
   return { project, projectId, userId };

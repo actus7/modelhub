@@ -356,6 +356,7 @@ function synthConfigFromSuggestions(
     const slots = tiers[tier]
     if (!slots?.length) continue
     const [primary, ...rest] = slots
+    if (!primary) continue
     mapped[tier] = {
       providerId: primary.providerId,
       modelId: primary.modelId,

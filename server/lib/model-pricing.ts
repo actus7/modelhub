@@ -167,7 +167,7 @@ export function getModelPrice(providerId: string, modelId: string): ModelPrice |
     const sortedKeys = Object.keys(providerPricing).sort((a, b) => b.length - a.length)
     for (const key of sortedKeys) {
       if (modelId.startsWith(key) || key.startsWith(modelId)) {
-        return providerPricing[key]
+        return providerPricing[key] ?? null
       }
     }
   }
