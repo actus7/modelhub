@@ -6,10 +6,8 @@ import {
   ArrowUpRightIcon,
   CheckCircle2Icon,
   KeyRoundIcon,
-  MonitorSmartphoneIcon,
   NetworkIcon,
   SearchIcon,
-  SparklesIcon,
 } from "lucide-react"
 
 import { useAppState } from "@/components/app-state-provider"
@@ -20,10 +18,7 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import type { UiProvider } from "@/lib/contracts"
-import {
-  providerAuthMode,
-  providerHasRequiredCredentials,
-} from "@/lib/provider-credentials"
+import { providerHasRequiredCredentials } from "@/lib/provider-credentials"
 import { buildProviderGroups, providerConnectionLabel } from "./provider-ui"
 
 function ProviderStatus({ provider }: { provider: UiProvider }) {
@@ -39,13 +34,6 @@ function ProviderStatus({ provider }: { provider: UiProvider }) {
 }
 
 function ProviderCard({ provider }: { provider: UiProvider }) {
-  const authMode = providerAuthMode(provider)
-  const authLabel = authMode === "api-key"
-    ? "Chave de API"
-    : authMode === "browser-session"
-      ? "Sessão do navegador"
-      : "Sem autenticação"
-
   return (
     <Link
       aria-label={`Configurar ${provider.label}`}
@@ -65,15 +53,12 @@ function ProviderCard({ provider }: { provider: UiProvider }) {
           />
           <div className="min-w-0">
             <CardTitle className="truncate">{provider.label}</CardTitle>
-            <CardDescription className="truncate">{authLabel}</CardDescription>
+            <CardDescription className="truncate">API compatível com OpenAI</CardDescription>
           </div>
           <ArrowUpRightIcon className="size-4 text-muted-foreground" aria-hidden />
         </CardHeader>
         <CardContent className="flex items-center justify-between gap-3">
           <ProviderStatus provider={provider} />
-          <span className="text-xs text-muted-foreground">
-            {provider.hasModels ? "Modelos disponíveis" : "Serviço auxiliar"}
-          </span>
         </CardContent>
       </Card>
     </Link>
@@ -128,7 +113,7 @@ export function ProviderCatalog() {
               <Badge variant="outline">{configuredCount} prontos</Badge>
             </div>
             <p className="max-w-2xl text-sm text-muted-foreground">
-              Conecte APIs oficiais, rotas gratuitas e sessões do navegador ao roteador unificado do ModelHub.
+              Conecte sua chave de API de qualquer provedor compatível com OpenAI ao roteador unificado do ModelHub.
             </p>
           </div>
         </div>
@@ -161,11 +146,7 @@ export function ProviderCatalog() {
         </Empty>
       ) : (
         groups.map((group) => {
-          const GroupIcon = group.id === "ready"
-            ? SparklesIcon
-            : group.id === "browser-session"
-              ? MonitorSmartphoneIcon
-              : KeyRoundIcon
+          const GroupIcon = group.id === "connected" ? CheckCircle2Icon : KeyRoundIcon
           return (
             <section className="flex flex-col gap-3" key={group.id}>
               <div className="flex items-start justify-between gap-4">

@@ -5,7 +5,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState } f
 import { apiJson } from "@/lib/api";
 import { isValidAccentColor, type AccentColorId } from "@/lib/accent-colors";
 
-export const ACCENT_STORAGE_KEY = "modelhub-accent";
+const ACCENT_STORAGE_KEY = "modelhub-accent";
 
 type AccentContextValue = {
   accent: AccentColorId | null;

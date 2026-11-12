@@ -17,7 +17,6 @@ import { resolveMaxOutputTokens } from "@/lib/model-output-limits"
 import {
   providerRegistry,
   getProviderModels,
-  isProviderAvailableViaExternalApi,
 } from "../providers/registry"
 import {
   resolveRouting,
@@ -185,12 +184,6 @@ function validateProviderForForward(providerId: string): Response | null {
   }
   if (!providerRegistry[providerId]) {
     return jsonErrorResponse(404, `Provider "${providerId}" not found`)
-  }
-  if (!isProviderAvailableViaExternalApi(providerId)) {
-    return jsonErrorResponse(
-      400,
-      `Provider "${providerId}" usa autenticacao no navegador e nao esta disponivel via /v1/chat/completions`,
-    )
   }
   return null
 }
@@ -499,11 +492,7 @@ app.get("/v1/models", async (c) => {
   }> = []
   const now = Math.floor(Date.now() / 1000)
 
-  const enabledProviders = Object.keys(providerRegistry).filter(
-    (providerId) =>
-      isProviderEnabled(providerId) &&
-      isProviderAvailableViaExternalApi(providerId),
-  )
+  const enabledProviders = Object.keys(providerRegistry).filter(isProviderEnabled)
 
   const results = await Promise.allSettled(
     enabledProviders.map(async (providerId) => {

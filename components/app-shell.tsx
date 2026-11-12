@@ -6,7 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   ActivityIcon,
   CircleHelpIcon,
-  CloudIcon,
   FileTextIcon,
   FlaskConicalIcon,
   GaugeIcon,
@@ -106,13 +105,6 @@ function getPageCopy(pathname: string) {
     };
   }
 
-  if (pathname.startsWith("/cloud") || pathname.startsWith("/dashboard/cloud")) {
-    return {
-      description: "Provisione e gerencie seu agente OpenClaw na nuvem.",
-      title: "OpenClaw",
-    };
-  }
-
   if (pathname.startsWith("/dashboard")) {
     return {
       description: "Indicadores, chaves e atividade recente da conta.",
@@ -124,13 +116,6 @@ function getPageCopy(pathname: string) {
     return {
       description: "Converse com seus modelos e acompanhe o histórico.",
       title: "Chat",
-    };
-  }
-
-  if (pathname.startsWith("/setup")) {
-    return {
-      description: "Conecte e teste suas integrações de IA.",
-      title: "Integrações",
     };
   }
 
@@ -241,7 +226,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <SidebarMenuButton
                     asChild
                     isActive={
-                      pathname.startsWith("/setup") ||
                       pathname.startsWith("/dashboard/credentials")
                     }
                     tooltip="Provedores"
@@ -249,14 +233,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Link href="/dashboard/credentials">
                       <PlugIcon />
                       <span>Provedores</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname.startsWith("/cloud")} tooltip="OpenClaw">
-                    <Link href="/cloud">
-                      <CloudIcon />
-                      <span>OpenClaw</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

@@ -148,7 +148,7 @@ export async function safeFetchPublicHttpUrl(
   })
 }
 
-export async function fetchBoundedText(
+async function fetchBoundedText(
   url: URL,
   signal: AbortSignal,
   redirects = 0,

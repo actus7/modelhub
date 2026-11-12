@@ -32,7 +32,7 @@ const features = [
     icon: BrainCircuitIcon,
     title: "Múltiplos Providers",
     description:
-      "Conecte-se a OpenAI, Google, Meta, Groq, Mistral, Cerebras, Cohere e muitos outros — tudo em uma única plataforma.",
+      "Conecte-se a OpenAI, Google, Groq, Mistral, DeepSeek, OpenRouter e qualquer API compatível com OpenAI — tudo em uma única plataforma.",
   },
   {
     icon: KeyRoundIcon,

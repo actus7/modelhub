@@ -26,7 +26,7 @@ export type ModelHealth = {
 /** Chave `provider/modelo` em minúsculas, igual à usada no resolver. */
 export type ModelHealthMap = Map<string, ModelHealth>
 
-export const HEALTH_WINDOW_DAYS = 7
+const HEALTH_WINDOW_DAYS = 7
 
 /**
  * Abaixo disso a amostra não sustenta conclusão: um modelo com 1 requisição e
@@ -35,7 +35,7 @@ export const HEALTH_WINDOW_DAYS = 7
 export const MIN_SAMPLE = 5
 
 /** Acima disso o modelo é considerado quebrado e sai da cadeia de roteamento. */
-export const UNHEALTHY_ERROR_RATE = 0.5
+const UNHEALTHY_ERROR_RATE = 0.5
 
 export function healthKey(providerId: string, modelId: string): string {
   return `${providerId.toLowerCase()}/${modelId.toLowerCase()}`
@@ -43,10 +43,6 @@ export function healthKey(providerId: string, modelId: string): string {
 
 const cache = new Map<string, { data: ModelHealthMap; expiresAt: number }>()
 const CACHE_TTL_MS = 60_000
-
-export function invalidateModelHealth(userId: string): void {
-  cache.delete(userId)
-}
 
 export function clearModelHealthCache(): void {
   cache.clear()

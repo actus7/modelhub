@@ -1,11 +1,5 @@
 import {
-  MODELHUB_EFFECTIVE_MODEL_HEADER,
-  MODELHUB_FALLBACK_DIAGNOSTIC_HEADER,
-  MODELHUB_MODEL_FALLBACK_USED_HEADER,
-  MODELHUB_MODELS_ATTEMPTED_HEADER,
-  MODELHUB_REQUESTED_MODEL_HEADER,
-} from "@/lib/contracts"
-import {
+  createProviderApp,
   fetchWithTimeout,
   internalProviderErrorResponse,
   postJsonWithTimeout,
@@ -24,93 +18,32 @@ import {
 } from "./rate-limit-cooldown"
 import { scrubSecrets } from "./secret-scrub"
 
-function hasImageCapability(model: Record<string, unknown>): boolean {
-  const candidates = [
-    model.input_modalities,
-    model.modalities,
-    typeof model.architecture === "object" && model.architecture !== null
-      ? (model.architecture as Record<string, unknown>).input_modalities
-      : undefined,
-    typeof model.capabilities === "object" && model.capabilities !== null
-      ? (model.capabilities as Record<string, unknown>).input_modalities
-      : undefined,
-  ]
-
-  return candidates.some(
-    (candidate) =>
-      Array.isArray(candidate) &&
-      candidate.some(
-        (value) => typeof value === "string" && value.toLowerCase() === "image",
-      ),
-  )
-}
-
-function hasToolCapability(model: Record<string, unknown>): boolean {
-  const supportedParameters = model.supported_parameters
-  if (Array.isArray(supportedParameters)) {
-    return supportedParameters.some(
-      (value) =>
-        typeof value === "string" &&
-        (value.toLowerCase() === "tools" ||
-          value.toLowerCase() === "tool_choice"),
-    )
-  }
-
-  const capabilities =
-    typeof model.capabilities === "object" && model.capabilities !== null
-      ? (model.capabilities as Record<string, unknown>)
-      : undefined
-  if (typeof capabilities?.tools === "boolean") {
-    return capabilities.tools
-  }
-
-  return true
-}
-
-type OpenAiCompatibleConfig = {
-  providerName: string
-  chatUrl: string
-  apiKeyEnv: string
-  extraHeaders?: Record<string, string>
-  bodyTransform?: (input: {
-    messages: ChatMessage[]
-    modelId: string
-    rawBody: Record<string, unknown>
-  }) => Record<string, unknown>
-  /**
-   * Transforma a credencial crua antes do uso como Bearer (ex.: GitHub Copilot
-   * troca o token OAuth de longa duração por um token de API curto).
-   */
-  resolveApiKey?: (rawKey: string) => Promise<string>
-  timeoutMs?: number
-  /**
-   * When upstream returns 404 for an unknown / inaccessible model, retry with these IDs in order
-   * (after the user-selected model). Skips duplicates. Used e.g. when catalog ≠ entitlement (Cerebras).
-   */
-  fallbackModelIds?: string[]
-  /** Provider-specific model errors that are safe to retry with another model; never match invalid credentials. */
-  isModelUnavailableError?: (status: number, errorText: string) => boolean
-}
-
 /**
- * Default system prompt injected when the conversation has no system message.
- * Instructs models to use proper markdown formatting — especially fenced code
- * blocks — so the client-side renderer can display responses correctly.
+ * Padrão único de provedor: API OpenAI-compatível em `baseUrl`
+ * (`POST /chat/completions`, `GET /models`) autenticada por API key Bearer.
+ * Provedor que não funciona assim não entra no ModelHub.
  */
-const DEFAULT_SYSTEM_PROMPT = [
-  "Format all responses using proper Markdown.",
-  "For code, ALWAYS use fenced code blocks with the language identifier (e.g. ```python).",
-  "Never collapse multiple lines of code onto a single line.",
-  "Separate code blocks from surrounding text with blank lines.",
-].join(" ")
+export type OpenAiCompatibleProvider = {
+  id: string
+  label: string
+  baseUrl: string
+  apiKeyEnv: string
+  keyPlaceholder?: string
+  signupUrl?: string
+  models: ProviderModel[]
+}
 
-/** OpenAI-compatible fields that should be forwarded when present in rawBody. */
+const CHAT_TIMEOUT_MS = 60_000
+const MODELS_TIMEOUT_MS = 15_000
+
+/** Campos OpenAI repassados do corpo original quando presentes. */
 const PASSTHROUGH_FIELDS = [
   "tools",
   "tool_choice",
   "response_format",
   "temperature",
   "max_tokens",
+  "max_completion_tokens",
   "top_p",
   "stop",
   "frequency_penalty",
@@ -123,62 +56,9 @@ const PASSTHROUGH_FIELDS = [
   "reasoning_effort",
 ] as const
 
-/** Convert ChatMessage[] to OpenAI-compatible message format. */
-function toOpenAiMessages(messages: ChatMessage[]): Record<string, unknown>[] {
-  return messages.map((msg) => {
-    const out: Record<string, unknown> = { role: msg.role }
-
-    if (typeof msg.content === "string") {
-      out.content = msg.content
-    } else if (Array.isArray(msg.content)) {
-      out.content = msg.content.map((part) => {
-        if (part.type === "text") return { type: "text", text: part.text }
-        if (part.type === "image_url")
-          return { type: "image_url", image_url: part.image_url }
-        return part
-      })
-    }
-
-    if (msg.tool_calls && msg.tool_calls.length > 0)
-      out.tool_calls = msg.tool_calls
-    if (msg.tool_call_id) out.tool_call_id = msg.tool_call_id
-    if (msg.name) out.name = msg.name
-
-    return out
-  })
-}
-
-function buildDefaultBody(input: {
-  messages: ChatMessage[]
-  modelId: string
-  rawBody: Record<string, unknown>
-}): Record<string, unknown> {
-  const openAiMessages = toOpenAiMessages(input.messages)
-
-  // Inject a system prompt if the conversation doesn't already have one,
-  // so that models produce well-formatted markdown (especially code blocks).
-  const hasSystemMessage = openAiMessages.some((m) => m.role === "system")
-  if (!hasSystemMessage) {
-    openAiMessages.unshift({ role: "system", content: DEFAULT_SYSTEM_PROMPT })
-  }
-
-  const body: Record<string, unknown> = {
-    model: input.modelId,
-    messages: openAiMessages,
-    stream: true,
-    stream_options: { include_usage: true },
-  }
-
-  for (const field of PASSTHROUGH_FIELDS) {
-    if (input.rawBody[field] !== undefined) {
-      body[field] = input.rawBody[field]
-    }
-  }
-
-  return body
-}
-
-export { buildDefaultBody as buildOpenAiCompatibleChatBody }
+/** Modelos que não são de chat (listados por `/models` de vários provedores). */
+const NON_CHAT_MODEL_RE =
+  /(^|[/:_-])(embed|embedding|rerank|moderation|whisper|tts|dall-e|image|audio|transcribe|guard)([/:_-]|$)/i
 
 type OpenAiToolCall = {
   id: string
@@ -193,156 +73,61 @@ type OpenAiNonStreamingResponse = {
       tool_calls?: OpenAiToolCall[]
     }
   }>
-  output_text?: string
-  response?: string
 } | null
 
-function isUpstreamModelNotFound(status: number, errorText: string): boolean {
-  if (status !== 404) {
-    return false
-  }
-  return (
-    errorText.includes("model_not_found") ||
-    errorText.includes('"code":"model_not_found"') ||
-    errorText.includes("does not exist or you do not have access") ||
-    errorText.includes("Not found for account") ||
-    (errorText.includes("Function ") && errorText.includes("Not found"))
-  )
+function toOpenAiMessages(messages: ChatMessage[]): Record<string, unknown>[] {
+  return messages.map((msg) => {
+    const out: Record<string, unknown> = { role: msg.role, content: msg.content }
+    if (msg.tool_calls && msg.tool_calls.length > 0) out.tool_calls = msg.tool_calls
+    if (msg.tool_call_id) out.tool_call_id = msg.tool_call_id
+    if (msg.name) out.name = msg.name
+    return out
+  })
 }
 
-function dedupeProviderModels(models: ProviderModel[]): ProviderModel[] {
-  const seen = new Set<string>()
-  const out: ProviderModel[] = []
-  for (const model of models) {
-    const id = model.id.trim()
-    if (!id || seen.has(id)) {
-      continue
+function buildOpenAiCompatibleChatBody(input: {
+  messages: ChatMessage[]
+  modelId: string
+  rawBody: Record<string, unknown>
+}): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    model: input.modelId,
+    messages: toOpenAiMessages(input.messages),
+    stream: true,
+    stream_options: { include_usage: true },
+  }
+
+  for (const field of PASSTHROUGH_FIELDS) {
+    if (input.rawBody[field] !== undefined) {
+      body[field] = input.rawBody[field]
     }
-    seen.add(id)
-    out.push({ ...model, id })
   }
-  return out
+
+  return body
 }
 
-async function responseFromSuccessfulUpstream(
-  response: Response,
-): Promise<Response> {
+async function responseFromSuccessfulUpstream(response: Response): Promise<Response> {
   const contentType = response.headers.get("content-type") || ""
   if (contentType.includes("text/event-stream")) {
     return toVercelStreamFromOpenAiSse(response)
   }
 
-  const json = (await response
-    .json()
-    .catch(() => null)) as OpenAiNonStreamingResponse
+  const json = (await response.json().catch(() => null)) as OpenAiNonStreamingResponse
   const message = json?.choices?.[0]?.message
 
   if (message?.tool_calls && message.tool_calls.length > 0) {
-    return toVercelToolCallsResponse(
-      message.tool_calls,
-      message.content || undefined,
-    )
+    return toVercelToolCallsResponse(message.tool_calls, message.content || undefined)
   }
 
-  const directText =
-    message?.content || json?.output_text || json?.response || ""
-  return toVercelSingleTextResponse(String(directText))
+  return toVercelSingleTextResponse(String(message?.content ?? ""))
 }
 
-function encodeFallbackDiagnosticHeader(input: {
-  requestedModelId: string
-  effectiveModelId: string
-  failures: Array<{ modelId: string; status: number; snippet: string }>
-}): string {
-  let failedAttempts = input.failures.map((f) => ({
-    modelId: f.modelId,
-    status: f.status,
-    upstreamSnippet: f.snippet.slice(0, 600),
-  }))
-  let payload: {
-    type: "model_fallback"
-    note: string
-    requestedModelId: string
-    effectiveModelId: string
-    failedAttempts: typeof failedAttempts
-  } = {
-    type: "model_fallback",
-    note: "Resposta HTTP 200 após falha(s) em modelo(s) anterior(es); veja failedAttempts.",
-    requestedModelId: input.requestedModelId,
-    effectiveModelId: input.effectiveModelId,
-    failedAttempts,
-  }
-  let json = JSON.stringify(payload)
-  if (json.length > 4500) {
-    failedAttempts = failedAttempts.map((f) => ({
-      ...f,
-      upstreamSnippet: f.upstreamSnippet.slice(0, 200),
-    }))
-    payload = { ...payload, failedAttempts }
-    json = JSON.stringify(payload)
-  }
-  while (
-    json.length > 5200 &&
-    failedAttempts.some((f) => f.upstreamSnippet.length > 80)
-  ) {
-    failedAttempts = failedAttempts.map((f) => ({
-      ...f,
-      upstreamSnippet: f.upstreamSnippet.slice(
-        0,
-        Math.max(80, Math.floor(f.upstreamSnippet.length * 0.5)),
-      ),
-    }))
-    payload = { ...payload, failedAttempts }
-    json = JSON.stringify(payload)
-  }
-  return Buffer.from(json, "utf8").toString("base64url")
-}
-
-async function attachModelResolutionHeaders(
-  responsePromise: Promise<Response>,
-  meta: {
-    requestedModelId: string
-    effectiveModelId: string
-    attemptedModelIds: string[]
-    fallbackDiagnostics?: Array<{
-      modelId: string
-      status: number
-      snippet: string
-    }>
-    fallbackUsed: boolean
-  },
-): Promise<Response> {
-  const out = await responsePromise
-  const headers = new Headers(out.headers)
-  headers.set(MODELHUB_EFFECTIVE_MODEL_HEADER, meta.effectiveModelId)
-  headers.set(MODELHUB_REQUESTED_MODEL_HEADER, meta.requestedModelId)
-  headers.set(
-    MODELHUB_MODELS_ATTEMPTED_HEADER,
-    meta.attemptedModelIds.join(","),
-  )
-  if (meta.fallbackUsed) {
-    headers.set(MODELHUB_MODEL_FALLBACK_USED_HEADER, "true")
-    const failures = meta.fallbackDiagnostics ?? []
-    if (failures.length > 0) {
-      headers.set(
-        MODELHUB_FALLBACK_DIAGNOSTIC_HEADER,
-        encodeFallbackDiagnosticHeader({
-          requestedModelId: meta.requestedModelId,
-          effectiveModelId: meta.effectiveModelId,
-          failures,
-        }),
-      )
-    }
-  }
-  return new Response(out.body, {
-    status: out.status,
-    statusText: out.statusText,
-    headers,
-  })
+function authHeaders(apiKeyEnv: string, credentials?: Record<string, string>): Record<string, string> {
+  return { Authorization: `Bearer ${resolveEnv(apiKeyEnv, credentials)}` }
 }
 
 export async function chatViaOpenAiCompatible(
-  config: OpenAiCompatibleConfig,
+  provider: Pick<OpenAiCompatibleProvider, "label" | "baseUrl" | "apiKeyEnv">,
   input: {
     messages: ChatMessage[]
     modelId: string
@@ -350,355 +135,148 @@ export async function chatViaOpenAiCompatible(
   },
   credentials?: Record<string, string>,
 ): Promise<Response> {
-  try {
-    const rawApiKey = resolveEnv(config.apiKeyEnv, credentials)
-    const apiKey = config.resolveApiKey
-      ? await config.resolveApiKey(rawApiKey)
-      : rawApiKey
+  const headers = authHeaders(provider.apiKeyEnv, credentials)
+  const cooldownKey = rateLimitCooldownKey(provider.label, input.modelId)
 
-    const cooldownKey = rateLimitCooldownKey(config.providerName, input.modelId)
+  try {
     const cooldownRemainingMs = getCooldownRemainingMs(cooldownKey)
     if (cooldownRemainingMs > 0) {
-      const waitSeconds = Math.ceil(cooldownRemainingMs / 1000)
-      return toVercelSingleTextResponse(
-        `⏳ **${config.providerName}** está em cooldown de rate limit para o modelo \`${input.modelId}\`. Tente novamente em ~${waitSeconds}s.`,
-      )
-    }
-
-    const extraFallback =
-      config.fallbackModelIds?.filter((id) => id !== input.modelId) ?? []
-    const modelChain = [input.modelId, ...extraFallback]
-    const attempted: string[] = []
-    const fallbackFailures: Array<{
-      modelId: string
-      status: number
-      snippet: string
-    }> = []
-
-    for (let idx = 0; idx < modelChain.length; idx++) {
-      const modelId = modelChain[idx]!
-      attempted.push(modelId)
-
-      const attemptInput = { ...input, modelId }
-
-      const body = config.bodyTransform
-        ? config.bodyTransform(attemptInput)
-        : buildDefaultBody(attemptInput)
-
-      const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
-      }
-
-      if (config.extraHeaders) {
-        Object.assign(headers, config.extraHeaders)
-      }
-
-      const response = await postJsonWithTimeout(config.chatUrl, {
-        headers,
-        body,
-        timeoutMs: config.timeoutMs ?? 60000,
-      })
-
-      if (response.ok) {
-        if (idx > 0) {
-          console.warn(
-            `[${config.providerName}] fallback succeeded using ${modelId} after model_not_found (requested ${input.modelId}); attempted: ${attempted.join(" → ")}`,
-          )
-        }
-        return attachModelResolutionHeaders(
-          responseFromSuccessfulUpstream(response),
-          {
-            requestedModelId: input.modelId,
-            effectiveModelId: modelId,
-            attemptedModelIds: [...attempted],
-            fallbackDiagnostics: fallbackFailures,
-            fallbackUsed: idx > 0,
-          },
-        )
-      }
-
-      const errorText = scrubSecrets(await response.text())
-
-      if (response.status === 429) {
-        const appliedMs = recordRateLimit(
-          rateLimitCooldownKey(config.providerName, modelId),
-          response.headers.get("retry-after"),
-        )
-        console.warn(
-          `[${config.providerName}] 429 em ${modelId}; cooldown de ${Math.round(appliedMs / 1000)}s aplicado`,
-        )
-      } else if (response.status >= 500) {
-        // 5xx também tira o modelo do páreo por um tempo: antes só 429 marcava
-        // cooldown, então um provedor fora do ar seguia sendo eleito primário a
-        // cada request até o usuário perceber sozinho.
-        const appliedMs = recordUpstreamFailure(
-          rateLimitCooldownKey(config.providerName, modelId),
-        )
-        console.warn(
-          `[${config.providerName}] ${response.status} em ${modelId}; cooldown de ${Math.round(appliedMs / 1000)}s aplicado`,
-        )
-      }
-
-      const modelUnavailable =
-        isUpstreamModelNotFound(response.status, errorText) ||
-        config.isModelUnavailableError?.(response.status, errorText) === true
-      if (modelUnavailable && idx < modelChain.length - 1) {
-        fallbackFailures.push({
-          modelId,
-          status: response.status,
-          snippet: errorText.slice(0, 2000),
-        })
-        console.warn(
-          `[${config.providerName}] model unavailable (${response.status}) for ${modelId}, retrying with ${modelChain[idx + 1]}`,
-        )
-        continue
-      }
-
-      const guidance = getUpstreamErrorGuidance(
-        config.providerName,
-        response.status,
-        errorText,
-      )
-      if (guidance) {
-        console.error(
-          `[${config.providerName}] upstream error ${response.status}: ${errorText.slice(0, 500)}`,
-        )
-        return toVercelSingleTextResponse(guidance)
-      }
       return upstreamErrorResponse(
-        config.providerName,
-        response.status,
-        errorText,
-        {
-          requestedModel: input.modelId,
-          attemptedModels: attempted,
-          ...(attempted.length > 1
-            ? {
-                hint: 'Vários modelos foram tentados em sequência; nenhum completou após o último erro. Veja "upstream" para a mensagem da API.',
-              }
-            : {}),
-        },
+        provider.label,
+        429,
+        `Rate limit em cooldown; tente novamente em ~${Math.ceil(cooldownRemainingMs / 1000)}s.`,
       )
     }
 
-    return internalProviderErrorResponse(
-      config.providerName,
-      new Error("chatViaOpenAiCompatible: no model attempts (unexpected)"),
-    )
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith("CONFIG_ERROR:")) {
-      throw error
+    const response = await postJsonWithTimeout(`${provider.baseUrl}/chat/completions`, {
+      headers,
+      body: buildOpenAiCompatibleChatBody(input),
+      timeoutMs: CHAT_TIMEOUT_MS,
+    })
+
+    if (response.ok) {
+      return responseFromSuccessfulUpstream(response)
     }
 
-    return internalProviderErrorResponse(config.providerName, error)
+    if (response.status === 429) {
+      recordRateLimit(cooldownKey, response.headers.get("retry-after"))
+    } else if (response.status >= 500) {
+      recordUpstreamFailure(cooldownKey)
+    }
+
+    const errorText = scrubSecrets(await response.text())
+    return upstreamErrorResponse(provider.label, response.status, errorText, {
+      requestedModel: input.modelId,
+    })
+  } catch (error) {
+    return internalProviderErrorResponse(provider.label, error)
   }
 }
 
-/**
- * Test credentials by hitting the /models endpoint of an OpenAI-compatible provider.
- * Returns { ok: true } if the key is valid, or { ok: false, error } otherwise.
- */
+/** Valida a chave via `GET /models` (não gasta tokens). */
 export async function testViaOpenAiModels(
-  opts: {
-    modelsUrl: string
-    apiKeyEnv: string
-    providerName: string
-    extraHeaders?: Record<string, string>
-    resolveApiKey?: (rawKey: string) => Promise<string>
-  },
+  provider: Pick<OpenAiCompatibleProvider, "baseUrl" | "apiKeyEnv">,
   credentials: Record<string, string>,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const rawApiKey = resolveEnv(opts.apiKeyEnv, credentials)
-    const apiKey = opts.resolveApiKey
-      ? await opts.resolveApiKey(rawApiKey)
-      : rawApiKey
-
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${apiKey}`,
-    }
-    if (opts.extraHeaders) {
-      Object.assign(headers, opts.extraHeaders)
-    }
-
     const response = await fetchWithTimeout(
-      opts.modelsUrl,
-      { method: "GET", headers },
-      15000,
+      `${provider.baseUrl}/models`,
+      { method: "GET", headers: authHeaders(provider.apiKeyEnv, credentials) },
+      MODELS_TIMEOUT_MS,
     )
+    if (response.ok) return { ok: true }
 
-    if (response.ok) {
-      return { ok: true }
-    }
-
-    const errorText = await response.text().catch(() => "")
     if (response.status === 401 || response.status === 403) {
-      return {
-        ok: false,
-        error: `Chave inválida ou sem permissão (${response.status}).`,
-      }
+      return { ok: false, error: `Chave inválida ou sem permissão (${response.status}).` }
     }
     // Provedores podem ecoar a credencial no corpo do erro — redige antes de devolver ao navegador.
-    return {
-      ok: false,
-      error: `Erro ${response.status}: ${scrubSecrets(errorText).slice(0, 200)}`,
-    }
+    const errorText = await response.text().catch(() => "")
+    return { ok: false, error: `Erro ${response.status}: ${scrubSecrets(errorText).slice(0, 200)}` }
   } catch (error) {
     if (error instanceof Error && error.message.startsWith("CONFIG_ERROR:")) {
       return { ok: false, error: "Credencial não fornecida." }
     }
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Erro desconhecido.",
-    }
+    return { ok: false, error: error instanceof Error ? error.message : "Erro desconhecido." }
   }
 }
 
-/**
- * Fetch models from an OpenAI-compatible /v1/models endpoint.
- * Returns a list of ProviderModel objects with id and name.
- * Requires a valid API key to be configured.
- */
+function hasImageCapability(model: Record<string, unknown>): boolean {
+  const architecture = model.architecture as Record<string, unknown> | undefined
+  const candidates = [model.input_modalities, model.modalities, architecture?.input_modalities]
+  return candidates.some(
+    (candidate) =>
+      Array.isArray(candidate) &&
+      candidate.some((value) => typeof value === "string" && value.toLowerCase() === "image"),
+  )
+}
+
+function hasToolCapability(model: Record<string, unknown>): boolean {
+  const supportedParameters = model.supported_parameters
+  if (!Array.isArray(supportedParameters)) return true
+  return supportedParameters.some((value) => value === "tools" || value === "tool_choice")
+}
+
 function readModelOutputLimit(model: Record<string, unknown>): number | undefined {
-  for (const key of ['max_output_tokens', 'max_completion_tokens', 'max_tokens', 'output_token_limit']) {
+  for (const key of ["max_output_tokens", "max_completion_tokens", "max_tokens"]) {
     const value = model[key]
-    if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return value
   }
   return undefined
 }
 
-export function createOpenAiFetchModels(opts: {
-  modelsUrl: string
-  apiKeyEnv: string
-  providerName: string
-  extraHeaders?: Record<string, string>
-  resolveApiKey?: (rawKey: string) => Promise<string>
-  /** Optional filter to select which models to include. Defaults to all. */
-  filter?: (model: { id: string; owned_by?: string }) => boolean
-}): (credentials?: Record<string, string>) => Promise<ProviderModel[]> {
-  return async (credentials?: Record<string, string>) => {
-    const rawApiKey = resolveEnv(opts.apiKeyEnv, credentials)
-    const apiKey = opts.resolveApiKey
-      ? await opts.resolveApiKey(rawApiKey)
-      : rawApiKey
+export function isChatModelId(id: string): boolean {
+  return !NON_CHAT_MODEL_RE.test(id)
+}
 
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${apiKey}`,
-    }
-    if (opts.extraHeaders) Object.assign(headers, opts.extraHeaders)
-
+/** Lista modelos de chat via `GET /models`. */
+export function createOpenAiFetchModels(
+  provider: Pick<OpenAiCompatibleProvider, "label" | "baseUrl" | "apiKeyEnv">,
+): (credentials?: Record<string, string>) => Promise<ProviderModel[]> {
+  return async (credentials) => {
     const response = await fetchWithTimeout(
-      opts.modelsUrl,
-      { method: "GET", headers },
-      15000,
+      `${provider.baseUrl}/models`,
+      { method: "GET", headers: authHeaders(provider.apiKeyEnv, credentials) },
+      MODELS_TIMEOUT_MS,
     )
-    if (!response.ok)
-      throw new Error(
-        `${opts.providerName} models API returned ${response.status}`,
-      )
-
-    const json = (await response.json()) as {
-      data?: Array<Record<string, unknown> & { id: string; owned_by?: string }>
+    if (!response.ok) {
+      throw new Error(`${provider.label} models API returned ${response.status}`)
     }
 
-    if (!json.data?.length)
-      throw new Error(`Empty models response from ${opts.providerName}`)
+    const json = (await response.json()) as { data?: Array<Record<string, unknown> & { id: string }> }
+    if (!json.data?.length) {
+      throw new Error(`Empty models response from ${provider.label}`)
+    }
 
-    const filtered = opts.filter ? json.data.filter(opts.filter) : json.data
-
-    return dedupeProviderModels(
-      filtered.map((m) => {
-        const maxOutputTokens = readModelOutputLimit(m)
-        return {
-          capabilities: {
-            documents: true,
-            images: hasImageCapability(m),
-            tools: hasToolCapability(m),
-          },
-          id: m.id,
-          ...(maxOutputTokens ? { maxOutputTokens } : {}),
-          name: `${m.id} (${opts.providerName})`,
-        }
-      }),
-    )
+    const seen = new Set<string>()
+    const models: ProviderModel[] = []
+    for (const raw of json.data) {
+      const id = typeof raw.id === "string" ? raw.id.trim() : ""
+      if (!id || seen.has(id) || !isChatModelId(id)) continue
+      seen.add(id)
+      const maxOutputTokens = readModelOutputLimit(raw)
+      models.push({
+        capabilities: { documents: true, images: hasImageCapability(raw), tools: hasToolCapability(raw) },
+        id,
+        ...(maxOutputTokens ? { maxOutputTokens } : {}),
+        name: id,
+      })
+    }
+    return models
   }
 }
 
-/**
- * Return a user-facing guidance message for known upstream errors,
- * or null if the error is not recognized and should use the default handler.
- */
-function getUpstreamErrorGuidance(
-  providerName: string,
-  status: number,
-  errorText: string,
-): string | null {
-  if (providerName === "Cerebras") {
-    if (
-      status === 404 &&
-      (errorText.includes("model_not_found") ||
-        errorText.includes("does not exist or you do not have access"))
-    ) {
-      return [
-        "**Modelo indisponível na Cerebras para esta chave**\n",
-        "A listagem de modelos (`GET /v1/models`) pode incluir IDs que **não estão habilitados** para `POST /v1/chat/completions` na sua conta — a documentação trata descoberta de modelos e uso no chat como fluxos distintos.\n",
-        "**O que fazer:**",
-        "- Use **llama3.1-8b** ou **qwen-3-235b-a22b-instruct-2507** se o app ainda não tiver feito fallback automático",
-        "- Confira permissões e tier em [cloud.cerebras.ai](https://cloud.cerebras.ai/)",
-        "- Se o erro persistir com o mesmo `model` que aparece na lista, envie ao suporte Cerebras um `curl` mínimo (sem expor a chave) mostrando 404 no chat e sucesso em outro modelo com o mesmo token",
-      ].join("\n")
-    }
-  }
-
-  // --- OpenRouter specific ---
-  if (providerName === "OpenRouter") {
-    // Guardrail restrictions
-    if (status === 404 && errorText.includes("No endpoints available")) {
-      return [
-        "⚠️ **Erro de configuração no OpenRouter**\n",
-        "Seus guardrails de privacidade estão bloqueando este modelo.\n",
-        "**Para resolver:**",
-        "1. Acesse https://openrouter.ai/workspaces/default/guardrails",
-        '2. Desative **"ZDR Endpoints Only"**',
-        "3. Ative os toggles: *Enable paid endpoints*, *Enable free endpoints that may train on inputs*, *Enable free endpoints that may publish prompts*",
-        '4. Em "Provider Restrictions", deixe *Ignored Providers* e *Allowed Providers* vazios',
-        "5. Confirme no **Eligibility Preview** que mostra **0 unavailable**",
-      ].join("\n")
-    }
-
-    // Rate limit with model name
-    if (status === 429) {
-      const modelMatch = /([\w/.:]+) is temporarily rate-limited/.exec(
-        errorText,
-      )
-      const modelName = modelMatch?.[1] ?? "Este modelo"
-      return [
-        `⏳ **${modelName}** atingiu o limite de requisições temporariamente.\n`,
-        "**O que fazer:**",
-        "- Aguarde alguns segundos e tente novamente",
-        "- Modelos gratuitos (`:free`) têm limites mais baixos",
-        "- Para limites maiores, adicione sua própria API key em https://openrouter.ai/settings/integrations",
-      ].join("\n")
-    }
-  }
-
-  if (providerName === "NVIDIA NIM") {
-    if (status === 404 && isUpstreamModelNotFound(status, errorText)) {
-      return [
-        "**Modelo NVIDIA NIM indisponível para esta chave**\n",
-        "A API da NVIDIA listou o modelo, mas o endpoint de chat retornou 404 para a função interna desse modelo na sua conta.",
-        "**O que fazer:**",
-        "- Tente outro modelo NVIDIA NIM no seletor",
-        "- O ModelHub tenta fallback automático para modelos NIM mais estáveis quando possível",
-        "- Se o erro persistir, gere uma nova chave em build.nvidia.com e confirme que ela pertence ao mesmo projeto/conta",
-      ].join("\n")
-    }
-  }
-
-  // --- Generic rate limit for any provider ---
-  if (status === 429) {
-    return `⏳ **${providerName}** atingiu o limite de requisições. Aguarde alguns segundos e tente novamente.`
-  }
-
-  return null
+/** Monta o app Hono de um provedor a partir da definição declarativa. */
+export function createOpenAiCompatibleProvider(provider: OpenAiCompatibleProvider) {
+  const fetchModels = createOpenAiFetchModels(provider)
+  const app = createProviderApp({
+    providerId: provider.id,
+    basePath: `/${provider.id}`,
+    models: provider.models,
+    defaultModel: provider.models[0]?.id ?? "",
+    chat: (messages, modelId, rawBody, credentials) =>
+      chatViaOpenAiCompatible(provider, { messages, modelId, rawBody }, credentials),
+    fetchModels,
+    testCredentials: (credentials) => testViaOpenAiModels(provider, credentials),
+  })
+  return { handler: app.fetch, fetchModels }
 }

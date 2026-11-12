@@ -18,8 +18,6 @@ model User {
 
   apiKeys              ApiKey[]
   providerCredentials  ProviderCredential[]
-  cloudConnections     CloudConnection[]
-  cloudDeployments     CloudDeployment[]
   usageLogs            UsageLog[]
   conversations        Conversation[]
   projects             Project[]
@@ -33,9 +31,6 @@ model User {
   routingConfig        RoutingConfig?
   budget               UserBudget?
   providerQuotas       ProviderQuota[]
-  providerConnections  ProviderConnection[]
-  oauthTransactions    OAuthTransaction[]
-  customProviders      CustomCompatibleProvider[]
 }
 
 model Project {
@@ -188,56 +183,6 @@ model ProviderCredential {
 
   @@unique([userId, providerId, credentialKey])
   @@index([userId, providerId])
-}
-
-model CloudConnection {
-  id                       String   @id @default(cuid())
-  userId                   String
-  provider                 String
-  label                    String   @default("Render")
-  token                    String
-  externalUserId           String?
-  externalUserEmail        String?
-  externalOrganizationId   String?
-  externalOrganizationName String?
-  modelhubApiKey           String?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
-
-  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  deployments CloudDeployment[]
-
-  @@unique([userId, provider])
-  @@index([userId, provider])
-}
-
-model CloudDeployment {
-  id                   String   @id @default(cuid())
-  userId               String
-  connectionId         String
-  provider             String
-  name                 String
-  status               String
-  externalAppId        String
-  externalAppName      String
-  externalServiceId    String
-  externalDeploymentId String?
-  publicUrl            String?
-  image                String
-  region               String
-  instanceType         String
-  port                 Int
-  error                String?
-  config               Json?
-  createdAt            DateTime @default(now())
-  updatedAt            DateTime @updatedAt
-
-  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  connection CloudConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
-
-  @@index([connectionId])
-  @@index([userId, provider])
-  @@index([userId, status])
 }
 
 model UsageLog {
@@ -568,96 +513,4 @@ model ConversationAttachment {
 
   @@index([conversationId, createdAt])
   @@index([messageId])
-}
-
-// ─── OAuth Provider Connections ─────────────────────────────────────
-
-model ProviderConnection {
-  id                   String    @id @default(cuid())
-  userId               String
-  providerId           String
-  label                String    @default("Account 1")
-  authType             String    // "oauth" | "api_key" | "imported"
-  isActive             Boolean   @default(true)
-  priority             Int       @default(0)
-  email                String?
-  displayName          String?
-  accessToken          String    // encrypted (AES-256-GCM)
-  refreshToken         String?   // encrypted (AES-256-GCM)
-  idToken              String?   // encrypted (AES-256-GCM)
-  apiKey               String?   // encrypted (AES-256-GCM)
-  expiresIn            Int?
-  expiresAt            DateTime?
-  lastRefreshAt        DateTime?
-  scope                String?
-  providerSpecificData Json?
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, providerId, label])
-  @@index([userId, providerId])
-  @@index([userId, isActive])
-  @@index([userId, providerId, priority])
-}
-
-model OAuthTransaction {
-  id           String    @id @default(cuid())
-  userId       String
-  providerId   String
-  stateHash    String    @unique
-  codeVerifier String?   // encrypted — PKCE verifier or RSA private key
-  deviceCode   String?
-  redirectUri  String?
-  flowType     String
-  meta         Json?
-  consumed     Boolean   @default(false)
-  expiresAt    DateTime
-  createdAt    DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([stateHash])
-  @@index([expiresAt])
-}
-
-model CustomCompatibleProvider {
-  id         String   @id @default(cuid())
-  userId     String
-  slug       String
-  name       String
-  baseUrl    String
-  apiFormat  String   @default("openai") // "openai" | "anthropic"
-  authHeader String   @default("Authorization")
-  authPrefix String   @default("Bearer ")
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  models CustomModel[]
-
-  @@unique([userId, slug])
-  @@index([userId])
-}
-
-model CustomModel {
-  id                String   @id @default(cuid())
-  providerId        String
-  modelId           String
-  displayName       String?
-  contextWindow     Int?
-  maxOutputTokens   Int?
-  supportsStreaming Boolean  @default(true)
-  supportsVision    Boolean  @default(false)
-  supportsTools     Boolean  @default(false)
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  provider CustomCompatibleProvider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-
-  @@unique([providerId, modelId])
-  @@index([providerId])
 }

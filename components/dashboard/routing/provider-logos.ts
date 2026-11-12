@@ -1,14 +1,10 @@
 /**
  * Provedores com logo versionado em public/providers/<id>.svg (issue #249).
- * Origem: @lobehub/icons-static-svg (MIT, devDependency usada só como fonte).
- * Para adicionar um novo: ver scripts/add-provider-logo.mjs.
+ * Origem: @lobehub/icons-static-svg (MIT).
  */
 const PROVIDERS_WITH_LOGO = new Set([
   "bytepluscoding",
   "cerebras",
-  "cloudflareworkersai",
-  "cohere",
-  "copilot",
   "deepseek",
   "fireworks",
   "gateway",
@@ -19,14 +15,12 @@ const PROVIDERS_WITH_LOGO = new Set([
   "mistral",
   "moonshot",
   "nvidianim",
-  "ollama",
   "ollamacloud",
   "opencodego",
   "opencodezen",
   "openai",
   "openrouter",
   "perplexity",
-  "pollinations",
   "qwen",
   "qwentoken",
   "togetherai",

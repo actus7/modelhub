@@ -1,4 +1,3 @@
-export const HARNESS_ENGINE_VERSION = "harness-v1" as const
 
 export type HarnessRunStatus =
   | "queued"
@@ -67,15 +66,6 @@ export type HarnessToolCall = {
   toolName: string
 }
 
-export type HarnessApprovalSummary = {
-  id: string
-  reason: string
-  risk: HarnessToolRisk
-  status: "pending" | "executing" | "approved" | "denied" | "failed" | "cancelled" | "unknown"
-  toolCallId: string
-  toolName: string
-}
-
 export type HarnessTurnRequest = {
   enteredMessages?: HarnessTurnRequest["messages"]
   idempotencyKey: string
@@ -89,16 +79,6 @@ export type HarnessTurnRequest = {
   }>
   model: string
   projectId?: string
-}
-
-export type HarnessRunSummary = {
-  conversationId: string
-  error: string | null
-  id: string
-  modelId: string | null
-  providerId: string | null
-  status: HarnessRunStatus
-  stepCount: number
 }
 
 export type HarnessCapability = {

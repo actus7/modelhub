@@ -1,6 +1,5 @@
 const RESERVED_TOP_LEVEL_ROUTES = new Set([
   "conversations",
-  "custom-model-proxy",
   "debug",
   "health",
   "providers",

@@ -10,9 +10,7 @@ import {
   KeyRoundIcon,
   Loader2Icon,
   MessageSquareIcon,
-  MonitorSmartphoneIcon,
   SearchIcon,
-  ShieldCheckIcon,
   SparklesIcon,
   Trash2Icon,
 } from "lucide-react"
@@ -40,10 +38,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiJsonRequest } from "@/lib/api"
 import type { ProviderModel } from "@/lib/contracts"
-import {
-  providerAuthMode,
-  providerHasRequiredCredentials,
-} from "@/lib/provider-credentials"
+import { providerHasRequiredCredentials } from "@/lib/provider-credentials"
 import { saveProviderCredentials } from "@/lib/save-provider-credentials"
 import { useProviderModels } from "@/lib/use-provider-models"
 
@@ -97,7 +92,6 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [modelQuery, setModelQuery] = useState("")
-  const authMode = providerAuthMode(provider)
   const ready = providerHasRequiredCredentials(provider, credentials)
   const providerCredentials = credentials.filter((credential) => credential.providerId === providerId)
   const {
@@ -215,9 +209,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
               </Badge>
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
-              {provider.runtime?.openAiCompatible
-                ? "Compatível com a API OpenAI através do gateway ModelHub."
-                : "Integração nativa disponível no roteador ModelHub."}
+              Compatível com a API OpenAI através do gateway ModelHub.
             </p>
           </div>
         </div>
@@ -233,41 +225,10 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
         <CardHeader>
           <CardTitle>Conexão</CardTitle>
           <CardDescription>
-            {authMode === "api-key"
-              ? "As credenciais são criptografadas e usadas somente nas chamadas deste provedor."
-              : "Esta integração não exige uma chave de API armazenada no ModelHub."}
+            As credenciais são criptografadas e usadas somente nas chamadas deste provedor.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-          {authMode === "none" ? (
-            <Alert>
-              <ShieldCheckIcon />
-              <AlertTitle>Nenhuma autenticação adicional</AlertTitle>
-              <AlertDescription>
-                O provedor está pronto para uso. As requisições passam pelo gateway seguro do ModelHub.
-              </AlertDescription>
-            </Alert>
-          ) : null}
-
-          {authMode === "browser-session" ? (
-            <div className="flex flex-col gap-4">
-              <Alert>
-                <MonitorSmartphoneIcon />
-                <AlertTitle>Autenticação na sessão do navegador</AlertTitle>
-                <AlertDescription>
-                  A conexão é iniciada no Chat e permanece somente no navegador atual.
-                </AlertDescription>
-              </Alert>
-              <Button asChild variant="outline" className="w-fit">
-                <Link href="/chat">
-                  <ExternalLinkIcon data-icon="inline-start" />
-                  Abrir Chat para conectar
-                </Link>
-              </Button>
-            </div>
-          ) : null}
-
-          {authMode === "api-key" ? (
             <div className="flex flex-col gap-5">
               {ready ? (
                 <Alert>
@@ -329,7 +290,6 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                 ) : null}
               </div>
             </div>
-          ) : null}
         </CardContent>
       </Card>
 

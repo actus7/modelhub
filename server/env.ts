@@ -1,5 +1,4 @@
-import { PROVIDER_CATALOG } from "./lib/catalog";
-import { parseCsv, parseCsvSet } from "./lib/env-utils";
+import { parseCsv } from "./lib/env-utils";
 
 const STRICT_VERCEL_ENVS = new Set(["preview", "production"]);
 
@@ -79,27 +78,6 @@ function validateBooleanFlag(name: string, env: NodeJS.ProcessEnv, issues: strin
   }
 }
 
-function validateDuckAiChallengeRuntime(env: NodeJS.ProcessEnv, issues: string[]): void {
-  const rawValue = env.DUCKAI_CHALLENGE_RUNTIME?.trim().toLowerCase();
-  if (
-    rawValue &&
-    !["browser", "puppeteer", "off", "disabled", "jsdom-dangerous"].includes(rawValue)
-  ) {
-    issues.push(
-      'DUCKAI_CHALLENGE_RUNTIME must be "browser", "puppeteer", "off", "disabled", or "jsdom-dangerous" when configured.',
-    );
-  }
-
-  if (
-    rawValue === "jsdom-dangerous" &&
-    env.DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE !== "true"
-  ) {
-    issues.push(
-      'DUCKAI_CHALLENGE_RUNTIME=jsdom-dangerous requires DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE="true".',
-    );
-  }
-}
-
 function validatePositiveNumber(name: string, env: NodeJS.ProcessEnv, issues: string[]): void {
   const rawValue = env[name];
   if (rawValue === undefined) {
@@ -125,28 +103,6 @@ function validateAllowedOrigins(env: NodeJS.ProcessEnv, issues: string[]): void 
   }
 }
 
-function validateModelhubPublicUrl(env: NodeJS.ProcessEnv, issues: string[]): void {
-  const value = env.MODELHUB_PUBLIC_URL?.trim();
-  if (!value) return;
-
-  try {
-    const parsed = new URL(value);
-    if (!["http:", "https:"].includes(parsed.protocol)) {
-      issues.push("MODELHUB_PUBLIC_URL must use http or https.");
-    }
-  } catch {
-    issues.push("MODELHUB_PUBLIC_URL must be a valid URL when configured.");
-  }
-}
-
-function validateAllowedProxyDomains(env: NodeJS.ProcessEnv, issues: string[]): void {
-  for (const domain of parseCsv(env.ALLOWED_PROXY_DOMAINS)) {
-    if (domain.includes("://") || domain.includes("/") || domain.includes("?")) {
-      issues.push(`ALLOWED_PROXY_DOMAINS entry "${domain}" must be a bare domain without protocol or path.`);
-    }
-  }
-}
-
 function validateUpstashRateLimitEnv(env: NodeJS.ProcessEnv, issues: string[]): void {
   const url = env.UPSTASH_REDIS_REST_URL?.trim();
   const token = env.UPSTASH_REDIS_REST_TOKEN?.trim();
@@ -164,41 +120,6 @@ function validateUpstashRateLimitEnv(env: NodeJS.ProcessEnv, issues: string[]): 
     }
   } catch {
     issues.push("UPSTASH_REDIS_REST_URL must be a valid URL.");
-  }
-}
-
-function getEnabledProviders(env: NodeJS.ProcessEnv) {
-  const enabledProviders = parseCsvSet(env.ENABLED_PROVIDERS);
-  const disabledProviders = parseCsvSet(env.DISABLED_PROVIDERS);
-
-  return PROVIDER_CATALOG.filter((provider) => {
-    const providerId = provider.id.toLowerCase();
-    if (enabledProviders.size > 0) {
-      return enabledProviders.has(providerId);
-    }
-
-    return !disabledProviders.has(providerId);
-  });
-}
-
-function validateProviderSharedEnvMode(env: NodeJS.ProcessEnv, issues: string[]): void {
-  for (const provider of getEnabledProviders(env)) {
-    const requiredEnvNames = provider.requiredKeys?.map((field) => field.envName) ?? [];
-    if (requiredEnvNames.length === 0) {
-      continue;
-    }
-
-    const configuredKeys = requiredEnvNames.filter((envName) => env[envName]?.trim());
-    if (configuredKeys.length === 0) {
-      continue;
-    }
-
-    for (const envName of requiredEnvNames) {
-      if (!env[envName]?.trim()) {
-        issues.push(`Provider "${provider.id}" is in shared-env mode and requires ${requiredEnvNames.join(", ")}.`);
-        break;
-      }
-    }
   }
 }
 
@@ -229,17 +150,11 @@ export function validateRuntimeEnvConfig(env: NodeJS.ProcessEnv = process.env): 
   validateCookieSecret(env.NEON_AUTH_COOKIE_SECRET, issues);
   validateBooleanFlag("REQUIRE_AUTH", env, issues);
   validateBooleanFlag("ALLOW_DEBUG_ENDPOINTS", env, issues);
-  validateBooleanFlag("DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE", env, issues);
-  validateBooleanFlag("DUCKAI_PUPPETEER_NO_SANDBOX", env, issues);
-  validateDuckAiChallengeRuntime(env, issues);
   validatePositiveNumber("RATE_LIMIT_WINDOW_MS", env, issues);
   validatePositiveNumber("RATE_LIMIT_MAX", env, issues);
   validatePositiveNumber("USER_RATE_LIMIT_MAX", env, issues);
   validateAllowedOrigins(env, issues);
-  validateModelhubPublicUrl(env, issues);
-  validateAllowedProxyDomains(env, issues);
   validateUpstashRateLimitEnv(env, issues);
-  validateProviderSharedEnvMode(env, issues);
 
   return issues;
 }

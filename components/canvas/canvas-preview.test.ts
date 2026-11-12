@@ -47,7 +47,7 @@ describe("canvas preview sandbox", () => {
         plugins: ["transform-modules-commonjs"],
         presets: ["react", "typescript"],
       },
-    ).code;
+    )?.code;
 
     expect(code).not.toMatch(/^\s*import\s/m);
     expect(code).toContain('require("react")');

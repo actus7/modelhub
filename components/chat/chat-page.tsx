@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import { useSearchParams } from "next/navigation"
 import {
-  type CloudDeploymentSummary,
   type CanvasDetail,
   type ProviderModel,
   type ProjectSummary,
@@ -145,10 +144,6 @@ import {
   shouldRequestCanvasGuidance,
 } from "@/lib/canvas-detector"
 import { saveProviderCredentials } from "@/lib/save-provider-credentials"
-import {
-  getBrowserChatProviderAdapter,
-  type BrowserProviderAuthState,
-} from "@/lib/browser-chat-providers"
 import { useProviderModels } from "@/lib/use-provider-models"
 import {
   estimateSerializedPayloadBytes,
@@ -168,10 +163,8 @@ import {
 } from "@/lib/harness/client"
 import type { HarnessEvent } from "@/lib/harness/contracts"
 import {
-  providerAuthMode,
   providerCredentialIds,
   providerHasRequiredCredentials,
-  providerUsesBrowserSession,
   providerUsesStoredCredentials,
   sortProvidersByConfiguredCredentials,
 } from "@/lib/provider-credentials"
@@ -183,7 +176,6 @@ import {
   buildAttachmentLabel,
   buildTitleGenerationPrompt,
   buildUserMessageParts,
-  DUCKAI_TEMPORARY_INLINE_MESSAGE,
   EMPTY_STATE_PROMPTS,
   formatBackstageInline,
   formatMessageTimestamp,
@@ -195,7 +187,7 @@ import {
   persistMessagesForConversation,
   releaseAttachmentPreview,
   resolveAssistantModelLabel,
-  resolveModelFallbackFromHeaders,
+  resolveRoutedModelLabel,
   resolveModelSelectPlaceholder,
   resolveStickToBottom,
   resolveStreamErrorContent,
@@ -266,8 +258,6 @@ export function ChatPage() {
 
   // Settings/personalization dialog
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [browserProviderAuthState, setBrowserProviderAuthState] =
-    useState<BrowserProviderAuthState>("unknown")
 
   const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false)
   const isMobile = useIsMobile()
@@ -426,47 +416,8 @@ export function ChatPage() {
   const attachmentsRef = useRef<ComposerAttachment[]>([])
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  // Dynamic OpenClaw destinations: every healthy OpenClaw deployment with a
-  // managed config becomes a virtual provider whose base points at the chat-proxy endpoint.
-  const [openclawDeployments, setOpenclawDeployments] = useState<
-    CloudDeploymentSummary[]
-  >([])
-
-  useEffect(() => {
-    let cancelled = false
-    apiJson<{ deployments: CloudDeploymentSummary[] }>(
-      "/user/cloud/deployments",
-    )
-      .then((payload) => {
-        if (cancelled) return
-        setOpenclawDeployments(
-          payload.deployments.filter(
-            (d) => d.status === "healthy" && d.openclaw,
-          ),
-        )
-      })
-      .catch(() => {
-        if (!cancelled) setOpenclawDeployments([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   const searchParams = useSearchParams()
   useEffect(() => {
-    const openclawId = searchParams.get("openclaw")
-    if (openclawId) {
-      const targetProviderId = `openclaw:${openclawId}`
-      const exists = openclawDeployments.some((d) => d.id === openclawId)
-      if (exists) {
-        setSelectedProviderId(targetProviderId)
-        const url = new URL(window.location.href)
-        url.searchParams.delete("openclaw")
-        window.history.replaceState({}, "", url.toString())
-      }
-    }
-
     // ?project=<id>&new=1 — nova conversa vinculada ao projeto (spec v2)
     const projectId = searchParams.get("project")
     if (projectId) {
@@ -486,7 +437,7 @@ export function ChatPage() {
       url.searchParams.delete("new")
       window.history.replaceState({}, "", url.toString())
     }
-  }, [searchParams, openclawDeployments])
+  }, [searchParams])
 
   // Carrega opções de projeto para o seletor do composer (uma vez)
   useEffect(() => {
@@ -496,77 +447,20 @@ export function ChatPage() {
   const autoProvider = useMemo<UiProvider>(
     () => ({
       base: "/v1",
-      category: "gateway",
       hasModels: true,
       id: AUTO_PROVIDER_ID,
       label: "ModelHub",
       localModels: [AUTO_MODEL],
-      runtime: {
-        authMode: "none",
-        externalApi: false,
-        kind: "server",
-        openAiCompatible: true,
-        transport: "openai-compatible",
-      },
     }),
     [],
   )
 
-  const openclawProviders = useMemo<UiProvider[]>(() => {
-    const providerLabels = new Map(
-      providers.map((provider) => [provider.id, provider.label]),
-    )
-
-    return openclawDeployments.flatMap((deployment) => {
-      const openclaw = deployment.openclaw
-      if (!openclaw) return []
-
-      const providerLabel =
-        providerLabels.get(openclaw.provider) ?? openclaw.provider
-
-      return [
-        {
-          base: `/user/cloud/deployments/${deployment.id}`,
-          hasModels: true,
-          id: `openclaw:${deployment.id}`,
-          label: `OpenClaw · ${deployment.name}`,
-          localModels: [
-            {
-              capabilities: { documents: true, images: false },
-              id: openclaw.model,
-              name: `${providerLabel} · ${openclaw.model}`,
-            },
-          ],
-          runtime: {
-            authMode: "none",
-            externalApi: false,
-            kind: "server",
-            openAiCompatible: true,
-            transport: "modelhub-proxy",
-          },
-        },
-      ]
-    })
-  }, [openclawDeployments, providers])
-
   const selectedProvider = useMemo(
     () =>
-      [autoProvider, ...providers, ...openclawProviders].find(
+      [autoProvider, ...providers].find(
         (provider) => provider.id === selectedProviderId,
       ) ?? null,
-    [autoProvider, providers, openclawProviders, selectedProviderId],
-  )
-  const browserProviderAdapter = useMemo(
-    () => getBrowserChatProviderAdapter(selectedProviderId),
-    [selectedProviderId],
-  )
-  const providersWithoutApiKey = useMemo(
-    () => providers.filter((provider) => providerAuthMode(provider) === "none"),
-    [providers],
-  )
-  const providersWithBrowserSession = useMemo(
-    () => providers.filter(providerUsesBrowserSession),
-    [providers],
+    [autoProvider, providers, selectedProviderId],
   )
   const providersWithApiKey = useMemo(
     () =>
@@ -613,40 +507,6 @@ export function ChatPage() {
     [credentials],
   )
 
-  const refreshBrowserProviderAuthState = useCallback(async () => {
-    if (!browserProviderAdapter) {
-      setBrowserProviderAuthState("unknown")
-      return
-    }
-
-    setBrowserProviderAuthState("loading")
-    try {
-      setBrowserProviderAuthState(await browserProviderAdapter.auth.getState())
-    } catch {
-      setBrowserProviderAuthState("signed-out")
-    }
-  }, [browserProviderAdapter])
-
-  async function handleBrowserProviderSignIn() {
-    if (!browserProviderAdapter || !selectedProvider) {
-      return
-    }
-
-    setBrowserProviderAuthState("loading")
-    try {
-      await browserProviderAdapter.auth.signIn()
-      setBrowserProviderAuthState("signed-in")
-      toast.success(`${selectedProvider.label} conectado.`)
-    } catch (error) {
-      setBrowserProviderAuthState("signed-out")
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : `Nao foi possivel entrar em ${selectedProvider.label}.`,
-      )
-    }
-  }
-
   const allowImageAttachments = selectedModel?.capabilities.images ?? false
   const allowDocumentAttachments = selectedModel?.capabilities.documents ?? true
   const composerHasUploadingAttachments = attachments.some(
@@ -671,15 +531,6 @@ export function ChatPage() {
 
     globalThis.localStorage.setItem("selected-provider", selectedProviderId)
   }, [selectedProviderId])
-
-  useEffect(() => {
-    if (!browserProviderAdapter) {
-      setBrowserProviderAuthState("unknown")
-      return
-    }
-
-    void refreshBrowserProviderAuthState()
-  }, [browserProviderAdapter, refreshBrowserProviderAuthState])
 
   useEffect(() => {
     attachmentsRef.current = attachments
@@ -1421,8 +1272,6 @@ export function ChatPage() {
         allowImages: allowImageAttachments,
         allowDocuments: allowDocumentAttachments,
       },
-      selectedProvider.label,
-      browserProviderAdapter?.attachments,
     )
     if (compatibilityError) {
       toast.error(compatibilityError)
@@ -1568,30 +1417,7 @@ export function ChatPage() {
       let harnessConversationId: string | null = null
       let harnessAssistantMessageId: string | undefined
       let harnessRunStatus: string | undefined
-      if (browserProviderAdapter) {
-        if (browserProviderAuthState !== "signed-in") {
-          setBrowserProviderAuthState("loading")
-          await browserProviderAdapter.auth.signIn()
-          setBrowserProviderAuthState("signed-in")
-        }
-
-        fullText = await browserProviderAdapter.stream({
-          conversationMessages: messagesToSend,
-          modelId: selectedModelId,
-          projectId: activeProjectId ?? undefined,
-          signal: controller.signal,
-          onTextDelta(delta) {
-            setMessages((current) =>
-              current.map((message) =>
-                message.id === assistantMessageId
-                  ? { ...message, content: `${message.content}${delta}` }
-                  : message,
-              ),
-            )
-          },
-        })
-        setBrowserProviderAuthState("signed-in")
-      } else if (
+      if (
         shouldUseHarnessRuntime({
           supportsTools: selectedModel?.capabilities.tools === true,
           temporaryChat,
@@ -1781,39 +1607,21 @@ export function ChatPage() {
           const errorMessage = await parseApiErrorResponse(response)
           const requestError = new Error(errorMessage) as ChatRequestError
           requestError.status = response.status
-          requestError.suppressToast =
-            selectedProviderId === "duckai" && response.status === 503
           throw requestError
         }
 
-        const {
-          resolvedLabel: resolvedAssistantLabel,
-          fallbackMeta: modelFallbackMeta,
-        } = resolveModelFallbackFromHeaders(
+        const resolvedAssistantLabel = resolveRoutedModelLabel(
           response,
           assistantModelLabel,
-          models,
-          selectedProvider.label,
         )
-
         effectiveModelLabel = resolvedAssistantLabel ?? assistantModelLabel
 
         setMessages((current) =>
-          current.map((message) => {
-            if (message.id !== assistantMessageId) {
-              return message
-            }
-            const next: ChatMessage = {
-              ...message,
-              modelLabel: resolvedAssistantLabel,
-            }
-            if (modelFallbackMeta) {
-              next.modelFallbackMeta = modelFallbackMeta
-            } else {
-              delete next.modelFallbackMeta
-            }
-            return next
-          }),
+          current.map((message) =>
+            message.id === assistantMessageId
+              ? { ...message, modelLabel: resolvedAssistantLabel }
+              : message,
+          ),
         )
 
         const toolMap = new Map<string, ParsedToolCall>()
@@ -1865,7 +1673,6 @@ export function ChatPage() {
         const errorContent = resolveStreamErrorContent(
           parsedStream,
           fullText,
-          selectedProviderId,
         )
         if (errorContent) {
           setMessages((current) =>
@@ -2112,11 +1919,7 @@ export function ChatPage() {
             setSidebarRefreshKey((k) => k + 1)
 
             // Generate AI title for new conversations (fire-and-forget)
-            if (
-              isNewConversation &&
-              selectedProvider &&
-              browserProviderAdapter?.titleGeneration !== "unsupported"
-            ) {
+            if (isNewConversation && selectedProvider) {
               const titleConvId = convId
               void (async () => {
                 try {
@@ -2214,13 +2017,8 @@ export function ChatPage() {
       }
 
       const requestError = error as ChatRequestError
-      if (browserProviderAdapter) {
-        setBrowserProviderAuthState("signed-out")
-      }
       let errorMsg: string
-      if (requestError.suppressToast) {
-        errorMsg = DUCKAI_TEMPORARY_INLINE_MESSAGE
-      } else if (error instanceof Error) {
+      if (error instanceof Error) {
         errorMsg = `Erro: ${error.message}`
       } else {
         errorMsg = "Erro ao enviar mensagem."
@@ -2502,17 +2300,6 @@ export function ChatPage() {
                   </SelectItem>
                 </SelectGroup>
                 <SelectSeparator />
-                {openclawProviders.length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>Ambientes OpenClaw</SelectLabel>
-                    {openclawProviders.map((provider) => (
-                      <SelectItem key={provider.id} value={provider.id}>
-                        <span className="truncate">{provider.label}</span>
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
-                {openclawProviders.length > 0 ? <SelectSeparator /> : null}
                 {configuredProvidersWithApiKey.length > 0 && (
                   <SelectGroup>
                     <SelectLabel>Configurados</SelectLabel>
@@ -2530,30 +2317,6 @@ export function ChatPage() {
                   </SelectGroup>
                 )}
                 {configuredProvidersWithApiKey.length > 0 ? (
-                  <SelectSeparator />
-                ) : null}
-                {providersWithoutApiKey.length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>Sem chave de API</SelectLabel>
-                    {providersWithoutApiKey.map((provider) => (
-                      <SelectItem key={provider.id} value={provider.id}>
-                        {provider.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
-                {providersWithoutApiKey.length > 0 ? <SelectSeparator /> : null}
-                {providersWithBrowserSession.length > 0 && (
-                  <SelectGroup>
-                    <SelectLabel>Sessao do navegador</SelectLabel>
-                    {providersWithBrowserSession.map((provider) => (
-                      <SelectItem key={provider.id} value={provider.id}>
-                        {provider.label}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                )}
-                {providersWithBrowserSession.length > 0 ? (
                   <SelectSeparator />
                 ) : null}
                 {unconfiguredProvidersWithApiKey.length > 0 ? (
@@ -2639,25 +2402,10 @@ export function ChatPage() {
             <Tooltip>
               <TooltipTrigger asChild>
                 <Badge
-                  variant={
-                    browserProviderAdapter &&
-                    browserProviderAuthState !== "signed-in"
-                      ? "secondary"
-                      : selectedProviderReady
-                        ? "outline"
-                        : "destructive"
-                  }
+                  variant={selectedProviderReady ? "outline" : "destructive"}
                   className="shrink-0 whitespace-nowrap text-xs"
                 >
-                  {browserProviderAdapter ? (
-                    browserProviderAuthState === "loading" ? (
-                      "Conectando..."
-                    ) : browserProviderAuthState === "signed-in" ? (
-                      "Sessao conectada"
-                    ) : (
-                      "Login necessario"
-                    )
-                  ) : selectedProviderReady ? (
+                  {selectedProviderReady ? (
                     "Conectado"
                   ) : (
                     <>
@@ -2670,11 +2418,9 @@ export function ChatPage() {
                 </Badge>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                {browserProviderAdapter
-                  ? "Este provider usa uma sessao autenticada no navegador. O envio abre o login se necessario."
-                  : selectedProviderReady
-                    ? "Provider configurado e pronto para uso."
-                    : "Este provider ainda precisa de credenciais antes de enviar mensagens."}
+                {selectedProviderReady
+                  ? "Provider configurado e pronto para uso."
+                  : "Este provider ainda precisa de credenciais antes de enviar mensagens."}
               </TooltipContent>
             </Tooltip>
           </div>
@@ -2719,22 +2465,6 @@ export function ChatPage() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                {browserProviderAdapter ? (
-                  <DropdownMenuItem
-                    disabled={browserProviderAuthState === "loading"}
-                    onSelect={() => void handleBrowserProviderSignIn()}
-                  >
-                    {browserProviderAuthState === "loading" ? (
-                      <Loader2Icon className="animate-spin" />
-                    ) : (
-                      <KeyRoundIcon />
-                    )}
-                    {browserProviderAuthState === "signed-in"
-                      ? "Sessão conectada"
-                      : "Entrar no provider"}
-                  </DropdownMenuItem>
-                ) : null}
-
                 {providerUsesStoredCredentials(selectedProvider) &&
                 !selectedProviderReady ? (
                   <DropdownMenuItem
@@ -2745,9 +2475,8 @@ export function ChatPage() {
                   </DropdownMenuItem>
                 ) : null}
 
-                {browserProviderAdapter ||
-                (providerUsesStoredCredentials(selectedProvider) &&
-                  !selectedProviderReady) ? (
+                {providerUsesStoredCredentials(selectedProvider) &&
+                !selectedProviderReady ? (
                   <DropdownMenuSeparator />
                 ) : null}
 
@@ -2874,33 +2603,6 @@ export function ChatPage() {
                     )}
                   </div>
                   <div className="flex max-w-[85%] flex-col gap-1 sm:max-w-[75%]">
-                    {message.role === "assistant" &&
-                    message.modelFallbackMeta ? (
-                      <Alert className="border-amber-500/40 bg-amber-500/10 py-2 text-amber-950 dark:text-amber-50">
-                        <AlertTitle className="text-xs font-semibold">
-                          Modelo diferente do que você selecionou
-                        </AlertTitle>
-                        <AlertDescription className="text-xs leading-relaxed text-amber-950/90 dark:text-amber-50/90">
-                          A API não aceitou{" "}
-                          <span className="font-medium text-foreground">
-                            {message.modelFallbackMeta.requestedLabel}
-                          </span>{" "}
-                          nesta requisição (por exemplo{" "}
-                          <code className="rounded bg-background/80 px-1 py-0.5 text-[11px]">
-                            model_not_found
-                          </code>{" "}
-                          ou sem acesso). O backend tentou, nesta ordem:{" "}
-                          <span className="break-all font-mono text-[11px]">
-                            {message.modelFallbackMeta.attemptedIds.join(" → ")}
-                          </span>
-                          . O texto abaixo foi gerado por{" "}
-                          <span className="font-medium text-foreground">
-                            {message.modelFallbackMeta.effectiveLabel}
-                          </span>
-                          , não pelo modelo escolhido no seletor.
-                        </AlertDescription>
-                      </Alert>
-                    ) : null}
                     <div
                       className={cn(
                         "min-w-0 max-w-full overflow-hidden rounded-2xl px-3.5 py-2.5 text-sm",

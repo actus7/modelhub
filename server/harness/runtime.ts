@@ -25,8 +25,8 @@ import {
 
 const EXECUTION_SLICE_MS = 50_000
 export const MAX_TOOL_CALLS_PER_STEP = 16
-export const MAX_SUBAGENTS_PER_RUN = 4
-export const MAX_OUTPUT_LIMIT_CONTINUATIONS = 8
+const MAX_SUBAGENTS_PER_RUN = 4
+const MAX_OUTPUT_LIMIT_CONTINUATIONS = 8
 const APPROVAL_EXECUTION_MS = 60_000
 const activeToolExecutions = new Map<string, Set<AbortController>>()
 const activeRunExecutions = new Map<string, Set<AbortController>>()
