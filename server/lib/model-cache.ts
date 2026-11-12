@@ -80,7 +80,9 @@ export async function getCachedModels(
       return deduped;
     }
   } catch (error) {
-    logger.warn("model_cache.fetch_failed", { cacheKey, error });
+    // Provedor sem chave configurada é o estado normal de quem não o usa, não um incidente.
+    const isMissingKey = error instanceof Error && error.message.startsWith("CONFIG_ERROR:");
+    logger[isMissingKey ? "debug" : "warn"]("model_cache.fetch_failed", { cacheKey, error });
   }
 
   // Return fallback

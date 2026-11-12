@@ -92,6 +92,15 @@ function validatePositiveNumber(name: string, env: NodeJS.ProcessEnv, issues: st
   }
 }
 
+const LOG_LEVELS = new Set(["debug", "info", "warn", "error", "silent"]);
+
+function validateLogLevel(env: NodeJS.ProcessEnv, issues: string[]): void {
+  const level = env.LOG_LEVEL?.trim().toLowerCase();
+  if (level && !LOG_LEVELS.has(level)) {
+    issues.push("LOG_LEVEL must be one of debug, info, warn, error or silent when configured.");
+  }
+}
+
 function validateAllowedOrigins(env: NodeJS.ProcessEnv, issues: string[]): void {
   for (const origin of parseCsv(env.ALLOWED_ORIGINS)) {
     try {
@@ -155,6 +164,7 @@ export function validateRuntimeEnvConfig(env: NodeJS.ProcessEnv = process.env): 
   validatePositiveNumber("RATE_LIMIT_WINDOW_MS", env, issues);
   validatePositiveNumber("RATE_LIMIT_MAX", env, issues);
   validatePositiveNumber("USER_RATE_LIMIT_MAX", env, issues);
+  validateLogLevel(env, issues);
   validateAllowedOrigins(env, issues);
   validateUpstashRateLimitEnv(env, issues);
 

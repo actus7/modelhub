@@ -46,7 +46,7 @@ import { apiJsonRequest } from "@/lib/api";
 import type { ProviderModel } from "@/lib/contracts";
 import { providerHasRequiredCredentials } from "@/lib/provider-credentials";
 import { saveProviderCredentials } from "@/lib/save-provider-credentials";
-import { useProviderModels } from "@/lib/use-provider-models";
+import { useProviderModels } from "@/hooks/use-provider-models";
 
 function formatUpdatedAt(value: string | undefined): string {
   if (!value) return "data indisponível";

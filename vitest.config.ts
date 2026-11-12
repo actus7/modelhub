@@ -18,10 +18,10 @@ export default defineConfig({
       exclude: ["**/*.test.ts", "**/*.d.ts", "generated/**"],
       thresholds: {
         // Baseline real da suíte atual; subir estes números junto com novos testes.
-        statements: 38,
-        branches: 28,
-        functions: 35,
-        lines: 40,
+        statements: 50,
+        branches: 42,
+        functions: 50,
+        lines: 52,
       },
     },
   },

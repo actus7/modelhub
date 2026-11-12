@@ -178,16 +178,23 @@ export default function MyComponent(props: any) {
 
 ### Estilo de Código
 
-- Use 2 espaços para indentação
-- Use aspas simples para strings
-- Use ponto e vírgula
+A formatação é do Prettier (`.prettierrc`) e o CI falha se algum arquivo estiver fora dela:
+
+- 2 espaços para indentação
+- Aspas duplas e ponto e vírgula
 - Máximo 100 caracteres por linha
-- Use Prettier para formatação automática
 
 ```bash
-# Formate o código
-pnpm prettier --write .
+pnpm format        # formata tudo
+pnpm format:check  # só verifica (é o que o CI roda)
 ```
+
+### Servidor
+
+- Logue pelo `logger` de `server/lib/logger.ts` (`logger.info("dominio.evento", { campos })`); `console.*` é barrado pelo ESLint em `server/`.
+- Respostas de erro saem de `jsonErrorResponse` (`server/lib/http.ts`). Não capture erros inesperados só para devolver 500: deixe subir, o handler central loga e responde.
+- Toda entrada externa (corpo, query, headers) é validada com um schema zod antes de chegar ao Prisma.
+- Rotas autenticadas novas nascem de `createAuthenticatedRouter` (`server/routes/route-helpers.ts`).
 
 ### Nomenclatura
 
@@ -200,17 +207,18 @@ pnpm prettier --write .
 ### Estrutura de Arquivos
 
 ```
-feature/
-├── components/
-│   ├── feature-component.tsx
-│   └── feature-component.test.tsx
-├── hooks/
-│   └── use-feature.ts
-├── lib/
-│   └── feature-utils.ts
-└── types/
-    └── feature.types.ts
+app/          páginas e route handlers do Next
+components/   componentes React por feature (chat/, dashboard/, canvas/, ui/...)
+hooks/        hooks React compartilhados (use-*.ts)
+lib/          código compartilhado entre cliente e servidor
+server/
+  routes/     uma sub-app Hono por recurso
+  lib/        infraestrutura (db, logger, http, security, provider-*, routing/)
+  harness/    runtime de agentes
+  providers/  tabela de provedores
 ```
+
+Testes ficam ao lado do arquivo que cobrem: `server/routes/user.ts` e `server/routes/user.test.ts`.
 
 ## 📝 Commits e Pull Requests
 
@@ -324,12 +332,13 @@ Screenshots, mockups, exemplos, etc.
 ### Escrevendo Testes
 
 ```typescript
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from "vitest";
 
-describe('MyFunction', () => {
-  it('should do something', () => {
-    const result = myFunction('input');
-    expect(result).toBe('expected');
+describe("myFunction", () => {
+  it("returns the expected value for a valid input", () => {
+    const result = myFunction("input");
+
+    expect(result).toBe("expected");
   });
 });
 ```
@@ -343,8 +352,8 @@ pnpm test
 # Watch mode
 pnpm test --watch
 
-# Coverage
-pnpm test --coverage
+# Coverage (falha abaixo dos limites de vitest.config.ts)
+pnpm test:coverage
 ```
 
 ## 📚 Recursos

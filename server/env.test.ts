@@ -19,6 +19,13 @@ describe("runtime env validation", () => {
     expect(validateRuntimeEnvConfig(VALID_ENV)).toEqual([]);
   });
 
+  it("rejects an unknown LOG_LEVEL and accepts the known ones", () => {
+    expect(validateRuntimeEnvConfig({ ...VALID_ENV, LOG_LEVEL: "verbose" })).toEqual([
+      "LOG_LEVEL must be one of debug, info, warn, error or silent when configured.",
+    ]);
+    expect(validateRuntimeEnvConfig({ ...VALID_ENV, LOG_LEVEL: "debug" })).toEqual([]);
+  });
+
   it("fails when NEON_AUTH_COOKIE_SECRET is shorter than 32 characters", () => {
     expect(
       validateRuntimeEnvConfig({

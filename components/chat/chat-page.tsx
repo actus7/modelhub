@@ -130,7 +130,7 @@ import {
   shouldRequestCanvasGuidance,
 } from "@/lib/canvas-detector";
 import { saveProviderCredentials } from "@/lib/save-provider-credentials";
-import { useProviderModels } from "@/lib/use-provider-models";
+import { useProviderModels } from "@/hooks/use-provider-models";
 import {
   estimateSerializedPayloadBytes,
   formatBytes,

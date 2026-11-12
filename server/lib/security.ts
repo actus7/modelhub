@@ -82,7 +82,7 @@ export const securityHeaders: MiddlewareHandler = async (c, next) => {
   c.res.headers.set("X-Frame-Options", "DENY");
 };
 
-export function isProductionEnv(): boolean {
+function isProductionEnv(): boolean {
   return process.env.NODE_ENV === "production";
 }
 

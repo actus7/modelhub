@@ -51,9 +51,12 @@ curl -N http://localhost:3000/v1/chat/completions \
 
 ```bash
 pnpm dev | build | start
-pnpm lint | typecheck | test
+pnpm lint | typecheck | test | test:coverage
+pnpm format | format:check                 # Prettier
 pnpm prisma:generate | prisma:migrate | prisma:migrate:deploy
 ```
+
+O CI roda `format:check`, `lint`, `typecheck`, `test`, `audit` e `build`; rode os quatro primeiros antes de abrir um PR.
 
 ## Arquitetura
 
@@ -61,6 +64,30 @@ pnpm prisma:generate | prisma:migrate | prisma:migrate:deploy
 - **Hono** (`server/app.ts`), montado via route handler: `/v1/*`, rotas por provedor e APIs do usuário.
 - **Prisma 7 + Neon** (`server/lib/db.ts`, `prisma/schema.prisma`).
 - `server/lib/openai-compatible.ts`: o único cliente de provedor. `server/lib/routing/`: roteamento automático.
+
+```
+app/          páginas e route handlers do Next (delegam a API para o Hono)
+components/   componentes React por feature (chat, dashboard, canvas, projects, ui)
+hooks/        hooks React compartilhados
+lib/          código compartilhado entre cliente e servidor (contratos, parsing de stream)
+server/
+  app.ts      app Hono raiz: request id, log por requisição, health, montagem das rotas
+  routes/     uma sub-app por recurso (user, conversations, projects, canvas, harness, v1)
+  lib/        infraestrutura: db, logger, http (erros), security, provider-*, routing/
+  harness/    runtime de agentes (ferramentas, MCP)
+  providers/  tabela de provedores e registro derivado
+prisma/       schema e migrations
+```
+
+Testes ficam ao lado do código que cobrem (`foo.ts` + `foo.test.ts`).
+
+## Operação
+
+- **Health checks**: `GET /health` (liveness, não toca em dependências) e `GET /health/ready` (readiness, responde 503 se o banco não responder).
+- **Logs**: o servidor emite uma linha JSON por evento (`server/lib/logger.ts`), com `level`, `event`, `time` e `requestId`. `LOG_LEVEL` (`debug`, `info`, `warn`, `error`, `silent`; padrão `info`) define o nível mínimo. Segredos em mensagens de erro são redigidos.
+- **Request ID**: toda resposta da API traz `x-request-id` (o enviado pelo cliente, se bem formado, ou um gerado). Ele aparece em todos os logs da requisição e no corpo dos erros 500.
+- **Erros**: erros esperados respondem `{ "error": "mensagem" }`; falhas não tratadas respondem `{ "error": { "message": "Internal server error" }, "requestId": "..." }`, sem detalhes internos.
+- **Rate limit**: em memória por padrão; com `UPSTASH_REDIS_REST_URL` e `UPSTASH_REDIS_REST_TOKEN` passa a ser distribuído.
 
 ## Deploy na Vercel
 
