@@ -1,4 +1,4 @@
-import { Hono } from "hono"
+import type { Context } from "hono"
 import { z } from "zod"
 import {
   apiKeyLabelSchema,
@@ -10,23 +10,10 @@ import { buildProviderQuotaAccounts } from "@/lib/provider-quota"
 
 import { encryptCredential, generateApiKey } from "../lib/crypto"
 import { prisma } from "../lib/db"
-import { jsonErrorResponse } from "../lib/provider-core"
-import {
-  authenticateAccess,
-  protectedCors,
-  securityHeaders,
-} from "../lib/security"
-import { requireAuth } from "./route-helpers"
+import { jsonErrorResponse } from "../lib/http"
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers"
 
-const app = new Hono().basePath("/user")
-app.use("*", securityHeaders)
-app.use("*", protectedCors)
-
-app.use("*", async (c, next) => {
-  const authError = await authenticateAccess(c)
-  if (authError) return authError
-  return next()
-})
+const app = createAuthenticatedRouter("/user")
 
 app.get("/api-keys", async (c) => {
   const userId = requireAuth(c)
@@ -125,7 +112,7 @@ app.post("/credentials", async (c) => {
   const parsed = providerCredentialSchema.safeParse(body)
   if (!parsed.success) {
     return jsonErrorResponse(400, "Invalid input", {
-      details: parsed.error.flatten().fieldErrors,
+      details: z.flattenError(parsed.error).fieldErrors,
     })
   }
 
@@ -528,43 +515,43 @@ app.get("/routing-config/suggest", async (c) => {
   return c.json({ tiers })
 })
 
+// O conteúdo de cada slot é saneado na leitura (sanitizeRoutingMap); aqui
+// garantimos a forma: flags booleanas e mapas de objetos JSON.
+const routingMapSchema = z.record(z.string(), z.record(z.string(), z.json()))
+const routingConfigUpdateSchema = z.object({
+  complexityEnabled: z.boolean().optional(),
+  taskRoutingEnabled: z.boolean().optional(),
+  tiers: routingMapSchema.optional(),
+  taskOverrides: routingMapSchema.optional(),
+})
+
 // PUT/PATCH /user/routing-config
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const routingConfigUpdateHandler = async (c: any) => {
+const routingConfigUpdateHandler = async (c: Context) => {
   const userId = requireAuth(c)
   if (typeof userId !== "string") return userId
 
-  let body: unknown
-  try {
-    body = await c.req.json()
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400)
+  const parsed = routingConfigUpdateSchema.safeParse(
+    await c.req.json().catch(() => null),
+  )
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Invalid routing config payload")
   }
 
-  const data = body as Record<string, unknown>
+  const data = parsed.data
   const config = await prisma.routingConfig.upsert({
     where: { userId },
     create: {
       userId,
-      complexityEnabled: Boolean(data.complexityEnabled),
-      taskRoutingEnabled: Boolean(data.taskRoutingEnabled),
-      tiers: (data.tiers as object) ?? {},
-      taskOverrides: (data.taskOverrides as object) ?? {},
+      complexityEnabled: data.complexityEnabled ?? false,
+      taskRoutingEnabled: data.taskRoutingEnabled ?? false,
+      tiers: data.tiers ?? {},
+      taskOverrides: data.taskOverrides ?? {},
     },
     update: {
-      complexityEnabled:
-        data.complexityEnabled !== undefined
-          ? Boolean(data.complexityEnabled)
-          : undefined,
-      taskRoutingEnabled:
-        data.taskRoutingEnabled !== undefined
-          ? Boolean(data.taskRoutingEnabled)
-          : undefined,
-      tiers: data.tiers !== undefined ? (data.tiers as object) : undefined,
-      taskOverrides:
-        data.taskOverrides !== undefined
-          ? (data.taskOverrides as object)
-          : undefined,
+      complexityEnabled: data.complexityEnabled,
+      taskRoutingEnabled: data.taskRoutingEnabled,
+      tiers: data.tiers,
+      taskOverrides: data.taskOverrides,
     },
   })
 
@@ -650,60 +637,47 @@ app.get("/budget", async (c) => {
   })
 })
 
+const DEFAULT_BUDGET_ALERT_THRESHOLD = 0.8
+const budgetUpdateSchema = z.object({
+  periodType: z.enum(["daily", "weekly", "monthly"]).optional(),
+  // Aceita número ou string numérica (o formulário envia o valor do input).
+  limitUsd: z.coerce.number().min(0).nullable().optional(),
+  alertThreshold: z.coerce.number().min(0).max(1).optional(),
+  blocksRequests: z.boolean().optional(),
+  baselineModelId: z.string().trim().min(1).max(200).nullable().optional(),
+})
+
 // PATCH /user/budget
 app.patch("/budget", async (c) => {
   const userId = requireAuth(c)
   if (typeof userId !== "string") return userId
 
-  let body: unknown
-  try {
-    body = await c.req.json()
-  } catch {
-    return c.json({ error: "Invalid JSON" }, 400)
+  const parsed = budgetUpdateSchema.safeParse(
+    await c.req.json().catch(() => null),
+  )
+  if (!parsed.success) {
+    return jsonErrorResponse(400, "Invalid budget payload", {
+      details: z.flattenError(parsed.error).fieldErrors,
+    })
   }
 
-  const data = body as Record<string, unknown>
-  const limitUsd =
-    data.limitUsd !== undefined && data.limitUsd !== null
-      ? Number(data.limitUsd)
-      : null
-  const alertThreshold =
-    data.alertThreshold !== undefined ? Number(data.alertThreshold) : undefined
-
-  if (
-    (limitUsd !== null && isNaN(limitUsd)) ||
-    (alertThreshold !== undefined && isNaN(alertThreshold))
-  ) {
-    return c.json(
-      { error: "Invalid numeric values for limitUsd or alertThreshold" },
-      400,
-    )
-  }
-
+  const data = parsed.data
   const budget = await prisma.userBudget.upsert({
     where: { userId },
     create: {
       userId,
-      periodType: (data.periodType as string) ?? "monthly",
-      limitUsd,
-      alertThreshold: alertThreshold ?? 0.8,
-      blocksRequests:
-        data.blocksRequests != null ? Boolean(data.blocksRequests) : false,
-      baselineModelId: (data.baselineModelId as string | null) ?? null,
+      periodType: data.periodType ?? "monthly",
+      limitUsd: data.limitUsd ?? null,
+      alertThreshold: data.alertThreshold ?? DEFAULT_BUDGET_ALERT_THRESHOLD,
+      blocksRequests: data.blocksRequests ?? false,
+      baselineModelId: data.baselineModelId ?? null,
     },
     update: {
-      periodType:
-        data.periodType !== undefined ? (data.periodType as string) : undefined,
-      limitUsd: data.limitUsd !== undefined ? limitUsd : undefined,
-      alertThreshold,
-      blocksRequests:
-        data.blocksRequests !== undefined
-          ? Boolean(data.blocksRequests)
-          : undefined,
-      baselineModelId:
-        data.baselineModelId !== undefined
-          ? (data.baselineModelId as string | null)
-          : undefined,
+      periodType: data.periodType,
+      limitUsd: data.limitUsd,
+      alertThreshold: data.alertThreshold,
+      blocksRequests: data.blocksRequests,
+      baselineModelId: data.baselineModelId,
     },
   })
 
@@ -801,16 +775,22 @@ app.get("/memories", async (c) => {
   return c.json({ memories })
 })
 
+const MAX_MEMORY_CONTENT_LENGTH = 4_000
+const memoryCreateSchema = z.object({
+  content: z.string().trim().min(1).max(MAX_MEMORY_CONTENT_LENGTH),
+})
+
 app.post("/memories", async (c) => {
   const userId = requireAuth(c)
   if (typeof userId !== "string") return userId
 
-  const body = (await c.req.json().catch(() => ({}))) as { content?: string }
-  if (!body.content?.trim())
-    return jsonErrorResponse(400, "content is required")
+  const parsed = memoryCreateSchema.safeParse(
+    await c.req.json().catch(() => null),
+  )
+  if (!parsed.success) return jsonErrorResponse(400, "content is required")
 
   const memory = await prisma.userMemory.create({
-    data: { userId, content: body.content.trim() },
+    data: { userId, content: parsed.data.content },
     select: { id: true, content: true, createdAt: true },
   })
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { shouldValidateRuntimeEnv, validateRuntimeEnvConfig } from "../env";
+import { shouldValidateRuntimeEnv, validateRuntimeEnvConfig } from "./env";
 
 const VALID_ENV = {
   ALLOW_DEBUG_ENDPOINTS: "false",

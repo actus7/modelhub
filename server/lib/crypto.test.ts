@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { generateApiKey, hashApiKey } from "../lib/crypto";
+import { generateApiKey, hashApiKey } from "./crypto";
 
 describe("crypto helpers", () => {
   it("generates api keys with stable hash output", () => {

@@ -7,6 +7,9 @@ const mockPrisma = {
   usageLog: { count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
   user: { findUnique: vi.fn() },
   userSettings: { findUnique: vi.fn(), upsert: vi.fn() },
+  userBudget: { upsert: vi.fn() },
+  routingConfig: { upsert: vi.fn() },
+  userMemory: { create: vi.fn() },
 };
 
 vi.mock("../lib/db", () => ({ prisma: mockPrisma }));
@@ -248,5 +251,74 @@ describe("PATCH /user/settings", () => {
 
     expect(res.status).toBe(400);
     expect(mockPrisma.userSettings.upsert).not.toHaveBeenCalled();
+  });
+});
+
+const patchJson = (path: string, body: unknown, method = "PATCH") =>
+  mkApp().request(path, {
+    body: JSON.stringify(body),
+    headers: { ...AUTH, "Content-Type": "application/json" },
+    method,
+  });
+
+describe("PATCH /user/budget", () => {
+  it("accepts a valid budget and persists the parsed values", async () => {
+    mockPrisma.userBudget.upsert.mockResolvedValue({ id: "b1" });
+
+    const res = await patchJson("/user/budget", { alertThreshold: 0.5, limitUsd: "25", periodType: "weekly" });
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.userBudget.upsert.mock.calls[0]?.[0].update).toMatchObject({
+      alertThreshold: 0.5,
+      limitUsd: 25,
+      periodType: "weekly",
+    });
+  });
+
+  it("rejects non-numeric limits, out-of-range thresholds and unknown periods", async () => {
+    for (const body of [{ limitUsd: "abc" }, { alertThreshold: 80 }, { periodType: "yearly" }, { limitUsd: -1 }]) {
+      expect((await patchJson("/user/budget", body)).status).toBe(400);
+    }
+    expect(mockPrisma.userBudget.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe("PUT /user/routing-config", () => {
+  it("rejects payloads whose tiers are not a map of objects", async () => {
+    const res = await patchJson("/user/routing-config", { tiers: "simple" }, "PUT");
+
+    expect(res.status).toBe(400);
+    expect(mockPrisma.routingConfig.upsert).not.toHaveBeenCalled();
+  });
+
+  it("stores a valid configuration", async () => {
+    const tiers = { simple: { modelId: "m", providerId: "p" } };
+    mockPrisma.routingConfig.upsert.mockResolvedValue({
+      complexityEnabled: true, taskRoutingEnabled: false, tiers, taskOverrides: {},
+    });
+
+    const res = await patchJson("/user/routing-config", { complexityEnabled: true, tiers }, "PUT");
+
+    expect(res.status).toBe(200);
+    expect(mockPrisma.routingConfig.upsert.mock.calls[0]?.[0].update).toMatchObject({ complexityEnabled: true, tiers });
+  });
+});
+
+describe("POST /user/memories", () => {
+  it("rejects blank or oversized content", async () => {
+    expect((await patchJson("/user/memories", { content: "   " }, "POST")).status).toBe(400);
+    expect((await patchJson("/user/memories", { content: "x".repeat(4001) }, "POST")).status).toBe(400);
+    expect(mockPrisma.userMemory.create).not.toHaveBeenCalled();
+  });
+});
+
+describe("unhandled errors", () => {
+  it("returns a JSON 500 without leaking the internal message", async () => {
+    mockPrisma.apiKey.findMany.mockRejectedValue(new Error("connection string postgres://secret"));
+
+    const res = await mkApp().request("/user/api-keys", { headers: AUTH });
+
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: { message: "Internal server error" } });
   });
 });

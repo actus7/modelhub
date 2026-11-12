@@ -9,6 +9,8 @@ import {
   type HydratedConversationMessagePart,
 } from "@/lib/chat-parts";
 
+import { logger } from "./logger";
+
 const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
   "image/gif",
   "image/jpeg",
@@ -285,7 +287,7 @@ export async function extractDocumentText(input: {
 
     return { extractedText, extractionStatus: "completed" };
   } catch (error) {
-    console.error("[attachments] document extraction failed", error);
+    logger.error("attachments.extraction_failed", { error });
     return { extractedText: null, extractionStatus: "failed" };
   }
 }

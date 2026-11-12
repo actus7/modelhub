@@ -1,15 +1,10 @@
-const RESERVED_TOP_LEVEL_ROUTES = new Set([
-  "conversations",
-  "debug",
-  "health",
-  "providers",
-  "user",
-  "v1",
-]);
-
 const RESPONSE_PROVIDER_HEADER = "x-gateway-provider";
 
-function classifyHttpStatus(status: number): string {
+export const REQUEST_ID_HEADER = "x-request-id";
+
+const MAX_REQUEST_ID_LENGTH = 128;
+
+export function classifyHttpStatus(status: number): string {
   if (status < 400) return "ok";
   if (status === 400) return "bad_request";
   if (status === 401) return "auth_required";
@@ -22,13 +17,14 @@ function classifyHttpStatus(status: number): string {
   return "client_error";
 }
 
-export function resolveProviderFromPath(pathname: string): string | undefined {
-  const [firstSegment] = pathname.split("/").filter(Boolean);
-  if (!firstSegment || RESERVED_TOP_LEVEL_ROUTES.has(firstSegment)) {
-    return undefined;
+/** Reaproveita o id enviado pelo cliente/proxy quando é seguro logá-lo; senão gera um. */
+export function resolveRequestId(headerValue: string | undefined): string {
+  const candidate = headerValue?.trim();
+  if (candidate && candidate.length <= MAX_REQUEST_ID_LENGTH && /^[\w.:-]+$/.test(candidate)) {
+    return candidate;
   }
 
-  return firstSegment;
+  return crypto.randomUUID();
 }
 
 export function withProviderMetadata(response: Response, providerId: string): Response {
@@ -48,23 +44,4 @@ export function withProviderMetadata(response: Response, providerId: string): Re
 
 export function getProviderFromResponse(response: Response): string | undefined {
   return response.headers.get(RESPONSE_PROVIDER_HEADER) ?? undefined;
-}
-
-export function logHttpRequest(input: {
-  method: string;
-  route: string;
-  status: number;
-  durationMs: number;
-  provider?: string;
-}): void {
-  console.info(
-    `[http-request] ${JSON.stringify({
-      durationMs: input.durationMs,
-      errorClass: classifyHttpStatus(input.status),
-      method: input.method,
-      provider: input.provider ?? null,
-      route: input.route,
-      status: input.status,
-    })}`,
-  );
 }

@@ -1,10 +1,17 @@
 import "./env";
 
-import { HTTPException } from "hono/http-exception";
 import { Hono } from "hono";
 
 import { getAvailableProviders } from "./lib/catalog";
-import { getProviderFromResponse, logHttpRequest, resolveProviderFromPath } from "./lib/observability";
+import { checkReadiness } from "./lib/health";
+import { handleApiError } from "./lib/http";
+import { logger, runWithRequestContext } from "./lib/logger";
+import {
+  classifyHttpStatus,
+  getProviderFromResponse,
+  REQUEST_ID_HEADER,
+  resolveRequestId,
+} from "./lib/observability";
 import {
   ensureDebugAccess,
   ensureProtectedAccess,
@@ -14,10 +21,10 @@ import {
 } from "./lib/security";
 import { providerRegistry } from "./providers/registry";
 import canvasFetch from "./routes/canvas";
-import projectsFetch from "./routes/projects";
-import userFetch from "./routes/user";
 import conversationsFetch from "./routes/conversations";
 import harnessFetch from "./routes/harness";
+import projectsFetch from "./routes/projects";
+import userFetch from "./routes/user";
 import v1Fetch from "./routes/v1";
 
 type ApiAppEnv = {
@@ -28,36 +35,34 @@ type ApiAppEnv = {
   };
 };
 
+function resolveProviderFromPath(pathname: string): string | undefined {
+  const [firstSegment] = pathname.split("/").filter(Boolean);
+  return firstSegment && providerRegistry[firstSegment] ? firstSegment : undefined;
+}
+
 function createApiApp() {
   const app = new Hono<ApiAppEnv>();
 
-  /** Evita que falhas não tratadas cheguem ao Next.js como página HTML 500 (clientes OpenAI esperam JSON). */
-  app.onError((err, c) => {
-    if (err instanceof HTTPException) {
-      return err.getResponse();
-    }
-    console.error("[api] unhandled error:", err);
-    return c.json(
-      {
-        error: {
-          message: "Internal server error",
-        },
-      },
-      500,
-    );
-  });
+  /** Falhas não tratadas viram JSON (clientes OpenAI esperam JSON, não a página 500 do Next.js). */
+  app.onError(handleApiError);
 
   app.use("*", securityHeaders);
   app.use(async (c, next) => {
     const startedAt = Date.now();
-    await next();
-    c.res.headers.set("X-Accel-Buffering", "no");
-    logHttpRequest({
-      durationMs: Date.now() - startedAt,
-      method: c.req.method,
-      provider: getProviderFromResponse(c.res) ?? resolveProviderFromPath(c.req.path),
-      route: c.req.path,
-      status: c.res.status,
+    const requestId = resolveRequestId(c.req.header(REQUEST_ID_HEADER));
+
+    await runWithRequestContext({ requestId }, async () => {
+      await next();
+      c.res.headers.set("X-Accel-Buffering", "no");
+      c.res.headers.set(REQUEST_ID_HEADER, requestId);
+      logger.info("http.request", {
+        durationMs: Date.now() - startedAt,
+        errorClass: classifyHttpStatus(c.res.status),
+        method: c.req.method,
+        provider: getProviderFromResponse(c.res) ?? resolveProviderFromPath(c.req.path) ?? null,
+        route: c.req.path,
+        status: c.res.status,
+      });
     });
   });
 
@@ -65,14 +70,6 @@ function createApiApp() {
   app.use("/providers/*", protectedCors);
   app.use("/:provider/*", protectedCors);
   app.use("/debug", protectedCors);
-
-  app.get("/", (c) => {
-    return c.json({
-      service: "ai-gateway-api",
-      status: "ok",
-      timestamp: Date.now(),
-    });
-  });
 
   app.get("/providers/catalog", (c) => {
     return c.json({
@@ -105,8 +102,15 @@ function createApiApp() {
     return handler(c.req.raw);
   });
 
+  /** Liveness: o processo responde. Não toca em dependências. */
   app.get("/health", (c) => {
     return c.json({ status: "ok", timestamp: Date.now() });
+  });
+
+  /** Readiness: 503 enquanto o banco não responde. */
+  app.get("/health/ready", async (c) => {
+    const report = await checkReadiness();
+    return c.json({ ...report, timestamp: Date.now() }, report.status === "ok" ? 200 : 503);
   });
 
   app.get("/debug", async (c) => {
@@ -115,7 +119,7 @@ function createApiApp() {
       return debugError;
     }
 
-    return c.json({ node: process.version, timestamp: Date.now(), version: "v4-hardened" });
+    return c.json({ node: process.version, timestamp: Date.now() });
   });
 
   return app;

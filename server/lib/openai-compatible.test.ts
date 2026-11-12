@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../lib/db", () => ({
+vi.mock("./db", () => ({
   prisma: {
     conversationAttachment: { findMany: vi.fn().mockResolvedValue([]) },
     providerCredential: { findMany: vi.fn().mockResolvedValue([]) },
@@ -11,7 +11,7 @@ vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
 
 const { chatViaOpenAiCompatible, createOpenAiFetchModels, isChatModelId, testViaOpenAiModels } = await import(
-  "../lib/openai-compatible"
+  "./openai-compatible"
 );
 
 const provider = { label: "Example", baseUrl: "https://api.example.com/v1", apiKeyEnv: "EXAMPLE_API_KEY" };

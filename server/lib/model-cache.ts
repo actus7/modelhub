@@ -1,3 +1,4 @@
+import { logger } from './logger'
 import type { ProviderModel } from './provider-core'
 
 type CacheEntry = {
@@ -79,7 +80,7 @@ export async function getCachedModels(
       return deduped
     }
   } catch (error) {
-    console.warn(`[ModelCache] Failed to fetch models for ${cacheKey}:`, error instanceof Error ? error.message : error)
+    logger.warn("model_cache.fetch_failed", { cacheKey, error })
   }
 
   // Return fallback
@@ -99,13 +100,11 @@ function refreshInBackground(
       if (models.length > 0) {
         const deduped = dedupeModels(models)
         cache.set(cacheKey, { models: deduped, fetchedAt: Date.now() })
-        if (process.env.NODE_ENV !== 'production') {
-          console.log(`[ModelCache] Refreshed ${cacheKey}: ${deduped.length} models`)
-        }
+        logger.debug('model_cache.refreshed', { cacheKey, modelCount: deduped.length })
       }
     })
     .catch((error) => {
-      console.warn(`[ModelCache] Background refresh failed for ${cacheKey}:`, error instanceof Error ? error.message : error)
+      logger.warn("model_cache.refresh_failed", { cacheKey, error })
     })
     .finally(() => {
       inflightRefreshes.delete(cacheKey)

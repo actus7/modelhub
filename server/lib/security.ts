@@ -6,6 +6,8 @@ import { isProviderEnabled } from "./catalog";
 import { prisma } from "./db";
 import { hashApiKey } from "./crypto";
 import { parseCsv } from "./env-utils";
+import { jsonErrorResponse } from "./http";
+import { logger } from "./logger";
 
 type RateLimitRecord = {
   count: number;
@@ -92,17 +94,6 @@ export function isAccessProtectionEnabled(): boolean {
   return process.env.REQUIRE_AUTH !== "false";
 }
 
-function jsonError(status: number, error: string, extraHeaders?: Record<string, string>): Response {
-  const headers = new Headers({ "Content-Type": "application/json" });
-  if (extraHeaders) {
-    for (const [key, value] of Object.entries(extraHeaders)) {
-      headers.set(key, value);
-    }
-  }
-
-  return new Response(JSON.stringify({ error }), { headers, status });
-}
-
 function extractBearerToken(c: Context): string | undefined {
   const auth = c.req.header("Authorization");
   if (!auth) return undefined;
@@ -132,7 +123,7 @@ function attachApiKeyToContext(
   apiKey: { id: string; userId: string; expiresAt: Date | null },
 ): Response | undefined {
   if (apiKey.expiresAt && apiKey.expiresAt < new Date()) {
-    return jsonError(401, "API key has expired");
+    return jsonErrorResponse(401, "API key has expired");
   }
 
   c.set("userId", apiKey.userId);
@@ -143,7 +134,10 @@ function attachApiKeyToContext(
       where: { id: apiKey.id },
       data: { lastUsedAt: new Date() },
     })
-    .catch(() => {});
+    .catch((error: unknown) => {
+      // Fire-and-forget: falhar ao marcar o último uso não pode derrubar a requisição.
+      logger.warn("auth.api_key_touch_failed", { apiKeyId: apiKey.id, error });
+    });
 
   return undefined;
 }
@@ -153,7 +147,7 @@ export async function authenticateAccess(c: Context): Promise<Response | undefin
   if (bearerToken) {
     const apiKey = await getActiveApiKey(bearerToken);
     if (!apiKey) {
-      return jsonError(401, "Invalid or revoked API key");
+      return jsonErrorResponse(401, "Invalid or revoked API key");
     }
 
     return attachApiKeyToContext(c, apiKey);
@@ -165,7 +159,7 @@ export async function authenticateAccess(c: Context): Promise<Response | undefin
     sessionResult = await auth.getSession();
   } catch (error) {
     // Neon Auth not available in this context (e.g. missing cookies header), fall through
-    console.error("[auth] auth.getSession() failed:", error);
+    logger.error("auth.session_lookup_failed", { error });
   }
 
   if (sessionResult?.data?.user) {
@@ -189,7 +183,7 @@ export async function authenticateAccess(c: Context): Promise<Response | undefin
     return undefined;
   }
 
-  return jsonError(
+  return jsonErrorResponse(
     401,
     "Authentication required. Provide Authorization: Bearer <api-key> or a valid session",
   );
@@ -260,19 +254,19 @@ async function executeUpstashCommand(command: unknown[]): Promise<unknown | null
     });
 
     if (!response.ok) {
-      console.warn("[rate-limit] Upstash command failed", response.status);
+      logger.warn("rate_limit.upstash_command_failed", { status: response.status });
       return null;
     }
 
     const payload = (await response.json()) as UpstashResponse;
     if (payload.error) {
-      console.warn("[rate-limit] Upstash returned an error", payload.error);
+      logger.warn("rate_limit.upstash_error", { error: payload.error });
       return null;
     }
 
     return payload.result ?? null;
   } catch (error) {
-    console.warn("[rate-limit] Upstash unavailable; falling back to in-memory limiter", error);
+    logger.warn("rate_limit.upstash_unavailable", { error });
     return null;
   } finally {
     clearTimeout(timeout);
@@ -304,7 +298,7 @@ async function enforceDistributedRateLimit(
     1,
     Math.ceil((Number(ttlResult) || windowMs) / 1000),
   );
-  return jsonError(429, "Too many requests", {
+  return jsonErrorResponse(429, "Too many requests", undefined, {
     "Retry-After": String(retryAfterSeconds),
   });
 }
@@ -330,7 +324,7 @@ function enforceInMemoryRateLimit(
   }
 
   const retryAfterSeconds = Math.max(1, Math.ceil((currentRecord.resetAt - now) / 1000));
-  return jsonError(429, "Too many requests", {
+  return jsonErrorResponse(429, "Too many requests", undefined, {
     "Retry-After": String(retryAfterSeconds),
   });
 }
@@ -355,7 +349,7 @@ export async function ensureProtectedAccess(
   },
 ): Promise<Response | undefined> {
   if (options?.providerId && !isProviderEnabled(options.providerId)) {
-    return jsonError(404, "Provider not available");
+    return jsonErrorResponse(404, "Provider not available");
   }
 
   const rateLimitError = await enforceRateLimit(c);
@@ -392,7 +386,7 @@ export async function ensureDebugAccess(
   },
 ): Promise<Response | undefined> {
   if (!isDebugEnabled()) {
-    return jsonError(404, "Not found");
+    return jsonErrorResponse(404, "Not found");
   }
 
   return ensureProtectedAccess(c, options);

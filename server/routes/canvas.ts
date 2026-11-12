@@ -1,20 +1,11 @@
 import type { Context } from "hono";
-import { Hono } from "hono";
 import { z } from "zod";
 
 import { prisma } from "../lib/db";
-import { jsonErrorResponse } from "../lib/provider-core";
-import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
-import { requireAuth } from "./route-helpers";
+import { jsonErrorResponse } from "../lib/http";
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers";
 
-const app = new Hono().basePath("/canvas");
-app.use("*", securityHeaders);
-app.use("*", protectedCors);
-app.use("*", async (c, next) => {
-  const authError = await authenticateAccess(c);
-  if (authError) return authError;
-  return next();
-});
+const app = createAuthenticatedRouter("/canvas");
 
 const canvasKindSchema = z.enum(["markdown", "code", "html", "react", "mermaid"]);
 

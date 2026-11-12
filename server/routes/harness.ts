@@ -1,4 +1,3 @@
-import { Hono } from "hono"
 import { z } from "zod"
 
 import { Prisma } from "../../generated/prisma/client"
@@ -23,20 +22,12 @@ import {
 } from "../harness/runtime"
 import { encryptCredential } from "../lib/crypto"
 import { prisma } from "../lib/db"
-import { jsonErrorResponse } from "../lib/provider-core"
-import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security"
-import { requireAuth } from "./route-helpers"
+import { jsonErrorResponse } from "../lib/http"
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers"
 import v1Fetch from "./v1"
 
-const app = new Hono().basePath("/harness")
+const app = createAuthenticatedRouter("/harness")
 const MAX_HARNESS_TURN_BYTES = 4 * 1024 * 1024
-app.use("*", securityHeaders)
-app.use("*", protectedCors)
-app.use("*", async (c, next) => {
-  const authError = await authenticateAccess(c)
-  if (authError) return authError
-  return next()
-})
 
 const harnessMessageSchema = z.object({
   content: z.unknown().optional(),

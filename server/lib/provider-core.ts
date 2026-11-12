@@ -17,13 +17,10 @@ import {
   MAX_DOCUMENT_CONTEXT_CHARS,
   buildDocumentContextBlock,
 } from "./conversation-attachments"
-import {
-  ensureProtectedAccess,
-  isProductionEnv,
-  protectedCors,
-  securityHeaders,
-} from "./security"
+import { handleApiError, jsonErrorResponse } from "./http"
+import { ensureProtectedAccess, protectedCors, securityHeaders } from "./security"
 import { checkBudget } from "./budget"
+import { logger } from "./logger"
 import { scrubSecrets } from "./secret-scrub"
 
 type ChatMessageToolCall = {
@@ -738,9 +735,7 @@ async function writeFinish(
 }
 
 function logParsingIssue(context: string, error: unknown): void {
-  if (!isProductionEnv()) {
-    console.warn(context, error)
-  }
+  logger.debug("provider.parsing_issue", { context, error })
 }
 
 function accumulateToolCallDeltas(
@@ -1148,18 +1143,6 @@ function toOpenAiNonStreamingResponse(
   })
 }
 
-export function jsonErrorResponse(
-  status: number,
-  error: string,
-  details?: Record<string, unknown>,
-): Response {
-  const body = details ? { error, ...details } : { error }
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  })
-}
-
 function requireEnv(name: string): string {
   const value = process.env[name]
   if (!value) {
@@ -1236,20 +1219,22 @@ async function getUserProviderCredentials(
       try {
         result[row.credentialKey] = decryptCredential(row.credentialValue)
       } catch {
-        console.error(
-          `[${providerId}] Failed to decrypt credential "${row.credentialKey}" for user ${userId}`,
-        )
+        logger.error("credentials.decrypt_failed", {
+          credentialKey: row.credentialKey,
+          providerId,
+          userId,
+        })
       }
     }
     return result
   } catch (error) {
-    console.error(`[${providerId}] Failed to load user credentials`, error)
+    logger.error("credentials.load_failed", { error, providerId })
     return {}
   }
 }
 
 function logProviderError(providerId: string, error: unknown): void {
-  console.error(`[${providerId}] request failed`, error)
+  logger.error("provider.request_failed", { error, providerId })
 }
 
 /**
@@ -1313,7 +1298,7 @@ function logUsage(data: {
     })
     .then((log) => log.id)
     .catch((err: unknown) => {
-      console.error("[usage-log] Failed to record usage", err)
+      logger.error("usage_log.record_failed", { error: err })
       return null
     })
 }
@@ -1352,7 +1337,7 @@ async function resolveUsageCorrelation(
       ? { conversationId, messageId }
       : { conversationId: null, messageId: null }
   } catch (error) {
-    console.warn("[usage-log] Failed to validate correlation headers", error)
+    logger.warn("usage_log.correlation_failed", { error })
     return { conversationId: null, messageId: null }
   }
 }
@@ -1367,7 +1352,7 @@ async function updateUsageLogTiming(
       data: { ttftMs },
     })
     .catch((err: unknown) => {
-      console.error("[usage-log] Failed to update TTFT", err)
+      logger.error("usage_log.ttft_update_failed", { error: err })
     })
 }
 
@@ -1381,7 +1366,7 @@ async function updateUsageLogDuration(
       data: { durationMs },
     })
     .catch((err: unknown) => {
-      console.error("[usage-log] Failed to update stream duration", err)
+      logger.error("usage_log.duration_update_failed", { error: err })
     })
 }
 
@@ -1416,7 +1401,7 @@ async function updateUsageLogTokens(
       },
     })
     .catch((err: unknown) => {
-      console.error("[usage-log] Failed to update token counts", err)
+      logger.error("usage_log.tokens_update_failed", { error: err })
     })
 }
 
@@ -1430,13 +1415,11 @@ export function upstreamErrorResponse(
   // redige antes de logar/persistir/devolver ao cliente.
   const detailsForLog =
     detailsForLogRaw === undefined ? undefined : scrubSecrets(detailsForLogRaw)
-  if (detailsForLog) {
-    console.error(
-      `[${providerName}] upstream error ${status}: ${detailsForLog.slice(0, 500)}`,
-    )
-  } else {
-    console.error(`[${providerName}] upstream error ${status}`)
-  }
+  logger.error("provider.upstream_error", {
+    details: detailsForLog?.slice(0, 500),
+    provider: providerName,
+    status,
+  })
 
   const upstreamSnippet = detailsForLog?.slice(0, 4000)
   const fromUpstream = upstreamSnippet ? { upstream: upstreamSnippet } : {}
@@ -1504,7 +1487,7 @@ export function internalProviderErrorResponse(
   providerName: string,
   error: unknown,
 ): Response {
-  console.error(`[${providerName}] internal error`, error)
+  logger.error("provider.internal_error", { error, provider: providerName })
   const detail = formatProviderErrorDetail(error)
   const max = 2000
   const truncated = detail.length > max ? `${detail.slice(0, max)}…` : detail
@@ -1520,6 +1503,7 @@ type AppEnv = {
 
 export function createProviderApp(config: ProviderConfig) {
   const app = new Hono<AppEnv>().basePath(config.basePath)
+  app.onError(handleApiError)
 
   app.use("*", securityHeaders)
   app.use("*", protectedCors)
@@ -1617,7 +1601,7 @@ export function createProviderApp(config: ProviderConfig) {
       if (!parsedBody.success) {
         const zodIssues = parsedBody.error.issues
         // Alguns clientes só mostram error.message; o Zod guarda a causa em issues.
-        console.error("[modelhub] providerChatBodySchema failed", {
+        logger.warn("provider.invalid_chat_body", {
           providerId: config.providerId,
           issueCount: zodIssues.length,
           issues: zodIssues.slice(0, 32),

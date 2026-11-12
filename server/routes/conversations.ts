@@ -1,5 +1,4 @@
 import type { Context } from "hono"
-import { Hono } from "hono"
 import type { Prisma } from "../../generated/prisma/client.ts"
 import { z } from "zod"
 
@@ -17,26 +16,15 @@ import {
   resolveAttachmentKind,
 } from "../lib/conversation-attachments"
 import { prisma } from "../lib/db"
-import { jsonErrorResponse } from "../lib/provider-core"
-import {
-  authenticateAccess,
-  protectedCors,
-  securityHeaders,
-} from "../lib/security"
-import { requireAuth } from "./route-helpers"
+import { logger } from "../lib/logger"
+import { jsonErrorResponse } from "../lib/http"
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers"
 
 const MAX_REACTION_NOTE_LENGTH = 500
 const MAX_PERSISTED_MESSAGE_CONTENT_LENGTH = 2_000_000
 const MAX_CLIENT_MESSAGE_ID_LENGTH = 64
 
-const app = new Hono().basePath("/conversations")
-app.use("*", securityHeaders)
-app.use("*", protectedCors)
-app.use("*", async (c, next) => {
-  const authError = await authenticateAccess(c)
-  if (authError) return authError
-  return next()
-})
+const app = createAuthenticatedRouter("/conversations")
 
 type CreateMessageInput = {
   content?: string
@@ -353,10 +341,10 @@ async function persistMessages(
           where: { conversationId, id: { in: createdIds } },
         })
         .catch((cleanupError: unknown) => {
-          console.error(
-            "[conversations] Failed to compensate message persistence",
-            cleanupError,
-          )
+          logger.error("conversations.compensation_failed", {
+            conversationId,
+            error: cleanupError,
+          })
         })
     }
     throw error

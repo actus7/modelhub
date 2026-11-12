@@ -2,10 +2,8 @@ import { Hono } from "hono"
 import type { Context } from "hono"
 
 import { isProviderEnabled } from "../lib/catalog"
-import {
-  jsonErrorResponse,
-  vercelStreamToOpenAiSse,
-} from "../lib/provider-core"
+import { handleApiError, jsonErrorResponse } from "../lib/http"
+import { vercelStreamToOpenAiSse } from "../lib/provider-core"
 import { withProviderMetadata } from "../lib/observability"
 import {
   authenticateAccess,
@@ -477,6 +475,7 @@ async function forwardAutoWithFallback(
 }
 
 const app = new Hono()
+app.onError(handleApiError)
 app.use("*", securityHeaders)
 app.use("*", protectedCors)
 

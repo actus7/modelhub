@@ -5,6 +5,7 @@ import type { UiProvider } from '@/lib/contracts'
 import { isProviderEnabled, PROVIDER_CATALOG } from '../catalog'
 import { decryptCredential } from '../crypto'
 import { prisma } from '../db'
+import { logger } from '../logger'
 import { getProviderModels } from '../../providers/registry'
 
 export type RoutingProviderSource = {
@@ -67,11 +68,11 @@ async function getUserProviderCredentialsByProvider(userId: string): Promise<Rec
       credentialsByProvider[row.providerId] ??= {}
       credentialsByProvider[row.providerId]![row.credentialKey] = decryptCredential(row.credentialValue)
     } catch (error) {
-      console.warn('Ignoring provider credential that cannot be decrypted for routing', {
+      logger.warn('routing.credential_decrypt_failed', {
         credentialKey: row.credentialKey,
         providerId: row.providerId,
         userId,
-        error: error instanceof Error ? error.message : String(error),
+        error,
       })
     }
   }
@@ -118,9 +119,7 @@ export async function getConfiguredRoutingProviderModelReadiness(
 
   for (const result of results) {
     if (result.status === 'rejected') {
-      console.warn('Failed to load provider models for routing readiness', {
-        error: result.reason instanceof Error ? result.reason.message : String(result.reason),
-      })
+      logger.warn('routing.provider_models_failed', { error: result.reason })
     }
   }
 

@@ -1,5 +1,4 @@
 import type { Context } from "hono";
-import { Hono } from "hono";
 import { z } from "zod";
 
 import {
@@ -9,18 +8,10 @@ import {
   resolveAttachmentKind,
 } from "../lib/conversation-attachments";
 import { prisma } from "../lib/db";
-import { jsonErrorResponse } from "../lib/provider-core";
-import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
-import { requireAuth } from "./route-helpers";
+import { jsonErrorResponse } from "../lib/http";
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers";
 
-const app = new Hono().basePath("/projects");
-app.use("*", securityHeaders);
-app.use("*", protectedCors);
-app.use("*", async (c, next) => {
-  const authError = await authenticateAccess(c);
-  if (authError) return authError;
-  return next();
-});
+const app = createAuthenticatedRouter("/projects");
 
 const CONTEXT_PER_FILE_CHAR_CAP = 20_000;
 const CONTEXT_TOTAL_CHAR_CAP = 60_000;
@@ -30,6 +21,8 @@ const projectCreateSchema = z.object({
   instructions: z.string().max(20_000).optional(),
   name: z.string().trim().min(1).max(100),
 });
+
+const artifactRefreshSchema = z.object({ canvasId: z.string().min(1) });
 
 const projectUpdateSchema = z.object({
   description: z.string().max(2000).nullable().optional(),
@@ -428,9 +421,9 @@ app.post("/:id/artifacts/:artifactId/refresh", async (c) => {
   const { projectId, userId } = auth;
   const artifactId = c.req.param("artifactId");
 
-  const body = await c.req.json().catch(() => ({})) as { canvasId?: string };
-  const canvasId = body.canvasId;
-  if (!canvasId) return jsonErrorResponse(400, "canvasId is required");
+  const parsed = artifactRefreshSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "canvasId is required");
+  const { canvasId } = parsed.data;
 
   const artifact = await prisma.projectArtifact.findFirst({
     where: { id: artifactId, projectId },

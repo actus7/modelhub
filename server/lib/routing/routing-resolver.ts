@@ -1,4 +1,5 @@
 import { prisma } from "../db"
+import { logger } from "../logger"
 import {
   getCooldownRemainingMs,
   rateLimitCooldownKey,
@@ -402,13 +403,7 @@ export async function resolveRouting(input: {
   // Falha na agregação nunca derruba o roteamento — sem dados de saúde o
   // resolver volta a decidir só pela configuração, que é o comportamento antigo.
   const health = await getModelHealth(userId).catch((error) => {
-    console.warn(
-      "Falha ao carregar saúde de modelos; roteando sem esse sinal",
-      {
-        userId,
-        error: error instanceof Error ? error.message : String(error),
-      },
-    )
+    logger.warn("routing.model_health_failed", { error, userId })
     return new Map() as ModelHealthMap
   })
 

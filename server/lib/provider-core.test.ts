@@ -17,7 +17,7 @@ const mockPrisma = {
   userBudget: { findUnique: vi.fn().mockResolvedValue(null) },
 }
 
-vi.mock("../lib/db", () => ({ prisma: mockPrisma }))
+vi.mock("./db", () => ({ prisma: mockPrisma }))
 vi.mock("../env", () => ({}))
 vi.mock("@/lib/auth/server", () => ({
   auth: { getSession: vi.fn().mockResolvedValue({ data: null }) },
@@ -27,7 +27,7 @@ const {
   createProviderApp,
   MAX_PROVIDER_REQUEST_BODY_BYTES,
   resolveMessagesForProvider,
-} = await import("../lib/provider-core")
+} = await import("./provider-core")
 
 const originalRequireAuth = process.env.REQUIRE_AUTH
 

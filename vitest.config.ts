@@ -23,7 +23,7 @@ export default defineConfig({
       exclude: [
         "**/*.test.ts",
         "**/*.d.ts",
-        "server/tests/**",
+
         "generated/**",
       ],
       thresholds: {
