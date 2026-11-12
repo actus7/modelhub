@@ -3,7 +3,7 @@ import type { Context } from "hono";
 
 import { isProviderEnabled } from "../lib/catalog";
 import { handleApiError, jsonErrorResponse } from "../lib/http";
-import { vercelStreamToOpenAiSse } from "../lib/provider-core";
+import { vercelStreamToOpenAiSse } from "../lib/provider-stream";
 import { withProviderMetadata } from "../lib/observability";
 import {
   authenticateAccess,
@@ -11,6 +11,7 @@ import {
   protectedCors,
   securityHeaders,
 } from "../lib/security";
+import type { ProviderModel } from "@/lib/contracts";
 import { resolveMaxOutputTokens } from "@/lib/model-output-limits";
 import { providerRegistry, getProviderModels } from "../providers/registry";
 import {
@@ -444,7 +445,7 @@ app.use("*", protectedCors);
 // GET /v1/models — aggregated model list in OpenAI format (dynamic + cached)
 app.get("/v1/models", async (c) => {
   const data: Array<{
-    capabilities: import("../lib/provider-core").ProviderModel["capabilities"];
+    capabilities: ProviderModel["capabilities"];
     created: number;
     id: string;
     name: string;

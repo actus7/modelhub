@@ -1,15 +1,18 @@
+import type { ProviderModel } from "@/lib/contracts";
+
+import { createProviderApp, resolveEnv } from "./provider-core";
+import type { ChatMessage } from "./provider-messages";
 import {
-  createProviderApp,
-  fetchWithTimeout,
-  internalProviderErrorResponse,
-  postJsonWithTimeout,
-  resolveEnv,
   toVercelSingleTextResponse,
   toVercelStreamFromOpenAiSse,
   toVercelToolCallsResponse,
+} from "./provider-stream";
+import {
+  fetchWithTimeout,
+  internalProviderErrorResponse,
+  postJsonWithTimeout,
   upstreamErrorResponse,
-} from "./provider-core";
-import type { ChatMessage, ProviderModel } from "./provider-core";
+} from "./provider-upstream";
 import {
   getCooldownRemainingMs,
   rateLimitCooldownKey,

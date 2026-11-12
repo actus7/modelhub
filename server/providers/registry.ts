@@ -1,6 +1,6 @@
 import { DEFAULT_MODELS_CACHE_TTL_MS, getCachedModels } from "../lib/model-cache";
 import { createOpenAiCompatibleProvider } from "../lib/openai-compatible";
-import type { ProviderModel } from "../lib/provider-core";
+import type { ProviderModel } from "@/lib/contracts";
 import { PROVIDERS } from "./definitions";
 
 type ProviderEntry = {

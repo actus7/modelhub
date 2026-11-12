@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import type { ProviderModel } from "./provider-core";
+import type { ProviderModel } from "@/lib/contracts";
 
 type CacheEntry = {
   models: ProviderModel[];

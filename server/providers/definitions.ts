@@ -1,5 +1,5 @@
 import type { OpenAiCompatibleProvider } from "../lib/openai-compatible";
-import type { ProviderModel } from "../lib/provider-core";
+import type { ProviderModel } from "@/lib/contracts";
 
 type ModelFlags = Partial<ProviderModel["capabilities"]>;
 

@@ -23,8 +23,9 @@ vi.mock("@/lib/auth/server", () => ({
   auth: { getSession: vi.fn().mockResolvedValue({ data: null }) },
 }));
 
-const { createProviderApp, MAX_PROVIDER_REQUEST_BODY_BYTES, resolveMessagesForProvider } =
-  await import("./provider-core");
+const { createProviderApp } = await import("./provider-core");
+const { MAX_PROVIDER_REQUEST_BODY_BYTES, resolveMessagesForProvider } =
+  await import("./provider-messages");
 
 const originalRequireAuth = process.env.REQUIRE_AUTH;
 
