@@ -1,6 +1,6 @@
 {
   "name": "modelhub",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Hub unificado para múltiplos modelos de IA com API compatível OpenAI, chat integrado e gerenciamento de credenciais",
   "author": "ModelHub Contributors",
   "license": "MIT",
