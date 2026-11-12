@@ -62,7 +62,11 @@ describe("validateFileSelection", () => {
   });
 
   it("rejects unsupported file types", () => {
-    const { accepted, errors } = validateFileSelection([makeFile("a.zip", "application/zip", 100)], [], ALLOW_ALL);
+    const { accepted, errors } = validateFileSelection(
+      [makeFile("a.zip", "application/zip", 100)],
+      [],
+      ALLOW_ALL,
+    );
     expect(accepted).toEqual([]);
     expect(errors).toEqual(["Tipo nao suportado: a.zip."]);
   });

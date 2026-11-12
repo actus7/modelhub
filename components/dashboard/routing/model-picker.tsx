@@ -1,7 +1,7 @@
-"use client"
+"use client";
 
-import { useMemo, useState } from "react"
-import { SearchIcon } from "lucide-react"
+import { useMemo, useState } from "react";
+import { SearchIcon } from "lucide-react";
 
 import {
   Dialog,
@@ -9,19 +9,19 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { cn } from "@/lib/utils"
-import type { RoutingModelOption } from "@/lib/contracts"
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+import type { RoutingModelOption } from "@/lib/contracts";
 
-import { ProviderAvatar } from "./provider-avatar"
+import { ProviderAvatar } from "./provider-avatar";
 import {
   cleanModelName,
   costBand,
   formatPricePer1M,
   slotKey,
   type RoutingSlot,
-} from "./routing-utils"
+} from "./routing-utils";
 
 const BAND_STYLE: Record<
   Exclude<ReturnType<typeof costBand>, "unknown">,
@@ -43,18 +43,18 @@ const BAND_STYLE: Record<
     className: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
     label: "caro",
   },
-}
+};
 
 type ModelPickerProps = {
-  open: boolean
-  onOpenChange: (open: boolean) => void
-  models: RoutingModelOption[]
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  models: RoutingModelOption[];
   /** Modelos já usados nesta lane — listados como desabilitados em vez de sumirem. */
-  usedKeys: Set<string>
-  title: string
-  description: string
-  onSelect: (slot: RoutingSlot) => void
-}
+  usedKeys: Set<string>;
+  title: string;
+  description: string;
+  onSelect: (slot: RoutingSlot) => void;
+};
 
 export function ModelPicker({
   open,
@@ -65,46 +65,44 @@ export function ModelPicker({
   description,
   onSelect,
 }: Readonly<ModelPickerProps>) {
-  const [query, setQuery] = useState("")
-  const [providerFilter, setProviderFilter] = useState<string | null>(null)
+  const [query, setQuery] = useState("");
+  const [providerFilter, setProviderFilter] = useState<string | null>(null);
 
   const providers = useMemo(() => {
-    const counts = new Map<string, { label: string; total: number }>()
+    const counts = new Map<string, { label: string; total: number }>();
     for (const model of models) {
-      const entry = counts.get(model.providerId)
-      if (entry) entry.total += 1
-      else
-        counts.set(model.providerId, { label: model.providerLabel, total: 1 })
+      const entry = counts.get(model.providerId);
+      if (entry) entry.total += 1;
+      else counts.set(model.providerId, { label: model.providerLabel, total: 1 });
     }
     return [...counts]
       .map(([id, entry]) => ({ id, ...entry }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  }, [models])
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [models]);
 
   const maxOutputPer1M = useMemo(
-    () =>
-      models.reduce((max, model) => Math.max(max, model.outputPer1M ?? 0), 0),
+    () => models.reduce((max, model) => Math.max(max, model.outputPer1M ?? 0), 0),
     [models],
-  )
+  );
 
   /** Agrupa por provider: o rótulo vira cabeçalho e some de cada linha. */
   const groups = useMemo(() => {
-    const needle = query.trim().toLowerCase()
+    const needle = query.trim().toLowerCase();
     const matched = models.filter((model) => {
-      if (providerFilter && model.providerId !== providerFilter) return false
-      if (!needle) return true
+      if (providerFilter && model.providerId !== providerFilter) return false;
+      if (!needle) return true;
       return (
         model.modelId.toLowerCase().includes(needle) ||
         model.modelName.toLowerCase().includes(needle) ||
         model.providerLabel.toLowerCase().includes(needle)
-      )
-    })
+      );
+    });
 
-    const byProvider = new Map<string, RoutingModelOption[]>()
+    const byProvider = new Map<string, RoutingModelOption[]>();
     for (const model of matched) {
-      const bucket = byProvider.get(model.providerId)
-      if (bucket) bucket.push(model)
-      else byProvider.set(model.providerId, [model])
+      const bucket = byProvider.get(model.providerId);
+      if (bucket) bucket.push(model);
+      else byProvider.set(model.providerId, [model]);
     }
 
     return [...byProvider]
@@ -112,23 +110,21 @@ export function ModelPicker({
         providerId,
         providerLabel: items[0]?.providerLabel ?? providerId,
         // Mais barato primeiro: a escolha default de um router é economizar.
-        items: [...items].sort(
-          (a, b) => (a.outputPer1M ?? Infinity) - (b.outputPer1M ?? Infinity),
-        ),
+        items: [...items].sort((a, b) => (a.outputPer1M ?? Infinity) - (b.outputPer1M ?? Infinity)),
       }))
-      .sort((a, b) => a.providerLabel.localeCompare(b.providerLabel))
-  }, [models, providerFilter, query])
+      .sort((a, b) => a.providerLabel.localeCompare(b.providerLabel));
+  }, [models, providerFilter, query]);
 
-  const total = groups.reduce((sum, group) => sum + group.items.length, 0)
+  const total = groups.reduce((sum, group) => sum + group.items.length, 0);
   // Com um provider único em foco o cabeçalho de grupo só repetiria o rail.
-  const showGroupHeaders = groups.length > 1
+  const showGroupHeaders = groups.length > 1;
 
   function handleOpenChange(next: boolean) {
     if (!next) {
-      setQuery("")
-      setProviderFilter(null)
+      setQuery("");
+      setProviderFilter(null);
     }
-    onOpenChange(next)
+    onOpenChange(next);
   }
 
   return (
@@ -141,9 +137,7 @@ export function ModelPicker({
       <DialogContent className="flex max-h-[80dvh] w-[calc(100vw-2rem)] max-w-2xl flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
         <DialogHeader className="shrink-0 gap-1 px-4 pt-4 pr-12 text-left">
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription className="text-xs">
-            {description}
-          </DialogDescription>
+          <DialogDescription className="text-xs">{description}</DialogDescription>
         </DialogHeader>
 
         <div className="relative shrink-0 p-4">
@@ -203,9 +197,7 @@ export function ModelPicker({
                         size={14}
                       />
                       {group.providerLabel}
-                      <span className="font-normal normal-case">
-                        · {group.items.length}
-                      </span>
+                      <span className="font-normal normal-case">· {group.items.length}</span>
                     </h3>
                   ) : null}
                   <ul>
@@ -213,14 +205,11 @@ export function ModelPicker({
                       const key = slotKey({
                         providerId: model.providerId,
                         modelId: model.modelId,
-                      })
-                      const used = usedKeys.has(key)
-                      const band = costBand(model, maxOutputPer1M)
-                      const price = formatPricePer1M(model)
-                      const name = cleanModelName(
-                        model.modelName,
-                        model.providerLabel,
-                      )
+                      });
+                      const used = usedKeys.has(key);
+                      const band = costBand(model, maxOutputPer1M);
+                      const price = formatPricePer1M(model);
+                      const name = cleanModelName(model.modelName, model.providerLabel);
 
                       return (
                         <li key={key}>
@@ -236,15 +225,12 @@ export function ModelPicker({
                               onSelect({
                                 providerId: model.providerId,
                                 modelId: model.modelId,
-                              })
-                              handleOpenChange(false)
+                              });
+                              handleOpenChange(false);
                             }}
                             type="button"
                           >
-                            <span
-                              className="min-w-0 flex-1 truncate text-sm"
-                              title={model.modelId}
-                            >
+                            <span className="min-w-0 flex-1 truncate text-sm" title={model.modelId}>
                               {name}
                             </span>
 
@@ -275,7 +261,7 @@ export function ModelPicker({
                             )}
                           </button>
                         </li>
-                      )
+                      );
                     })}
                   </ul>
                 </section>
@@ -285,7 +271,7 @@ export function ModelPicker({
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
 
 function RailItem({
@@ -295,11 +281,11 @@ function RailItem({
   onClick,
   providerId,
 }: Readonly<{
-  active: boolean
-  count: number
-  label: string
-  onClick: () => void
-  providerId?: string
+  active: boolean;
+  count: number;
+  label: string;
+  onClick: () => void;
+  providerId?: string;
 }>) {
   return (
     <button
@@ -313,15 +299,9 @@ function RailItem({
       onClick={onClick}
       type="button"
     >
-      {providerId ? (
-        <ProviderAvatar label={label} providerId={providerId} size={14} />
-      ) : null}
+      {providerId ? <ProviderAvatar label={label} providerId={providerId} size={14} /> : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <span
-        className={cn("tabular-nums", active ? "opacity-70" : "opacity-50")}
-      >
-        {count}
-      </span>
+      <span className={cn("tabular-nums", active ? "opacity-70" : "opacity-50")}>{count}</span>
     </button>
-  )
+  );
 }

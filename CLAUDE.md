@@ -13,8 +13,10 @@ pnpm install          # Install dependencies (auto-runs prisma:generate via post
 pnpm dev              # Start dev server at localhost:3000
 pnpm build            # Production build
 pnpm lint             # ESLint
+pnpm format           # Prettier --write (pnpm format:check only verifies; CI runs it)
 pnpm typecheck        # TypeScript type checking (tsc --noEmit)
 pnpm test             # Run all tests with Vitest
+pnpm test:coverage    # Tests with coverage thresholds (vitest.config.ts)
 pnpm test -- path/to/file.test.ts  # Run a single test file
 pnpm prisma:generate  # Regenerate Prisma client
 pnpm prisma:migrate   # Run database migrations (dev)
@@ -28,6 +30,20 @@ All Prisma commands require `--config prisma.config.ts` which the npm scripts al
 ### Dual-layer server: Next.js + Hono
 
 The app runs as a **Next.js 16 App Router** application, but the API layer is a **Hono** app (`server/app.ts`) mounted via a Next.js route handler (`server/route-handler.ts`). The Hono app handles all `/v1/*` and provider-specific routes. Next.js handles pages, auth middleware, and the frontend.
+
+### Server layout
+
+- `server/app.ts` - root Hono app: request id, per-request log, `/health`, `/health/ready`, and mounting of the sub-apps.
+- `server/routes/` - one Hono sub-app per resource (`user`, `conversations`, `projects`, `canvas`, `harness`, `v1`). Authenticated ones are created with `createAuthenticatedRouter` (`route-helpers.ts`), which wires security headers, CORS, auth and the shared error handler.
+- `server/lib/` - infrastructure: `db`, `logger`, `http` (error responses), `security`, `health`, `routing/`, and the provider pipeline split by responsibility: `provider-core` (the per-provider Hono app), `provider-messages` (input schema, normalization, context), `provider-stream` (SSE conversions), `provider-upstream` (timeouts and upstream errors), `provider-usage-log`, `provider-config`.
+- `server/harness/` - agent runtime (tools, MCP).
+
+### Errors, logging and health
+
+- Expected errors return `{ error: string, ...details }` via `jsonErrorResponse` (`server/lib/http.ts`). Unexpected errors are not caught per route: every Hono app uses `handleApiError` as `onError`, which logs and returns `{ error: { message }, requestId }` with status 500.
+- Server code logs only through `logger` (`server/lib/logger.ts`): one JSON line per event, named `domain.event`, with fields as an object. `console.*` is an ESLint error under `server/`. `LOG_LEVEL` sets the minimum level (`silent` in tests). The request id is attached automatically (AsyncLocalStorage) and returned as `x-request-id`.
+- `GET /health` is liveness (no dependencies). `GET /health/ready` pings the database and returns 503 when it is unreachable.
+- External input (body, query, headers) is validated with a zod schema before use.
 
 ### Provider system
 
@@ -67,15 +83,17 @@ Vercel with the default `next build` (no `vercel.json`). Migrations are not run 
 
 ## CI
 
-GitHub Actions runs lint, typecheck, test, audit, and build in a single job on push/PR to main. Build step requires dummy env vars (see `.github/workflows/ci.yml`).
+GitHub Actions runs format:check, lint, typecheck, test, audit, and build in a single job on push/PR to main. Build step requires dummy env vars (see `.github/workflows/ci.yml`).
 
 ## Conventions
 
 - Conventional Commits: `feat(scope):`, `fix(scope):`, `docs(scope):`, etc.
 - File naming: kebab-case for files, PascalCase for components, camelCase for functions
-- 2-space indentation, single quotes, semicolons (Prettier configured in `.prettierrc`)
+- 2-space indentation, double quotes, semicolons, 100 columns (Prettier, `.prettierrc`); run `pnpm format` before committing
+- TypeScript is strict, including `noUncheckedIndexedAccess`, `noImplicitReturns` and `noUnusedLocals/Parameters`; no `any`
 - Prefer Server Components; use `"use client"` only when needed
-- Tests colocated with source files (e.g., `lib/chat-stream.test.ts`)
+- Tests colocated with source files (e.g., `lib/chat-stream.test.ts`, `server/routes/user.test.ts`); there is no separate tests directory
+- React hooks live in `hooks/`; code shared by client and server lives in `lib/`
 
 <!-- BEGIN:nextjs-agent-rules -->
 

@@ -88,8 +88,12 @@ export default function SharedContentPage() {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <div className="text-center">
-          <p className="text-lg font-medium text-foreground">{error ?? "Conteúdo não encontrado"}</p>
-          <p className="mt-2 text-sm text-muted-foreground">O link pode estar expirado ou ser inválido.</p>
+          <p className="text-lg font-medium text-foreground">
+            {error ?? "Conteúdo não encontrado"}
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            O link pode estar expirado ou ser inválido.
+          </p>
         </div>
       </div>
     );
@@ -152,7 +156,11 @@ function ConversationView({ conversation }: { conversation: SharedConversation }
                   : "bg-muted text-muted-foreground"
               }`}
             >
-              {message.role === "user" ? <UserIcon className="size-3.5" /> : <BotIcon className="size-3.5" />}
+              {message.role === "user" ? (
+                <UserIcon className="size-3.5" />
+              ) : (
+                <BotIcon className="size-3.5" />
+              )}
             </div>
             <div className="max-w-[85%] sm:max-w-[75%]">
               <div

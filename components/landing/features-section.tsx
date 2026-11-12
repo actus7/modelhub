@@ -57,8 +57,8 @@ export function FeaturesSection() {
             Tudo o que você precisa para trabalhar com IA
           </h2>
           <p className="mt-3 text-muted-foreground">
-            Uma plataforma completa para centralizar, gerenciar e consumir modelos de inteligência artificial.
-            Sem configuração complexa, sem dependências.
+            Uma plataforma completa para centralizar, gerenciar e consumir modelos de inteligência
+            artificial. Sem configuração complexa, sem dependências.
           </p>
         </div>
 

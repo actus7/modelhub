@@ -1,7 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BrainIcon, CheckIcon, Loader2Icon, PaletteIcon, PlusIcon, SaveIcon, SparklesIcon, Trash2Icon, UserIcon } from "lucide-react";
+import {
+  BrainIcon,
+  CheckIcon,
+  Loader2Icon,
+  PaletteIcon,
+  PlusIcon,
+  SaveIcon,
+  SparklesIcon,
+  Trash2Icon,
+  UserIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { useAccent } from "@/app/accent-provider";
@@ -60,7 +70,9 @@ type Props = {
 };
 
 export function SettingsDialog({ open, onOpenChange }: Props) {
-  const [tab, setTab] = useState<"instructions" | "appearance" | "memory" | "harness">("instructions");
+  const [tab, setTab] = useState<"instructions" | "appearance" | "memory" | "harness">(
+    "instructions",
+  );
   const [loading, setLoading] = useState(false);
 
   // Custom instructions state
@@ -208,7 +220,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
         }
         headers = Object.fromEntries(
           Object.entries(parsed as Record<string, unknown>).map(([key, value]) => {
-            if (typeof value !== "string") throw new Error("Todos os headers devem ter valor textual.");
+            if (typeof value !== "string")
+              throw new Error("Todos os headers devem ter valor textual.");
             return [key, value];
           }),
         );
@@ -218,7 +231,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
         name: mcpName.trim(),
         url: mcpUrl.trim(),
       });
-      setMcpServers((current) => [...current, data.server].sort((a, b) => a.name.localeCompare(b.name)));
+      setMcpServers((current) =>
+        [...current, data.server].sort((a, b) => a.name.localeCompare(b.name)),
+      );
       setMcpName("");
       setMcpUrl("");
       setMcpHeaders("");
@@ -278,7 +293,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               type="button"
               onClick={() => setTab("instructions")}
               className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                tab === "instructions" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                tab === "instructions"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               <UserIcon className="mr-1 inline-block size-3" />
@@ -288,7 +305,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               type="button"
               onClick={() => setTab("appearance")}
               className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                tab === "appearance" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                tab === "appearance"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               <PaletteIcon className="mr-1 inline-block size-3" />
@@ -298,7 +317,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               type="button"
               onClick={() => setTab("memory")}
               className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                tab === "memory" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                tab === "memory"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               <BrainIcon className="mr-1 inline-block size-3" />
@@ -308,7 +329,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
               type="button"
               onClick={() => setTab("harness")}
               className={`flex-1 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                tab === "harness" ? "bg-background shadow-sm" : "text-muted-foreground hover:text-foreground"
+                tab === "harness"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
               }`}
             >
               <SparklesIcon className="mr-1 inline-block size-3" />
@@ -337,7 +360,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                       className="min-h-[120px] w-full resize-none rounded-lg border border-border bg-background p-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                       maxLength={2000}
                     />
-                    <p className="mt-1 text-right text-[10px] text-muted-foreground">{about.length}/2000</p>
+                    <p className="mt-1 text-right text-[10px] text-muted-foreground">
+                      {about.length}/2000
+                    </p>
                   </div>
                   <div>
                     <label className="mb-1.5 block text-xs font-medium">
@@ -350,7 +375,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                       className="min-h-[120px] w-full resize-none rounded-lg border border-border bg-background p-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                       maxLength={2000}
                     />
-                    <p className="mt-1 text-right text-[10px] text-muted-foreground">{style.length}/2000</p>
+                    <p className="mt-1 text-right text-[10px] text-muted-foreground">
+                      {style.length}/2000
+                    </p>
                   </div>
                 </>
               )
@@ -384,7 +411,9 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                           )}
                           style={{ backgroundColor: ACCENT_SWATCH[option.id] }}
                         >
-                          {active ? <CheckIcon className="size-4 text-white" strokeWidth={3} /> : null}
+                          {active ? (
+                            <CheckIcon className="size-4 text-white" strokeWidth={3} />
+                          ) : null}
                         </span>
                         <span className="text-[10px] font-medium text-muted-foreground group-hover:text-foreground">
                           {option.label}
@@ -397,7 +426,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             ) : tab === "memory" ? (
               <div className="flex flex-col gap-3">
                 <p className="text-xs text-muted-foreground">
-                  Memórias são fatos que a IA lembra entre conversas. Adicione apenas o que deve persistir.
+                  Memórias são fatos que a IA lembra entre conversas. Adicione apenas o que deve
+                  persistir.
                 </p>
                 <div className="flex gap-2">
                   <input
@@ -410,7 +440,11 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                     className="flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                     maxLength={500}
                   />
-                  <Button size="sm" onClick={() => void handleAddMemory()} disabled={!newMemory.trim()}>
+                  <Button
+                    size="sm"
+                    onClick={() => void handleAddMemory()}
+                    disabled={!newMemory.trim()}
+                  >
                     Adicionar
                   </Button>
                 </div>
@@ -462,7 +496,10 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {capabilities.map((capability) => (
-                      <div key={capability.id} className="rounded-lg border border-border/60 bg-background p-2.5">
+                      <div
+                        key={capability.id}
+                        className="rounded-lg border border-border/60 bg-background p-2.5"
+                      >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-medium">{capability.id}</span>
                           <span
@@ -488,7 +525,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                   <div>
                     <h3 className="text-sm font-medium">MCP remoto</h3>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Conecte endpoints HTTP/SSE públicos. Headers são criptografados e não voltam para o navegador.
+                      Conecte endpoints HTTP/SSE públicos. Headers são criptografados e não voltam
+                      para o navegador.
                     </p>
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
@@ -530,10 +568,15 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                       </p>
                     ) : (
                       mcpServers.map((server) => (
-                        <div key={server.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-2">
+                        <div
+                          key={server.id}
+                          className="flex items-center gap-3 rounded-lg border border-border/60 bg-background px-3 py-2"
+                        >
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-medium">{server.name}</p>
-                            <p className="truncate text-[10px] text-muted-foreground">{server.url}</p>
+                            <p className="truncate text-[10px] text-muted-foreground">
+                              {server.url}
+                            </p>
                           </div>
                           <Button
                             size="icon-xs"
@@ -553,7 +596,8 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                   <div>
                     <h3 className="text-sm font-medium">Skills persistentes</h3>
                     <p className="mt-0.5 text-xs text-muted-foreground">
-                      Instruções especializadas carregadas no prompt do agente em todas as conversas.
+                      Instruções especializadas carregadas no prompt do agente em todas as
+                      conversas.
                     </p>
                   </div>
                   <input
@@ -587,7 +631,10 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
                       </p>
                     ) : (
                       skills.map((skill) => (
-                        <div key={skill.id} className="flex items-start gap-3 rounded-lg border border-border/60 bg-background px-3 py-2">
+                        <div
+                          key={skill.id}
+                          className="flex items-start gap-3 rounded-lg border border-border/60 bg-background px-3 py-2"
+                        >
                           <SparklesIcon className="mt-0.5 size-3 shrink-0 text-primary" />
                           <div className="min-w-0 flex-1">
                             <p className="text-xs font-medium">{skill.name}</p>
@@ -615,8 +662,15 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
 
         {tab === "instructions" ? (
           <SheetFooter className="border-t border-border/60">
-            <Button onClick={() => void handleSaveInstructions()} disabled={savingInstructions || loading}>
-              {savingInstructions ? <Loader2Icon className="mr-1 size-3 animate-spin" /> : <SaveIcon className="mr-1 size-3" />}
+            <Button
+              onClick={() => void handleSaveInstructions()}
+              disabled={savingInstructions || loading}
+            >
+              {savingInstructions ? (
+                <Loader2Icon className="mr-1 size-3 animate-spin" />
+              ) : (
+                <SaveIcon className="mr-1 size-3" />
+              )}
               Salvar instruções
             </Button>
           </SheetFooter>

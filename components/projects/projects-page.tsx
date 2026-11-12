@@ -21,7 +21,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -77,7 +84,8 @@ export function ProjectsPage() {
         <div>
           <h1 className="text-base font-semibold">Projetos</h1>
           <p className="hidden text-xs text-muted-foreground sm:block">
-            Contexto compartilhado: instruções, arquivos de conhecimento e artefatos para as conversas.
+            Contexto compartilhado: instruções, arquivos de conhecimento e artefatos para as
+            conversas.
           </p>
         </div>
         <div className="flex items-center gap-1">
@@ -121,7 +129,8 @@ export function ProjectsPage() {
                 </EmptyMedia>
                 <EmptyTitle>Nenhum projeto ainda</EmptyTitle>
                 <EmptyDescription>
-                  Organize conversas, arquivos e artefatos em um contexto persistente com instruções próprias.
+                  Organize conversas, arquivos e artefatos em um contexto persistente com instruções
+                  próprias.
                 </EmptyDescription>
               </EmptyHeader>
               <EmptyContent>
@@ -170,7 +179,11 @@ export function ProjectsPage() {
         )}
       </div>
 
-      <CreateProjectDialog onCreated={handleCreated} onOpenChange={setCreateOpen} open={createOpen} />
+      <CreateProjectDialog
+        onCreated={handleCreated}
+        onOpenChange={setCreateOpen}
+        open={createOpen}
+      />
     </div>
   );
 }
@@ -224,7 +237,8 @@ function CreateProjectDialog({
         <DialogHeader>
           <DialogTitle>Novo projeto</DialogTitle>
           <DialogDescription>
-            Instruções e arquivos do projeto são injetados no contexto de todas as conversas vinculadas.
+            Instruções e arquivos do projeto são injetados no contexto de todas as conversas
+            vinculadas.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -259,7 +273,9 @@ function CreateProjectDialog({
               placeholder="Diretrizes aplicadas a todas as conversas do projeto (tom, formato, regras…)"
               value={instructions}
             />
-            <FieldDescription>Injetadas no system context de cada mensagem enviada no projeto.</FieldDescription>
+            <FieldDescription>
+              Injetadas no system context de cada mensagem enviada no projeto.
+            </FieldDescription>
           </Field>
         </FieldGroup>
         <div className="mt-2 flex justify-end gap-2">

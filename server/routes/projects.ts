@@ -1,5 +1,4 @@
 import type { Context } from "hono";
-import { Hono } from "hono";
 import { z } from "zod";
 
 import {
@@ -9,18 +8,10 @@ import {
   resolveAttachmentKind,
 } from "../lib/conversation-attachments";
 import { prisma } from "../lib/db";
-import { jsonErrorResponse } from "../lib/provider-core";
-import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
-import { requireAuth } from "./route-helpers";
+import { jsonErrorResponse } from "../lib/http";
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers";
 
-const app = new Hono().basePath("/projects");
-app.use("*", securityHeaders);
-app.use("*", protectedCors);
-app.use("*", async (c, next) => {
-  const authError = await authenticateAccess(c);
-  if (authError) return authError;
-  return next();
-});
+const app = createAuthenticatedRouter("/projects");
 
 const CONTEXT_PER_FILE_CHAR_CAP = 20_000;
 const CONTEXT_TOTAL_CHAR_CAP = 60_000;
@@ -31,13 +22,15 @@ const projectCreateSchema = z.object({
   name: z.string().trim().min(1).max(100),
 });
 
+const artifactRefreshSchema = z.object({ canvasId: z.string().min(1) });
+
 const projectUpdateSchema = z.object({
   description: z.string().max(2000).nullable().optional(),
   instructions: z.string().max(20_000).nullable().optional(),
   name: z.string().trim().min(1).max(100).optional(),
 });
 
-async function requireProject(c: Context, userId: string, projectId: string) {
+async function requireProject(userId: string, projectId: string) {
   const project = await prisma.project.findFirst({
     where: { id: projectId, userId },
   });
@@ -57,7 +50,7 @@ async function authorizeProject(c: Context): Promise<AuthorizedProject | Respons
   const projectId = c.req.param("id");
   if (!projectId) return jsonErrorResponse(404, "Project not found");
 
-  const project = await requireProject(c, userId, projectId);
+  const project = await requireProject(userId, projectId);
   if (!project) return jsonErrorResponse(404, "Project not found");
 
   return { project, projectId, userId };
@@ -115,7 +108,14 @@ app.post("/", async (c) => {
       name: parsed.data.name,
       userId,
     },
-    select: { createdAt: true, description: true, id: true, instructions: true, name: true, updatedAt: true },
+    select: {
+      createdAt: true,
+      description: true,
+      id: true,
+      instructions: true,
+      name: true,
+      updatedAt: true,
+    },
   });
 
   return c.json({ project }, 201);
@@ -162,7 +162,14 @@ app.patch("/:id", async (c) => {
   const project = await prisma.project.update({
     where: { id: projectId },
     data: parsed.data,
-    select: { createdAt: true, description: true, id: true, instructions: true, name: true, updatedAt: true },
+    select: {
+      createdAt: true,
+      description: true,
+      id: true,
+      instructions: true,
+      name: true,
+      updatedAt: true,
+    },
   });
 
   return c.json({ project });
@@ -330,7 +337,10 @@ app.delete("/:id/files/:fileId", async (c) => {
   const { projectId } = auth;
   const fileId = c.req.param("fileId");
 
-  const file = await prisma.projectFile.findFirst({ where: { id: fileId, projectId }, select: { id: true } });
+  const file = await prisma.projectFile.findFirst({
+    where: { id: fileId, projectId },
+    select: { id: true },
+  });
   if (!file) return jsonErrorResponse(404, "File not found");
 
   await prisma.projectFile.delete({ where: { id: file.id } });
@@ -428,9 +438,9 @@ app.post("/:id/artifacts/:artifactId/refresh", async (c) => {
   const { projectId, userId } = auth;
   const artifactId = c.req.param("artifactId");
 
-  const body = await c.req.json().catch(() => ({})) as { canvasId?: string };
-  const canvasId = body.canvasId;
-  if (!canvasId) return jsonErrorResponse(400, "canvasId is required");
+  const parsed = artifactRefreshSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "canvasId is required");
+  const { canvasId } = parsed.data;
 
   const artifact = await prisma.projectArtifact.findFirst({
     where: { id: artifactId, projectId },
@@ -476,7 +486,9 @@ app.post("/:id/artifacts/:artifactId/refresh", async (c) => {
 
   const refreshed = await prisma.projectArtifact.findFirst({
     where: { id: artifactId, projectId },
-    include: { versions: { orderBy: { version: "desc" }, select: { createdAt: true, version: true } } },
+    include: {
+      versions: { orderBy: { version: "desc" }, select: { createdAt: true, version: true } },
+    },
   });
 
   const activeContent = await prisma.artifactVersion.findUnique({
@@ -519,7 +531,10 @@ app.get("/:id/context", async (c) => {
   const knowledge: Array<{ fileName: string; text: string }> = [];
   for (const file of files) {
     if (remaining <= 0) break;
-    const text = (file.extractedText ?? "").slice(0, Math.min(CONTEXT_PER_FILE_CHAR_CAP, remaining));
+    const text = (file.extractedText ?? "").slice(
+      0,
+      Math.min(CONTEXT_PER_FILE_CHAR_CAP, remaining),
+    );
     if (!text) continue;
     knowledge.push({ fileName: file.fileName, text });
     remaining -= text.length;

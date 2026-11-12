@@ -1,35 +1,35 @@
-import type { HarnessEvent, HarnessEventType } from "../../lib/harness/contracts"
-import { prisma } from "../lib/db"
-import { toHarnessJson } from "./json"
+import type { HarnessEvent, HarnessEventType } from "../../lib/harness/contracts";
+import { prisma } from "../lib/db";
+import { toHarnessJson } from "./json";
 
 type AppendEventInput = {
-  conversationId: string
-  createdAt?: Date
-  id?: string
-  payload?: Record<string, unknown>
-  runId?: string | null
-  stepId?: string | null
-  turnId?: string | null
-  type: HarnessEventType | (string & {})
-}
+  conversationId: string;
+  createdAt?: Date;
+  id?: string;
+  payload?: Record<string, unknown>;
+  runId?: string | null;
+  stepId?: string | null;
+  turnId?: string | null;
+  type: HarnessEventType | (string & {});
+};
 
 export class HarnessLeaseLostError extends Error {
   constructor() {
-    super("Harness run lease was lost or the run was cancelled")
-    this.name = "HarnessLeaseLostError"
+    super("Harness run lease was lost or the run was cancelled");
+    this.name = "HarnessLeaseLostError";
   }
 }
 
 export function serializeHarnessEvent(event: {
-  conversationId: string
-  createdAt: Date
-  id: string
-  payload: unknown
-  runId: string | null
-  seq: bigint
-  stepId: string | null
-  turnId: string | null
-  type: string
+  conversationId: string;
+  createdAt: Date;
+  id: string;
+  payload: unknown;
+  runId: string | null;
+  seq: bigint;
+  stepId: string | null;
+  turnId: string | null;
+  type: string;
 }): HarnessEvent {
   return {
     conversationId: event.conversationId,
@@ -41,7 +41,7 @@ export function serializeHarnessEvent(event: {
     stepId: event.stepId,
     turnId: event.turnId,
     type: event.type,
-  }
+  };
 }
 
 export async function appendHarnessEvent(input: AppendEventInput): Promise<HarnessEvent> {
@@ -56,8 +56,8 @@ export async function appendHarnessEvent(input: AppendEventInput): Promise<Harne
       turnId: input.turnId ?? null,
       type: input.type,
     },
-  })
-  return serializeHarnessEvent(event)
+  });
+  return serializeHarnessEvent(event);
 }
 
 export async function listHarnessEvents(
@@ -69,25 +69,25 @@ export async function listHarnessEvents(
     where: { conversationId, seq: { gt: after } },
     orderBy: { seq: "asc" },
     take: Math.min(Math.max(take, 1), 1_000),
-  })
-  return events.map(serializeHarnessEvent)
+  });
+  return events.map(serializeHarnessEvent);
 }
 
 export async function collectHarnessEventPages(
   fetchPage: (after: bigint) => Promise<HarnessEvent[]>,
 ): Promise<HarnessEvent[]> {
-  const result: HarnessEvent[] = []
-  let after = 0n
+  const result: HarnessEvent[] = [];
+  let after = 0n;
   while (true) {
-    const page = await fetchPage(after)
-    result.push(...page)
-    if (page.length < 1_000) return result
-    after = BigInt(page.at(-1)!.seq)
+    const page = await fetchPage(after);
+    result.push(...page);
+    if (page.length < 1_000) return result;
+    after = BigInt(page.at(-1)!.seq);
   }
 }
 
 export async function listAllHarnessEvents(conversationId: string): Promise<HarnessEvent[]> {
-  return collectHarnessEventPages((after) => listHarnessEvents(conversationId, after, 1_000))
+  return collectHarnessEventPages((after) => listHarnessEvents(conversationId, after, 1_000));
 }
 
 export async function ensureLegacyMessageEvents(conversationId: string): Promise<void> {
@@ -95,8 +95,8 @@ export async function ensureLegacyMessageEvents(conversationId: string): Promise
     where: { conversationId },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     select: { content: true, createdAt: true, id: true, parts: true, role: true },
-  })
-  if (messages.length === 0) return
+  });
+  if (messages.length === 0) return;
 
   await prisma.sessionEvent.createMany({
     data: messages.map((message) => ({
@@ -113,5 +113,5 @@ export async function ensureLegacyMessageEvents(conversationId: string): Promise
       type: message.role === "assistant" ? "assistant/message" : "user/message",
     })),
     skipDuplicates: true,
-  })
+  });
 }

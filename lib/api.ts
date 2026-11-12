@@ -13,9 +13,11 @@ export async function apiJson<T>(input: RequestInfo | URL, init?: RequestInit): 
   if (!response.ok) {
     let errorMessage = `HTTP ${response.status}`;
     try {
-      const payload = (await response.json()) as { error?: string };
-      if (payload.error) {
-        errorMessage = payload.error;
+      // Erros esperados vêm como `{ error: string }`; falhas não tratadas como `{ error: { message } }`.
+      const payload = (await response.json()) as { error?: string | { message?: string } };
+      const message = typeof payload.error === "string" ? payload.error : payload.error?.message;
+      if (message) {
+        errorMessage = message;
       }
     } catch {
       // Keep fallback status message.
@@ -57,7 +59,9 @@ export async function testProviderCredentials(
     },
   });
 
-  const json = (await response.json().catch(() => ({ ok: false, error: "Resposta inválida do servidor." }))) as {
+  const json = (await response
+    .json()
+    .catch(() => ({ ok: false, error: "Resposta inválida do servidor." }))) as {
     ok: boolean;
     error?: string;
     skipped?: boolean;

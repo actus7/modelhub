@@ -78,9 +78,13 @@ export function ApiQuickStartSection() {
             Use com qualquer ferramenta que você já conhece
           </h2>
           <p className="mx-auto mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-base">
-            Troque a base URL do seu código existente e pronto. A API do ModelHub é 100%
-            compatível com a OpenAI — funciona com o SDK oficial, LangChain, Assistants e
-            qualquer cliente que suporte o formato <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">/v1/chat/completions</code>.
+            Troque a base URL do seu código existente e pronto. A API do ModelHub é 100% compatível
+            com a OpenAI — funciona com o SDK oficial, LangChain, Assistants e qualquer cliente que
+            suporte o formato{" "}
+            <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-medium">
+              /v1/chat/completions
+            </code>
+            .
           </p>
         </div>
 
@@ -134,11 +138,7 @@ export function ApiQuickStartSection() {
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <Button onClick={handleCopySnippet} variant="outline" size="sm">
-                {copied ? (
-                  <CheckIcon className="size-3.5" />
-                ) : (
-                  <CopyIcon className="size-3.5" />
-                )}
+                {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
                 {copied ? "Código copiado" : "Copiar código"}
               </Button>
               <AuthButtons size="sm" />

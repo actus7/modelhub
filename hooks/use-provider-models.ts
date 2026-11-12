@@ -55,11 +55,7 @@ type UseProviderModelsReturn = {
 };
 
 export function useProviderModels(input: UseProviderModelsInput): UseProviderModelsReturn {
-  const {
-    selectedProvider,
-    selectedProviderId,
-    selectedProviderReady,
-  } = input;
+  const { selectedProvider, selectedProviderId, selectedProviderReady } = input;
 
   const [models, setModels] = useState<ProviderModel[]>([]);
   const [selectedModelId, setSelectedModelId] = useState("");
@@ -126,11 +122,7 @@ export function useProviderModels(input: UseProviderModelsInput): UseProviderMod
     return () => {
       cancelled = true;
     };
-  }, [
-    selectedProvider,
-    selectedProviderId,
-    selectedProviderReady,
-  ]);
+  }, [selectedProvider, selectedProviderId, selectedProviderReady]);
 
   useEffect(() => {
     if (!selectedProvider || !selectedModelId || typeof globalThis.window === "undefined") return;

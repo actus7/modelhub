@@ -9,12 +9,9 @@ import {
   type HydratedConversationMessagePart,
 } from "@/lib/chat-parts";
 
-const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
-  "image/gif",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
+import { logger } from "./logger";
+
+const IMAGE_ATTACHMENT_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 
 const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
   "application/pdf",
@@ -32,7 +29,7 @@ const XML_ENTITY_MAP: Record<string, string> = {
   apos: "'",
   gt: ">",
   lt: "<",
-  quot: "\"",
+  quot: '"',
 };
 
 type StoredAttachmentRecord = {
@@ -79,7 +76,11 @@ export function getAttachmentValidationError(file: File): string | null {
 }
 
 function sanitizeExtractedText(text: string): string {
-  return text.replace(/\u0000/g, "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return text
+    .replace(/\u0000/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function decodeXmlEntities(value: string): string {
@@ -101,7 +102,7 @@ function extractTaggedText(xml: string, tagName: string): string[] {
   const values: string[] = [];
   let match: RegExpExecArray | null;
   while ((match = regex.exec(xml)) !== null) {
-    const value = decodeXmlEntities(match[1].replace(/[<>]/g, ""));
+    const value = decodeXmlEntities((match[1] ?? "").replace(/[<>]/g, ""));
     if (value.trim()) {
       values.push(value.trim());
     }
@@ -154,7 +155,10 @@ async function extractDocxText(buffer: Uint8Array): Promise<string> {
 
 async function extractPptxText(buffer: Uint8Array): Promise<string> {
   const zip = await JSZip.loadAsync(buffer);
-  const slides = zip.file(/ppt\/slides\/slide\d+\.xml$/).map((file) => file.name).sort();
+  const slides = zip
+    .file(/ppt\/slides\/slide\d+\.xml$/)
+    .map((file) => file.name)
+    .sort();
   const deckText: string[] = [];
 
   for (const slideName of slides) {
@@ -175,7 +179,7 @@ async function extractPptxText(buffer: Uint8Array): Promise<string> {
 function columnLabelToIndex(label: string): number {
   let value = 0;
   for (const char of label.toUpperCase()) {
-    value = (value * 26) + (char.charCodeAt(0) - 64);
+    value = value * 26 + (char.charCodeAt(0) - 64);
   }
   return value - 1;
 }
@@ -190,8 +194,9 @@ function extractWorksheetRows(xml: string, sharedStrings: string[]): string[] {
     const cells = new Map<number, string>();
     let cellMatch: RegExpExecArray | null;
 
-    while ((cellMatch = cellRegex.exec(rowMatch[1])) !== null) {
-      const attrs = cellMatch[1];
+    while ((cellMatch = cellRegex.exec(rowMatch[1] ?? "")) !== null) {
+      const attrs = cellMatch[1] ?? "";
+      const cellBody = cellMatch[2] ?? "";
       const cellRef = /r="([A-Z]+)\d+"/.exec(attrs)?.[1];
       const cellType = /t="([^"]+)"/.exec(attrs)?.[1];
       if (!cellRef) {
@@ -200,8 +205,8 @@ function extractWorksheetRows(xml: string, sharedStrings: string[]): string[] {
 
       const cellIndex = columnLabelToIndex(cellRef);
       let value = "";
-      const sharedIndex = /<v>(.*?)<\/v>/s.exec(cellMatch[2])?.[1];
-      const inlineValue = extractTaggedText(cellMatch[2], "t").join(" ");
+      const sharedIndex = /<v>(.*?)<\/v>/s.exec(cellBody)?.[1];
+      const inlineValue = extractTaggedText(cellBody, "t").join(" ");
 
       if (cellType === "s" && sharedIndex) {
         value = sharedStrings[Number.parseInt(sharedIndex, 10)] ?? "";
@@ -235,7 +240,10 @@ async function extractXlsxText(buffer: Uint8Array): Promise<string> {
   const zip = await JSZip.loadAsync(buffer);
   const sharedStringsXml = await zip.file("xl/sharedStrings.xml")?.async("text");
   const sharedStrings = sharedStringsXml ? extractTaggedText(sharedStringsXml, "t") : [];
-  const worksheetFiles = zip.file(/xl\/worksheets\/sheet\d+\.xml$/).map((file) => file.name).sort();
+  const worksheetFiles = zip
+    .file(/xl\/worksheets\/sheet\d+\.xml$/)
+    .map((file) => file.name)
+    .sort();
   const sheets: string[] = [];
 
   for (const worksheetName of worksheetFiles) {
@@ -285,7 +293,7 @@ export async function extractDocumentText(input: {
 
     return { extractedText, extractionStatus: "completed" };
   } catch (error) {
-    console.error("[attachments] document extraction failed", error);
+    logger.error("attachments.extraction_failed", { error });
     return { extractedText: null, extractionStatus: "failed" };
   }
 }
@@ -315,7 +323,9 @@ function toAttachmentDescriptor(
  * the text nor attachment shape. Shared by stored-part parsing and incoming
  * client-payload normalization so the validation rules stay in one place.
  */
-export function parseSingleMessagePart(rawPart: Record<string, unknown>): ConversationMessagePart | null {
+export function parseSingleMessagePart(
+  rawPart: Record<string, unknown>,
+): ConversationMessagePart | null {
   if (rawPart.type === "text" && typeof rawPart.text === "string") {
     return { text: rawPart.text, type: "text" };
   }
@@ -336,10 +346,7 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
     };
   }
 
-  if (
-    rawPart.type === "meta" &&
-    typeof rawPart.modelLabel === "string"
-  ) {
+  if (rawPart.type === "meta" && typeof rawPart.modelLabel === "string") {
     return { modelLabel: rawPart.modelLabel, type: "meta" };
   }
 
@@ -350,9 +357,7 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
       return (
         typeof record.toolCallId === "string" &&
         typeof record.toolName === "string" &&
-        ["completed", "pending-approval", "running"].includes(
-          String(record.status),
-        )
+        ["completed", "pending-approval", "running"].includes(String(record.status))
       );
     });
     return {
@@ -373,11 +378,12 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
   return null;
 }
 
-function parseStoredMessageParts(value: Prisma.JsonValue | null, fallbackContent: string): ConversationMessagePart[] {
+function parseStoredMessageParts(
+  value: Prisma.JsonValue | null,
+  fallbackContent: string,
+): ConversationMessagePart[] {
   if (!Array.isArray(value)) {
-    return fallbackContent
-      ? [{ text: fallbackContent, type: "text" }]
-      : [];
+    return fallbackContent ? [{ text: fallbackContent, type: "text" }] : [];
   }
 
   const parts: ConversationMessagePart[] = [];

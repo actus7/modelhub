@@ -1,8 +1,8 @@
-"use client"
+"use client";
 
-import { useMemo, useState } from "react"
-import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeftIcon,
   CheckCircle2Icon,
@@ -13,11 +13,11 @@ import {
   SearchIcon,
   SparklesIcon,
   Trash2Icon,
-} from "lucide-react"
-import { toast } from "sonner"
+} from "lucide-react";
+import { toast } from "sonner";
 
-import { useAppState } from "@/components/app-state-provider"
-import { ProviderAvatar } from "@/components/dashboard/routing/provider-avatar"
+import { useAppState } from "@/components/app-state-provider";
+import { ProviderAvatar } from "@/components/dashboard/routing/provider-avatar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,37 +27,43 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { Input } from "@/components/ui/input"
-import { Skeleton } from "@/components/ui/skeleton"
-import { apiJsonRequest } from "@/lib/api"
-import type { ProviderModel } from "@/lib/contracts"
-import { providerHasRequiredCredentials } from "@/lib/provider-credentials"
-import { saveProviderCredentials } from "@/lib/save-provider-credentials"
-import { useProviderModels } from "@/lib/use-provider-models"
+} from "@/components/ui/alert-dialog";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { apiJsonRequest } from "@/lib/api";
+import type { ProviderModel } from "@/lib/contracts";
+import { providerHasRequiredCredentials } from "@/lib/provider-credentials";
+import { saveProviderCredentials } from "@/lib/save-provider-credentials";
+import { useProviderModels } from "@/hooks/use-provider-models";
 
 function formatUpdatedAt(value: string | undefined): string {
-  if (!value) return "data indisponível"
+  if (!value) return "data indisponível";
   return new Intl.DateTimeFormat("pt-BR", {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value))
+  }).format(new Date(value));
 }
 
 function modelCapabilityLabels(model: ProviderModel): string[] {
-  const labels: string[] = []
-  if (model.capabilities.reasoning) labels.push("Raciocínio")
-  if (model.capabilities.tools) labels.push("Ferramentas")
-  if (model.capabilities.images) labels.push("Imagens")
-  if (model.capabilities.documents) labels.push("Documentos")
-  if (model.capabilities.fast) labels.push("Rápido")
-  return labels
+  const labels: string[] = [];
+  if (model.capabilities.reasoning) labels.push("Raciocínio");
+  if (model.capabilities.tools) labels.push("Ferramentas");
+  if (model.capabilities.images) labels.push("Imagens");
+  if (model.capabilities.documents) labels.push("Documentos");
+  if (model.capabilities.fast) labels.push("Rápido");
+  return labels;
 }
 
 function ProviderDetailSkeleton() {
@@ -74,26 +80,22 @@ function ProviderDetailSkeleton() {
       <Skeleton className="h-56 w-full rounded-xl" />
       <Skeleton className="h-72 w-full rounded-xl" />
     </div>
-  )
+  );
 }
 
 export function ProviderDetail({ providerId }: { providerId: string }) {
-  const router = useRouter()
-  const {
-    authReady,
-    credentials,
-    providers,
-    refreshCredentials,
-    refreshUser,
-  } = useAppState()
-  const provider = providers.find((item) => item.id === providerId) ?? null
-  const [credentialValues, setCredentialValues] = useState<Record<string, string>>({})
-  const [saving, setSaving] = useState(false)
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
-  const [deleting, setDeleting] = useState(false)
-  const [modelQuery, setModelQuery] = useState("")
-  const ready = providerHasRequiredCredentials(provider, credentials)
-  const providerCredentials = credentials.filter((credential) => credential.providerId === providerId)
+  const router = useRouter();
+  const { authReady, credentials, providers, refreshCredentials, refreshUser } = useAppState();
+  const provider = providers.find((item) => item.id === providerId) ?? null;
+  const [credentialValues, setCredentialValues] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [modelQuery, setModelQuery] = useState("");
+  const ready = providerHasRequiredCredentials(provider, credentials);
+  const providerCredentials = credentials.filter(
+    (credential) => credential.providerId === providerId,
+  );
   const {
     loading: loadingModels,
     models,
@@ -103,17 +105,18 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
     selectedProvider: provider,
     selectedProviderId: provider?.id ?? "",
     selectedProviderReady: ready,
-  })
+  });
   const filteredModels = useMemo(() => {
-    const needle = modelQuery.trim().toLocaleLowerCase("pt-BR")
-    if (!needle) return models
+    const needle = modelQuery.trim().toLocaleLowerCase("pt-BR");
+    if (!needle) return models;
     return models.filter((model) =>
-      [model.name, model.id, ...modelCapabilityLabels(model)]
-        .some((value) => value.toLocaleLowerCase("pt-BR").includes(needle)),
-    )
-  }, [modelQuery, models])
+      [model.name, model.id, ...modelCapabilityLabels(model)].some((value) =>
+        value.toLocaleLowerCase("pt-BR").includes(needle),
+      ),
+    );
+  }, [modelQuery, models]);
 
-  if (!authReady) return <ProviderDetailSkeleton />
+  if (!authReady) return <ProviderDetailSkeleton />;
 
   if (!provider) {
     return (
@@ -130,55 +133,57 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
               <SearchIcon />
             </EmptyMedia>
             <EmptyTitle>Provedor não encontrado</EmptyTitle>
-            <EmptyDescription>Esta integração não está disponível no catálogo atual.</EmptyDescription>
+            <EmptyDescription>
+              Esta integração não está disponível no catálogo atual.
+            </EmptyDescription>
           </EmptyHeader>
         </Empty>
       </div>
-    )
+    );
   }
 
-  const activeProvider = provider
+  const activeProvider = provider;
 
   async function handleSaveCredentials() {
-    if (!provider) return
-    setSaving(true)
+    if (!provider) return;
+    setSaving(true);
     try {
-      const result = await saveProviderCredentials(provider, credentialValues)
+      const result = await saveProviderCredentials(provider, credentialValues);
       if (!result.ok) {
-        toast.error(result.error)
-        return
+        toast.error(result.error);
+        return;
       }
-      setCredentialValues({})
-      await Promise.all([refreshCredentials(), refreshUser()])
-      toast.success(`${provider.label} conectado ao ModelHub.`)
+      setCredentialValues({});
+      await Promise.all([refreshCredentials(), refreshUser()]);
+      toast.success(`${provider.label} conectado ao ModelHub.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao salvar credenciais.")
+      toast.error(error instanceof Error ? error.message : "Falha ao salvar credenciais.");
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
   }
 
   async function handleDeleteCredentials() {
-    setDeleting(true)
+    setDeleting(true);
     try {
       for (const credential of providerCredentials) {
-        await apiJsonRequest(`/user/credentials/${credential.id}`, "DELETE")
+        await apiJsonRequest(`/user/credentials/${credential.id}`, "DELETE");
       }
-      await Promise.all([refreshCredentials(), refreshUser()])
-      setDeleteDialogOpen(false)
-      toast.success(`Conexão com ${activeProvider.label} removida.`)
+      await Promise.all([refreshCredentials(), refreshUser()]);
+      setDeleteDialogOpen(false);
+      toast.success(`Conexão com ${activeProvider.label} removida.`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Falha ao remover conexão.")
+      toast.error(error instanceof Error ? error.message : "Falha ao remover conexão.");
     } finally {
-      setDeleting(false)
+      setDeleting(false);
     }
   }
 
   function handleUseInChat() {
-    if (!selectedModelId) return
-    globalThis.localStorage.setItem("selected-provider", activeProvider.id)
-    globalThis.localStorage.setItem(`selected-model:${activeProvider.id}`, selectedModelId)
-    router.push("/chat")
+    if (!selectedModelId) return;
+    globalThis.localStorage.setItem("selected-provider", activeProvider.id);
+    globalThis.localStorage.setItem(`selected-model:${activeProvider.id}`, selectedModelId);
+    router.push("/chat");
   }
 
   return (
@@ -204,7 +209,11 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                 {provider.label}
               </h1>
               <Badge variant={ready ? "secondary" : "outline"}>
-                {ready ? <CheckCircle2Icon data-icon="inline-start" /> : <KeyRoundIcon data-icon="inline-start" />}
+                {ready ? (
+                  <CheckCircle2Icon data-icon="inline-start" />
+                ) : (
+                  <KeyRoundIcon data-icon="inline-start" />
+                )}
                 {ready ? "Pronto" : "Configuração necessária"}
               </Badge>
             </div>
@@ -229,67 +238,80 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
-            <div className="flex flex-col gap-5">
-              {ready ? (
-                <Alert>
-                  <CheckCircle2Icon />
-                  <AlertTitle>Credenciais ativas</AlertTitle>
-                  <AlertDescription>
-                    {providerCredentials.map((credential) => (
-                      <span className="block" key={credential.id}>
-                        {credential.credentialKey} · atualizada em {formatUpdatedAt(credential.updatedAt)}
-                      </span>
-                    ))}
-                  </AlertDescription>
-                </Alert>
-              ) : null}
+          <div className="flex flex-col gap-5">
+            {ready ? (
+              <Alert>
+                <CheckCircle2Icon />
+                <AlertTitle>Credenciais ativas</AlertTitle>
+                <AlertDescription>
+                  {providerCredentials.map((credential) => (
+                    <span className="block" key={credential.id}>
+                      {credential.credentialKey} · atualizada em{" "}
+                      {formatUpdatedAt(credential.updatedAt)}
+                    </span>
+                  ))}
+                </AlertDescription>
+              </Alert>
+            ) : null}
 
-              {provider.signupUrl ? (
-                <Button asChild variant="outline" className="w-fit">
-                  <a href={provider.signupUrl} rel="noopener noreferrer" target="_blank">
-                    <ExternalLinkIcon data-icon="inline-start" />
-                    {provider.signupLabel ?? "Obter chave no provedor"}
-                  </a>
-                </Button>
-              ) : null}
+            {provider.signupUrl ? (
+              <Button asChild variant="outline" className="w-fit">
+                <a href={provider.signupUrl} rel="noopener noreferrer" target="_blank">
+                  <ExternalLinkIcon data-icon="inline-start" />
+                  {provider.signupLabel ?? "Obter chave no provedor"}
+                </a>
+              </Button>
+            ) : null}
 
-              <FieldGroup>
-                {(provider.requiredKeys ?? []).map((field) => (
-                  <Field key={field.envName}>
-                    <FieldLabel htmlFor={field.envName}>{field.label}</FieldLabel>
-                    <Input
-                      autoComplete="off"
-                      id={field.envName}
-                      onChange={(event) => setCredentialValues((current) => ({
+            <FieldGroup>
+              {(provider.requiredKeys ?? []).map((field) => (
+                <Field key={field.envName}>
+                  <FieldLabel htmlFor={field.envName}>{field.label}</FieldLabel>
+                  <Input
+                    autoComplete="off"
+                    id={field.envName}
+                    onChange={(event) =>
+                      setCredentialValues((current) => ({
                         ...current,
                         [field.envName]: event.target.value,
-                      }))}
-                      placeholder={ready ? "Informe uma nova chave para substituir" : field.placeholder}
-                      type="password"
-                      value={credentialValues[field.envName] ?? ""}
-                    />
-                    <FieldDescription>
-                      {ready
-                        ? "A chave atual nunca é exibida. Salvar substitui a credencial existente."
-                        : "A conexão será testada antes de a credencial ser salva."}
-                    </FieldDescription>
-                  </Field>
-                ))}
-              </FieldGroup>
+                      }))
+                    }
+                    placeholder={
+                      ready ? "Informe uma nova chave para substituir" : field.placeholder
+                    }
+                    type="password"
+                    value={credentialValues[field.envName] ?? ""}
+                  />
+                  <FieldDescription>
+                    {ready
+                      ? "A chave atual nunca é exibida. Salvar substitui a credencial existente."
+                      : "A conexão será testada antes de a credencial ser salva."}
+                  </FieldDescription>
+                </Field>
+              ))}
+            </FieldGroup>
 
-              <div className="flex flex-wrap items-center gap-2">
-                <Button disabled={saving} onClick={() => void handleSaveCredentials()}>
-                  {saving ? <Loader2Icon className="animate-spin" data-icon="inline-start" /> : <KeyRoundIcon data-icon="inline-start" />}
-                  {saving ? "Testando conexão…" : ready ? "Substituir credenciais" : "Conectar provedor"}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button disabled={saving} onClick={() => void handleSaveCredentials()}>
+                {saving ? (
+                  <Loader2Icon className="animate-spin" data-icon="inline-start" />
+                ) : (
+                  <KeyRoundIcon data-icon="inline-start" />
+                )}
+                {saving
+                  ? "Testando conexão…"
+                  : ready
+                    ? "Substituir credenciais"
+                    : "Conectar provedor"}
+              </Button>
+              {providerCredentials.length > 0 ? (
+                <Button variant="ghost" onClick={() => setDeleteDialogOpen(true)}>
+                  <Trash2Icon data-icon="inline-start" />
+                  Remover conexão
                 </Button>
-                {providerCredentials.length > 0 ? (
-                  <Button variant="ghost" onClick={() => setDeleteDialogOpen(true)}>
-                    <Trash2Icon data-icon="inline-start" />
-                    Remover conexão
-                  </Button>
-                ) : null}
-              </div>
+              ) : null}
             </div>
+          </div>
         </CardContent>
       </Card>
 
@@ -313,7 +335,9 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                   <KeyRoundIcon />
                 </EmptyMedia>
                 <EmptyTitle>Conecte o provedor para carregar modelos</EmptyTitle>
-                <EmptyDescription>Depois de validar as credenciais, o catálogo será carregado automaticamente.</EmptyDescription>
+                <EmptyDescription>
+                  Depois de validar as credenciais, o catálogo será carregado automaticamente.
+                </EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : loadingModels ? (
@@ -329,7 +353,9 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                   <SparklesIcon />
                 </EmptyMedia>
                 <EmptyTitle>Nenhum modelo retornado</EmptyTitle>
-                <EmptyDescription>O provedor está conectado, mas não publicou modelos neste endpoint.</EmptyDescription>
+                <EmptyDescription>
+                  O provedor está conectado, mas não publicou modelos neste endpoint.
+                </EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
@@ -358,8 +384,8 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
               ) : (
                 <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
                   {filteredModels.map((model) => {
-                    const selected = model.id === selectedModelId
-                    const capabilities = modelCapabilityLabels(model)
+                    const selected = model.id === selectedModelId;
+                    const capabilities = modelCapabilityLabels(model);
                     return (
                       <Button
                         aria-pressed={selected}
@@ -368,7 +394,11 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                         onClick={() => setSelectedModelId(model.id)}
                         variant={selected ? "default" : "outline"}
                       >
-                        {selected ? <CheckCircle2Icon data-icon="inline-start" /> : <SparklesIcon data-icon="inline-start" />}
+                        {selected ? (
+                          <CheckCircle2Icon data-icon="inline-start" />
+                        ) : (
+                          <SparklesIcon data-icon="inline-start" />
+                        )}
                         <span className="min-w-0 flex-1">
                           <span className="block truncate font-medium">{model.name}</span>
                           <span className="block truncate text-xs font-normal text-muted-foreground">
@@ -376,7 +406,7 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
                           </span>
                         </span>
                       </Button>
-                    )
+                    );
                   })}
                 </div>
               )}
@@ -390,7 +420,8 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Remover conexão com {provider.label}?</AlertDialogTitle>
             <AlertDialogDescription>
-              As credenciais salvas serão excluídas e este provedor deixará de participar do roteamento até ser conectado novamente.
+              As credenciais salvas serão excluídas e este provedor deixará de participar do
+              roteamento até ser conectado novamente.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -402,5 +433,5 @@ export function ProviderDetail({ providerId }: { providerId: string }) {
         </AlertDialogContent>
       </AlertDialog>
     </div>
-  )
+  );
 }

@@ -1,11 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  CheckIcon,
-  CopyIcon,
-  TerminalSquareIcon,
-} from "lucide-react";
+import { CheckIcon, CopyIcon, TerminalSquareIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DEFAULT_MODEL_ID } from "@/lib/defaults";
@@ -41,9 +37,7 @@ export function ApiQuickStartCard({
     });
   }
 
-  const visibleKey = apiKey
-    ? `${apiKey.slice(0, 8)}...`
-    : "SUA_API_KEY";
+  const visibleKey = apiKey ? `${apiKey.slice(0, 8)}...` : "SUA_API_KEY";
 
   return (
     <div className="space-y-4">
@@ -54,8 +48,9 @@ export function ApiQuickStartCard({
         <div className="space-y-1">
           <p className="text-sm font-medium">Usar pela API</p>
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Copie o código abaixo e substitua <code className="rounded bg-muted px-1 py-0.5 text-xs">{visibleKey}</code>{" "}
-            pela sua API key. O endpoint é 100% compatível com o SDK oficial da OpenAI.
+            Copie o código abaixo e substitua{" "}
+            <code className="rounded bg-muted px-1 py-0.5 text-xs">{visibleKey}</code> pela sua API
+            key. O endpoint é 100% compatível com o SDK oficial da OpenAI.
           </p>
         </div>
       </div>

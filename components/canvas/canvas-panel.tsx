@@ -17,7 +17,13 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
@@ -111,7 +117,8 @@ export function CanvasPanel({
     setSavingTitle(true);
     try {
       const updated = await updateCanvas(canvasId, { title: title.trim() });
-      if (requestId !== titleSaveRequestRef.current || activeCanvasIdRef.current !== canvasId) return;
+      if (requestId !== titleSaveRequestRef.current || activeCanvasIdRef.current !== canvasId)
+        return;
       onCanvasUpdated(updated);
       toast.success("Título atualizado.");
     } catch {
@@ -257,7 +264,12 @@ export function CanvasPanel({
         ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button aria-label="Copiar conteúdo" size="icon-sm" variant="ghost" onClick={() => void handleCopy()}>
+            <Button
+              aria-label="Copiar conteúdo"
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => void handleCopy()}
+            >
               <CopyIcon className="size-3.5" />
             </Button>
           </TooltipTrigger>
@@ -265,7 +277,12 @@ export function CanvasPanel({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button aria-label="Baixar arquivo" size="icon-sm" variant="ghost" onClick={handleDownload}>
+            <Button
+              aria-label="Baixar arquivo"
+              size="icon-sm"
+              variant="ghost"
+              onClick={handleDownload}
+            >
               <DownloadIcon className="size-3.5" />
             </Button>
           </TooltipTrigger>
@@ -273,7 +290,12 @@ export function CanvasPanel({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button aria-label="Histórico de versões" size="icon-sm" variant="ghost" onClick={() => setVersionsOpen(true)}>
+            <Button
+              aria-label="Histórico de versões"
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => setVersionsOpen(true)}
+            >
               <HistoryIcon className="size-3.5" />
             </Button>
           </TooltipTrigger>
@@ -281,16 +303,34 @@ export function CanvasPanel({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button aria-label="Compartilhar canvas" disabled={shareBusy} size="icon-sm" variant="ghost" onClick={() => void handleShare()}>
-              {shareBusy ? <Loader2Icon className="size-3.5 animate-spin" /> : <ShareIcon className="size-3.5" />}
+            <Button
+              aria-label="Compartilhar canvas"
+              disabled={shareBusy}
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => void handleShare()}
+            >
+              {shareBusy ? (
+                <Loader2Icon className="size-3.5 animate-spin" />
+              ) : (
+                <ShareIcon className="size-3.5" />
+              )}
             </Button>
           </TooltipTrigger>
-          <TooltipContent>{canvas.shareToken ? "Copiar link público" : "Criar link público"}</TooltipContent>
+          <TooltipContent>
+            {canvas.shareToken ? "Copiar link público" : "Criar link público"}
+          </TooltipContent>
         </Tooltip>
         {canvas.shareToken ? (
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button aria-label="Revogar compartilhamento" disabled={shareBusy} size="icon-sm" variant="ghost" onClick={() => void handleRevokeShare()}>
+              <Button
+                aria-label="Revogar compartilhamento"
+                disabled={shareBusy}
+                size="icon-sm"
+                variant="ghost"
+                onClick={() => void handleRevokeShare()}
+              >
                 <TrashIcon className="size-3.5" />
               </Button>
             </TooltipTrigger>
@@ -299,7 +339,12 @@ export function CanvasPanel({
         ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button aria-label="Fixar em projeto" size="icon-sm" variant="ghost" onClick={() => setPinOpen(true)}>
+            <Button
+              aria-label="Fixar em projeto"
+              size="icon-sm"
+              variant="ghost"
+              onClick={() => setPinOpen(true)}
+            >
               <PinIcon className="size-3.5" />
             </Button>
           </TooltipTrigger>
@@ -312,7 +357,10 @@ export function CanvasPanel({
             id="canvas-ia-context"
             onCheckedChange={onIncludeInContextChange}
           />
-          <label className="cursor-pointer text-[11px] leading-tight text-muted-foreground" htmlFor="canvas-ia-context">
+          <label
+            className="cursor-pointer text-[11px] leading-tight text-muted-foreground"
+            htmlFor="canvas-ia-context"
+          >
             Contexto IA
           </label>
         </div>
@@ -424,7 +472,8 @@ function VersionsDialog({
         <DialogHeader>
           <DialogTitle>Versões — {canvas.title}</DialogTitle>
           <DialogDescription>
-            v{canvas.activeVersion} é a versão ativa. Restaurar cria uma nova versão a partir da escolhida.
+            v{canvas.activeVersion} é a versão ativa. Restaurar cria uma nova versão a partir da
+            escolhida.
           </DialogDescription>
         </DialogHeader>
         <div className="grid min-h-0 flex-1 grid-cols-[220px_1fr] gap-3">
@@ -442,7 +491,9 @@ function VersionsDialog({
                   <span className="font-medium">
                     v{version.version}
                     {version.version === canvas.activeVersion ? (
-                      <Badge className="ml-1.5 h-4 px-1 text-[9px]" variant="outline">ativa</Badge>
+                      <Badge className="ml-1.5 h-4 px-1 text-[9px]" variant="outline">
+                        ativa
+                      </Badge>
                     ) : null}
                   </span>
                   <span className="text-[10px] text-muted-foreground">
@@ -472,7 +523,11 @@ function VersionsDialog({
                       size="sm"
                       variant="outline"
                     >
-                      {restoring === previewVersion ? <Loader2Icon className="size-3 animate-spin" /> : <HistoryIcon className="size-3" />}
+                      {restoring === previewVersion ? (
+                        <Loader2Icon className="size-3 animate-spin" />
+                      ) : (
+                        <HistoryIcon className="size-3" />
+                      )}
                       Restaurar
                     </Button>
                   ) : (
@@ -581,7 +636,8 @@ function PinDialog({
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{project.name}</span>
                     <span className="block text-[11px] text-muted-foreground">
-                      {project.counts.conversations} conversas · {project.counts.artifacts} artefatos
+                      {project.counts.conversations} conversas · {project.counts.artifacts}{" "}
+                      artefatos
                     </span>
                   </span>
                   {pinning === project.id ? (

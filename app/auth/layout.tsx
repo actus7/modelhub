@@ -55,13 +55,16 @@ export default function AuthLayout({
 
         <div className="relative flex flex-col gap-6">
           <blockquote className="max-w-md text-lg/relaxed font-medium">
-            &ldquo;Todos os seus modelos de inteligência artificial em um só lugar,
-            com uma API unificada e controle total.&rdquo;
+            &ldquo;Todos os seus modelos de inteligência artificial em um só lugar, com uma API
+            unificada e controle total.&rdquo;
           </blockquote>
 
           <ul className="flex flex-col gap-3">
             {highlights.map((item) => (
-              <li key={item.text} className="flex items-center gap-3 text-sm text-primary-foreground/80">
+              <li
+                key={item.text}
+                className="flex items-center gap-3 text-sm text-primary-foreground/80"
+              >
                 <item.icon className="size-4 shrink-0" />
                 {item.text}
               </li>
@@ -77,10 +80,7 @@ export default function AuthLayout({
       {/* Painel direito — formulário */}
       <div className="flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 lg:justify-end">
-          <Link
-            href="/"
-            className="flex items-center gap-2 text-sm font-semibold lg:hidden"
-          >
+          <Link href="/" className="flex items-center gap-2 text-sm font-semibold lg:hidden">
             <div className="flex size-8 items-center justify-center rounded-lg bg-primary text-primary-foreground shadow-sm">
               <ActivityIcon className="size-4" />
             </div>
@@ -96,4 +96,3 @@ export default function AuthLayout({
     </div>
   );
 }
-

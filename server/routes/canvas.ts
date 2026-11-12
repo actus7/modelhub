@@ -1,20 +1,11 @@
 import type { Context } from "hono";
-import { Hono } from "hono";
 import { z } from "zod";
 
 import { prisma } from "../lib/db";
-import { jsonErrorResponse } from "../lib/provider-core";
-import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security";
-import { requireAuth } from "./route-helpers";
+import { jsonErrorResponse } from "../lib/http";
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers";
 
-const app = new Hono().basePath("/canvas");
-app.use("*", securityHeaders);
-app.use("*", protectedCors);
-app.use("*", async (c, next) => {
-  const authError = await authenticateAccess(c);
-  if (authError) return authError;
-  return next();
-});
+const app = createAuthenticatedRouter("/canvas");
 
 const canvasKindSchema = z.enum(["markdown", "code", "html", "react", "mermaid"]);
 
@@ -27,7 +18,7 @@ const canvasUpdateSchema = z.object({
 
 const pinSchema = z.object({ projectId: z.string().min(1) });
 
-async function requireCanvas(c: Context, userId: string, canvasId: string) {
+async function requireCanvas(userId: string, canvasId: string) {
   const canvas = await prisma.canvas.findFirst({
     where: { id: canvasId, conversation: { userId } },
   });
@@ -38,7 +29,10 @@ async function resolveCanvasDetail(canvasId: string) {
   const canvas = await prisma.canvas.findUnique({
     where: { id: canvasId },
     include: {
-      versions: { orderBy: { version: "desc" }, select: { createdAt: true, kind: true, language: true, version: true } },
+      versions: {
+        orderBy: { version: "desc" },
+        select: { createdAt: true, kind: true, language: true, version: true },
+      },
     },
   });
   if (!canvas) return null;
@@ -78,7 +72,7 @@ async function authorizeCanvas(c: Context): Promise<AuthorizedCanvas | Response>
   const canvasId = c.req.param("id");
   if (!canvasId) return jsonErrorResponse(404, "Canvas not found");
 
-  const canvas = await requireCanvas(c, userId, canvasId);
+  const canvas = await requireCanvas(userId, canvasId);
   if (!canvas) return jsonErrorResponse(404, "Canvas not found");
 
   return { canvas, canvasId, userId };

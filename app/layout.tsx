@@ -58,11 +58,7 @@ export default function RootLayout({
         <Providers>{children}</Providers>
         <Analytics />
         {/* O beforeInteractive é injetado no head pelo Next.js. */}
-        <Script
-          id="modelhub-accent"
-          src="/modelhub-accent.js"
-          strategy="beforeInteractive"
-        />
+        <Script id="modelhub-accent" src="/modelhub-accent.js" strategy="beforeInteractive" />
       </body>
     </html>
   );

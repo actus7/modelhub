@@ -45,22 +45,24 @@ function makeResponse(headers: Record<string, string>): Response {
 
 describe("resolveAssistantModelLabel", () => {
   it("resolves a known model id to its name with provider suffix", () => {
-    expect(resolveAssistantModelLabel({ modelId: "gpt-4o", models: MODELS, providerLabel: "OpenAI" })).toBe(
-      "GPT-4o (OpenAI)",
-    );
+    expect(
+      resolveAssistantModelLabel({ modelId: "gpt-4o", models: MODELS, providerLabel: "OpenAI" }),
+    ).toBe("GPT-4o (OpenAI)");
   });
 
   it("falls back to the raw id when the model is unknown", () => {
-    expect(resolveAssistantModelLabel({ modelId: "mystery", models: MODELS, providerLabel: "OpenAI" })).toBe(
-      "mystery (OpenAI)",
-    );
+    expect(
+      resolveAssistantModelLabel({ modelId: "mystery", models: MODELS, providerLabel: "OpenAI" }),
+    ).toBe("mystery (OpenAI)");
   });
 
   it("does not duplicate the provider suffix when already present", () => {
     const models: ProviderModel[] = [
       { capabilities: { documents: false, images: false }, id: "x", name: "Cool Model (OpenAI)" },
     ];
-    expect(resolveAssistantModelLabel({ modelId: "x", models, providerLabel: "OpenAI" })).toBe("Cool Model (OpenAI)");
+    expect(resolveAssistantModelLabel({ modelId: "x", models, providerLabel: "OpenAI" })).toBe(
+      "Cool Model (OpenAI)",
+    );
   });
 
   it("returns the provider label when there is no model id", () => {
@@ -93,7 +95,10 @@ describe("resolveStreamErrorContent", () => {
 
   it("appends the interrupted note when there was partial output", () => {
     expect(
-      resolveStreamErrorContent({ errorMessage: "boom", hadPartialOutput: true, text: "partial" }, "partial"),
+      resolveStreamErrorContent(
+        { errorMessage: "boom", hadPartialOutput: true, text: "partial" },
+        "partial",
+      ),
     ).toBe(`partial${STREAM_INTERRUPTED_NOTE}`);
   });
 
@@ -148,7 +153,12 @@ describe("hydrateChatMessage", () => {
       assistantModelLabel: "GPT-4o (OpenAI)",
       message: { content: "answer", id: "m1", parts: [], role: "assistant" },
     });
-    expect(message).toMatchObject({ content: "answer", id: "m1", modelLabel: "GPT-4o (OpenAI)", role: "assistant" });
+    expect(message).toMatchObject({
+      content: "answer",
+      id: "m1",
+      modelLabel: "GPT-4o (OpenAI)",
+      role: "assistant",
+    });
     expect(message.parts).toBeUndefined();
   });
 
@@ -168,18 +178,30 @@ describe("buildAttachmentLabel", () => {
   });
 
   it("labels documents by extraction status", () => {
-    expect(buildAttachmentLabel({ extractionStatus: "completed", kind: "document" })).toBe("Documento indexado");
-    expect(buildAttachmentLabel({ extractionStatus: "unsupported_scan", kind: "document" })).toBe("Scan sem OCR");
-    expect(buildAttachmentLabel({ extractionStatus: "processing", kind: "document" })).toBe("Processando");
-    expect(buildAttachmentLabel({ extractionStatus: "failed", kind: "document" })).toBe("Documento sem texto");
+    expect(buildAttachmentLabel({ extractionStatus: "completed", kind: "document" })).toBe(
+      "Documento indexado",
+    );
+    expect(buildAttachmentLabel({ extractionStatus: "unsupported_scan", kind: "document" })).toBe(
+      "Scan sem OCR",
+    );
+    expect(buildAttachmentLabel({ extractionStatus: "processing", kind: "document" })).toBe(
+      "Processando",
+    );
+    expect(buildAttachmentLabel({ extractionStatus: "failed", kind: "document" })).toBe(
+      "Documento sem texto",
+    );
   });
 });
 
 describe("resolveModelSelectPlaceholder", () => {
   it("covers the three branches", () => {
-    expect(resolveModelSelectPlaceholder({ hasModels: false, providerReady: true })).toBe("Sem modelo");
+    expect(resolveModelSelectPlaceholder({ hasModels: false, providerReady: true })).toBe(
+      "Sem modelo",
+    );
     expect(resolveModelSelectPlaceholder({ hasModels: true, providerReady: true })).toBe("Modelo");
-    expect(resolveModelSelectPlaceholder({ hasModels: true, providerReady: false })).toBe("Credenciais…");
+    expect(resolveModelSelectPlaceholder({ hasModels: true, providerReady: false })).toBe(
+      "Credenciais…",
+    );
   });
 });
 
@@ -230,25 +252,30 @@ describe("validateAttachmentCompatibility", () => {
 
   it("rejects images when the model has no image capability", () => {
     expect(
-      validateAttachmentCompatibility([{ kind: "image" }], { allowImages: false, allowDocuments: true }),
+      validateAttachmentCompatibility([{ kind: "image" }], {
+        allowImages: false,
+        allowDocuments: true,
+      }),
     ).toBe("O modelo selecionado nao suporta anexos de imagem.");
   });
 
   it("rejects documents when the model has no document capability", () => {
     expect(
-      validateAttachmentCompatibility([{ kind: "document" }], { allowImages: true, allowDocuments: false }),
+      validateAttachmentCompatibility([{ kind: "document" }], {
+        allowImages: true,
+        allowDocuments: false,
+      }),
     ).toBe("O modelo selecionado nao suporta anexos de documento.");
   });
 
   it("checks image capability before document capability", () => {
     expect(
-      validateAttachmentCompatibility(
-        [{ kind: "image" }, { kind: "document" }],
-        { allowImages: false, allowDocuments: false },
-      ),
+      validateAttachmentCompatibility([{ kind: "image" }, { kind: "document" }], {
+        allowImages: false,
+        allowDocuments: false,
+      }),
     ).toBe("O modelo selecionado nao suporta anexos de imagem.");
   });
-
 });
 
 describe("buildTitleGenerationPrompt", () => {

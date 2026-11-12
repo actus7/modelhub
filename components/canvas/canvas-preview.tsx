@@ -55,10 +55,22 @@ export function buildMermaidConfig(resolvedTheme: string | undefined) {
 
 export function CanvasPreview({ content, kind, language }: CanvasPreviewProps) {
   if (kind === "markdown") {
-    return <div className="p-5"><MarkdownRenderer content={content} /></div>;
+    return (
+      <div className="p-5">
+        <MarkdownRenderer content={content} />
+      </div>
+    );
   }
   if (kind === "html") {
-    return <iframe className="h-full min-h-[420px] w-full border-0 bg-white" referrerPolicy="no-referrer" sandbox="allow-scripts" srcDoc={buildSandboxedHtmlDocument(content)} title="Preview HTML" />;
+    return (
+      <iframe
+        className="h-full min-h-[420px] w-full border-0 bg-white"
+        referrerPolicy="no-referrer"
+        sandbox="allow-scripts"
+        srcDoc={buildSandboxedHtmlDocument(content)}
+        title="Preview HTML"
+      />
+    );
   }
   if (kind === "mermaid") return <MermaidPreview content={content} />;
   if (kind === "react") return <ReactPreview content={content} language={language ?? "tsx"} />;
@@ -68,14 +80,25 @@ export function CanvasPreview({ content, kind, language }: CanvasPreviewProps) {
 function ErrorPanel({ title, detail }: { title: string; detail: string }) {
   return (
     <div className="m-4 rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm">
-      <div className="flex items-center gap-2 font-medium text-destructive"><AlertTriangleIcon className="size-4" />{title}</div>
-      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">{detail}</pre>
+      <div className="flex items-center gap-2 font-medium text-destructive">
+        <AlertTriangleIcon className="size-4" />
+        {title}
+      </div>
+      <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-xs text-muted-foreground">
+        {detail}
+      </pre>
     </div>
   );
 }
 
 function CodePreview({ content, language }: { content: string; language: string }) {
-  const [Editor, setEditor] = useState<React.ComponentType<{ value: string; height: string; editable: boolean; theme?: string; extensions?: unknown[] }> | null>(null);
+  const [Editor, setEditor] = useState<React.ComponentType<{
+    value: string;
+    height: string;
+    editable: boolean;
+    theme?: string;
+    extensions?: unknown[];
+  }> | null>(null);
   const [extensions, setExtensions] = useState<unknown[]>([]);
   const { resolvedTheme } = useTheme();
 
@@ -92,11 +115,26 @@ function CodePreview({ content, language }: { content: string; language: string 
       }
     }
     void load();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [language]);
 
-  if (!Editor) return <div className="flex h-48 items-center justify-center"><Loader2Icon className="size-5 animate-spin text-muted-foreground" /></div>;
-  return <Editor editable={false} extensions={extensions} height="100%" theme={resolvedTheme === "dark" ? "dark" : "light"} value={content} />;
+  if (!Editor)
+    return (
+      <div className="flex h-48 items-center justify-center">
+        <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  return (
+    <Editor
+      editable={false}
+      extensions={extensions}
+      height="100%"
+      theme={resolvedTheme === "dark" ? "dark" : "light"}
+      value={content}
+    />
+  );
 }
 
 async function loadLanguageExtension(language: string): Promise<unknown | null> {
@@ -107,7 +145,8 @@ async function loadLanguageExtension(language: string): Promise<unknown | null> 
   }
   if (["html", "xml"].includes(normalized)) return (await import("@codemirror/lang-html")).html();
   if (normalized === "css") return (await import("@codemirror/lang-css")).css();
-  if (["md", "markdown"].includes(normalized)) return (await import("@codemirror/lang-markdown")).markdown();
+  if (["md", "markdown"].includes(normalized))
+    return (await import("@codemirror/lang-markdown")).markdown();
   return null;
 }
 
@@ -136,11 +175,18 @@ function MermaidPreview({ content }: { content: string }) {
       }
     }
     void render();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [content, id, resolvedTheme]);
 
   if (error) return <ErrorPanel detail={error} title="Não foi possível renderizar o diagrama" />;
-  return <div ref={containerRef} className="flex min-h-[320px] items-center justify-center overflow-auto p-6 [&_svg]:max-w-full" />;
+  return (
+    <div
+      ref={containerRef}
+      className="flex min-h-[320px] items-center justify-center overflow-auto p-6 [&_svg]:max-w-full"
+    />
+  );
 }
 
 function ReactPreview({ content, language }: { content: string; language: string }) {
@@ -156,7 +202,9 @@ function ReactPreview({ content, language }: { content: string; language: string
           .replace(/export\s+default\s+function\s+([A-Za-z_$][\w$]*)/, "function $1")
           .replace(/export\s+default\s+([A-Za-z_$][\w$]*)\s*;?/, "const __CanvasComponent = $1;");
         const componentMatch = normalized.match(/function\s+([A-Z][A-Za-z0-9_$]*)\s*\(/);
-        const componentName = normalized.includes("__CanvasComponent") ? "__CanvasComponent" : (componentMatch?.[1] ?? "App");
+        const componentName = normalized.includes("__CanvasComponent")
+          ? "__CanvasComponent"
+          : (componentMatch?.[1] ?? "App");
         const code = Babel.transform(normalized, {
           filename: language === "jsx" ? "canvas.jsx" : "canvas.tsx",
           plugins: ["transform-modules-commonjs"],
@@ -164,15 +212,28 @@ function ReactPreview({ content, language }: { content: string; language: string
         })?.code;
         const safeCode = escapeInlineScript(code ?? "");
         const runtime = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://esm.sh; style-src 'unsafe-inline'; connect-src 'none'; img-src data: blob:; font-src data:; object-src 'none'; base-uri 'none'; form-action 'none'"><script type="importmap">{"imports":{"react":"https://esm.sh/react@19.3.1","react-dom/client":"https://esm.sh/react-dom@19.3.1/client"}}</script><style>body{margin:0;padding:20px;font-family:ui-sans-serif,system-ui;color:#18181b}*{box-sizing:border-box}.error{white-space:pre-wrap;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px}</style></head><body><div id="root"></div><script type="module">import * as __React from "react";import {createRoot as __createRoot} from "react-dom/client";globalThis.React=__React;const reportError=(value)=>{const root=document.getElementById('root');const pre=document.createElement('pre');pre.className='error';pre.textContent=String(value);root.replaceChildren(pre)};window.onerror=(m,s,l,c,e)=>{reportError(e?.stack||m);return true};const module={exports:{}};const exports=module.exports;const require=(id)=>{if(id==='react')return __React;if(id==='react-dom/client')return{createRoot:__createRoot};throw new Error('Import não suportado no preview: '+id)};try{${safeCode};const C=typeof ${componentName}==='undefined'?(module.exports.default||exports.default):${componentName};if(typeof C!=='function')throw new Error('Componente React não encontrado');__createRoot(document.getElementById('root')).render(__React.createElement(C));}catch(e){reportError(e?.stack||e)}</script></body></html>`;
-        if (!cancelled) { setSrcDoc(runtime); setError(null); }
+        if (!cancelled) {
+          setSrcDoc(runtime);
+          setError(null);
+        }
       } catch (caught) {
         if (!cancelled) setError(caught instanceof Error ? caught.message : "Falha na compilação");
       }
     }
     void compile();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [content, language]);
 
   if (error) return <ErrorPanel detail={error} title="Não foi possível compilar o componente" />;
-  return <iframe className="h-full min-h-[420px] w-full border-0 bg-white" referrerPolicy="no-referrer" sandbox="allow-scripts" srcDoc={srcDoc} title="Preview React" />;
+  return (
+    <iframe
+      className="h-full min-h-[420px] w-full border-0 bg-white"
+      referrerPolicy="no-referrer"
+      sandbox="allow-scripts"
+      srcDoc={srcDoc}
+      title="Preview React"
+    />
+  );
 }

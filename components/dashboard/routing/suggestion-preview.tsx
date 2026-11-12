@@ -1,35 +1,35 @@
-"use client"
+"use client";
 
-import { Button } from "@/components/ui/button"
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { cn } from "@/lib/utils"
-import type { RoutingModelOption, RoutingSuggestedSlot } from "@/lib/contracts"
+} from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
+import type { RoutingModelOption, RoutingSuggestedSlot } from "@/lib/contracts";
 
-import { ProviderAvatar } from "./provider-avatar"
-import { cleanModelName, slotKey } from "./routing-utils"
+import { ProviderAvatar } from "./provider-avatar";
+import { cleanModelName, slotKey } from "./routing-utils";
 
 type SuggestionLane = {
-  tierId: string
-  label: string
-  hint?: string
-  slots: RoutingSuggestedSlot[]
+  tierId: string;
+  label: string;
+  hint?: string;
+  slots: RoutingSuggestedSlot[];
   /** Quantos modelos a lane já tem hoje — vira aviso de substituição. */
-  currentCount: number
-}
+  currentCount: number;
+};
 
 type SuggestionPreviewProps = {
-  lanes: SuggestionLane[]
-  modelIndex: Map<string, RoutingModelOption>
-  onApply: () => void
-  onOpenChange: (open: boolean) => void
-  open: boolean
-}
+  lanes: SuggestionLane[];
+  modelIndex: Map<string, RoutingModelOption>;
+  onApply: () => void;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+};
 
 export function SuggestionPreview({
   lanes,
@@ -38,8 +38,8 @@ export function SuggestionPreview({
   onOpenChange,
   open,
 }: Readonly<SuggestionPreviewProps>) {
-  const totalSlots = lanes.reduce((sum, lane) => sum + lane.slots.length, 0)
-  const replacing = lanes.filter((lane) => lane.currentCount > 0)
+  const totalSlots = lanes.reduce((sum, lane) => sum + lane.slots.length, 0);
+  const replacing = lanes.filter((lane) => lane.currentCount > 0);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -47,9 +47,8 @@ export function SuggestionPreview({
         <DialogHeader className="shrink-0 gap-1 px-4 pt-4 pr-12 text-left">
           <DialogTitle>Sugestão de modelos</DialogTitle>
           <DialogDescription className="text-xs">
-            Ranqueado por contagem de parâmetros e família do modelo, com preço
-            como desempate quando conhecido. Fallbacks priorizam provedores
-            diferentes do principal.
+            Ranqueado por contagem de parâmetros e família do modelo, com preço como desempate
+            quando conhecido. Fallbacks priorizam provedores diferentes do principal.
           </DialogDescription>
         </DialogHeader>
 
@@ -65,9 +64,7 @@ export function SuggestionPreview({
                   <div className="mb-1.5 flex items-baseline gap-2">
                     <h3 className="text-sm font-semibold">{lane.label}</h3>
                     {lane.hint ? (
-                      <span className="text-[11px] text-muted-foreground">
-                        {lane.hint}
-                      </span>
+                      <span className="text-[11px] text-muted-foreground">{lane.hint}</span>
                     ) : null}
                     {lane.currentCount > 0 ? (
                       <span className="ml-auto text-[11px] text-amber-600 dark:text-amber-400">
@@ -84,10 +81,10 @@ export function SuggestionPreview({
                   ) : (
                     <ol className="flex flex-col gap-1">
                       {lane.slots.map((slot, index) => {
-                        const model = modelIndex.get(slotKey(slot))
+                        const model = modelIndex.get(slotKey(slot));
                         const name = model
                           ? cleanModelName(model.modelName, model.providerLabel)
-                          : slot.modelId
+                          : slot.modelId;
 
                         return (
                           <li
@@ -119,7 +116,7 @@ export function SuggestionPreview({
                               {slot.reason}
                             </span>
                           </li>
-                        )
+                        );
                       })}
                     </ol>
                   )}
@@ -136,25 +133,15 @@ export function SuggestionPreview({
               : "Nenhuma configuração existente será perdida."}
           </p>
           <div className="flex shrink-0 gap-2">
-            <Button
-              onClick={() => onOpenChange(false)}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
+            <Button onClick={() => onOpenChange(false)} size="sm" type="button" variant="outline">
               Cancelar
             </Button>
-            <Button
-              disabled={totalSlots === 0}
-              onClick={onApply}
-              size="sm"
-              type="button"
-            >
+            <Button disabled={totalSlots === 0} onClick={onApply} size="sm" type="button">
               Aplicar
             </Button>
           </div>
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

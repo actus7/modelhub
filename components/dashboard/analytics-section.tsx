@@ -1,13 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import {
-  BarChart3Icon,
-  CoinsIcon,
-  Loader2Icon,
-  TrendingDownIcon,
-  ZapIcon,
-} from "lucide-react";
+import { BarChart3Icon, CoinsIcon, Loader2Icon, TrendingDownIcon, ZapIcon } from "lucide-react";
 import { CartesianGrid, Legend, Line, LineChart, XAxis } from "recharts";
 import { toast } from "sonner";
 
@@ -15,10 +9,23 @@ import { useAppState } from "@/components/app-state-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -198,7 +205,9 @@ export function AnalyticsSection() {
                   <BarChart3Icon />
                 </EmptyMedia>
                 <EmptyTitle>Sem custo registrado</EmptyTitle>
-                <EmptyDescription>Os custos aparecerão quando houver requests com dados de tokens.</EmptyDescription>
+                <EmptyDescription>
+                  Os custos aparecerão quando houver requests com dados de tokens.
+                </EmptyDescription>
               </EmptyHeader>
             </Empty>
           ) : (
@@ -213,12 +222,20 @@ export function AnalyticsSection() {
                 <XAxis
                   dataKey="date"
                   tickFormatter={(v) =>
-                    new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(new Date(v))
+                    new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(
+                      new Date(v),
+                    )
                   }
                 />
                 <ChartTooltip content={<ChartTooltipContent />} />
                 <Legend />
-                <Line dataKey="custo" type="monotone" stroke="var(--color-custo)" strokeWidth={2} dot={false} />
+                <Line
+                  dataKey="custo"
+                  type="monotone"
+                  stroke="var(--color-custo)"
+                  strokeWidth={2}
+                  dot={false}
+                />
               </LineChart>
             </ChartContainer>
           )}
@@ -232,7 +249,9 @@ export function AnalyticsSection() {
           </CardHeader>
           <CardContent>
             {byModel.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum dado de custo por modelo ainda.</p>
+              <p className="text-sm text-muted-foreground">
+                Nenhum dado de custo por modelo ainda.
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
@@ -250,8 +269,12 @@ export function AnalyticsSection() {
                       <TableRow key={row.model ?? "unknown"}>
                         <TableCell className="text-xs">{row.model ?? "—"}</TableCell>
                         <TableCell className="text-right text-xs">{row.count}</TableCell>
-                        <TableCell className="text-right text-xs">{fmtTokens(row.inputTokens)}</TableCell>
-                        <TableCell className="text-right text-xs">{fmtTokens(row.outputTokens)}</TableCell>
+                        <TableCell className="text-right text-xs">
+                          {fmtTokens(row.inputTokens)}
+                        </TableCell>
+                        <TableCell className="text-right text-xs">
+                          {fmtTokens(row.outputTokens)}
+                        </TableCell>
                         <TableCell className="text-right text-xs">{fmt(row.costUsd)}</TableCell>
                       </TableRow>
                     ))}
@@ -268,7 +291,9 @@ export function AnalyticsSection() {
           </CardHeader>
           <CardContent>
             {byProvider.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum dado de custo por provider ainda.</p>
+              <p className="text-sm text-muted-foreground">
+                Nenhum dado de custo por provider ainda.
+              </p>
             ) : (
               <div className="overflow-x-auto">
                 <Table>
@@ -282,15 +307,18 @@ export function AnalyticsSection() {
                   </TableHeader>
                   <TableBody>
                     {byProvider.map((row) => {
-                      const pct = totalCost > 0 && row.costUsd != null
-                        ? ((row.costUsd / totalCost) * 100).toFixed(1)
-                        : null;
+                      const pct =
+                        totalCost > 0 && row.costUsd != null
+                          ? ((row.costUsd / totalCost) * 100).toFixed(1)
+                          : null;
                       return (
                         <TableRow key={row.provider}>
                           <TableCell className="text-xs">{providerLabel(row.provider)}</TableCell>
                           <TableCell className="text-right text-xs">{row.count}</TableCell>
                           <TableCell className="text-right text-xs">{fmt(row.costUsd)}</TableCell>
-                          <TableCell className="text-right text-xs">{pct != null ? `${pct}%` : "—"}</TableCell>
+                          <TableCell className="text-right text-xs">
+                            {pct != null ? `${pct}%` : "—"}
+                          </TableCell>
                         </TableRow>
                       );
                     })}
@@ -309,7 +337,11 @@ export function AnalyticsSection() {
             Gasto atual:{" "}
             <span className="font-medium text-foreground">{fmt(budget?.currentSpend)}</span>
             {budget?.limitUsd != null && (
-              <> · Limite: <span className="font-medium text-foreground">{fmt(budget.limitUsd)}</span></>
+              <>
+                {" "}
+                · Limite:{" "}
+                <span className="font-medium text-foreground">{fmt(budget.limitUsd)}</span>
+              </>
             )}
           </CardDescription>
         </CardHeader>
@@ -357,7 +389,10 @@ export function AnalyticsSection() {
               </Field>
               <Field>
                 <FieldLabel>Modelo baseline</FieldLabel>
-                <Select value={baselineModelId || "__none__"} onValueChange={(v) => setBaselineModelId(v === "__none__" ? "" : v)}>
+                <Select
+                  value={baselineModelId || "__none__"}
+                  onValueChange={(v) => setBaselineModelId(v === "__none__" ? "" : v)}
+                >
                   <SelectTrigger>
                     <SelectValue placeholder="Nenhum" />
                   </SelectTrigger>
@@ -365,7 +400,9 @@ export function AnalyticsSection() {
                     <SelectGroup>
                       <SelectItem value="__none__">Nenhum</SelectItem>
                       {BASELINE_MODELS.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.label}
+                        </SelectItem>
                       ))}
                     </SelectGroup>
                   </SelectContent>

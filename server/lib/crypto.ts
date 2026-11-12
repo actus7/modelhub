@@ -86,8 +86,7 @@ export function hashApiKey(raw: string): string {
     pepper,
     API_KEY_KDF_ITERATIONS,
     API_KEY_DERIVED_KEY_BYTES,
-    API_KEY_KDF_DIGEST
+    API_KEY_KDF_DIGEST,
   );
   return `pbkdf2_${API_KEY_KDF_DIGEST}$${API_KEY_KDF_ITERATIONS}$${derived.toString("hex")}`;
 }
-

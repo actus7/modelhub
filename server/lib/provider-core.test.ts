@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPrisma = {
   apiKey: {
@@ -15,31 +15,29 @@ const mockPrisma = {
     update: vi.fn().mockReturnValue({ catch: vi.fn() }),
   },
   userBudget: { findUnique: vi.fn().mockResolvedValue(null) },
-}
+};
 
-vi.mock("../lib/db", () => ({ prisma: mockPrisma }))
-vi.mock("../env", () => ({}))
+vi.mock("./db", () => ({ prisma: mockPrisma }));
+vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({
   auth: { getSession: vi.fn().mockResolvedValue({ data: null }) },
-}))
+}));
 
-const {
-  createProviderApp,
-  MAX_PROVIDER_REQUEST_BODY_BYTES,
-  resolveMessagesForProvider,
-} = await import("../lib/provider-core")
+const { createProviderApp } = await import("./provider-core");
+const { MAX_PROVIDER_REQUEST_BODY_BYTES, resolveMessagesForProvider } =
+  await import("./provider-messages");
 
-const originalRequireAuth = process.env.REQUIRE_AUTH
+const originalRequireAuth = process.env.REQUIRE_AUTH;
 
 describe("provider payload limits", () => {
   beforeEach(() => {
-    process.env.REQUIRE_AUTH = "false"
-    vi.clearAllMocks()
-  })
+    process.env.REQUIRE_AUTH = "false";
+    vi.clearAllMocks();
+  });
 
   afterEach(() => {
-    process.env.REQUIRE_AUTH = originalRequireAuth
-  })
+    process.env.REQUIRE_AUTH = originalRequireAuth;
+  });
 
   it("rejects oversized request bodies before parsing", async () => {
     const app = createProviderApp({
@@ -54,7 +52,7 @@ describe("provider payload limits", () => {
         },
       ],
       providerId: "test-provider",
-    })
+    });
 
     const response = await app.request("/test-provider/api/chat", {
       body: JSON.stringify({
@@ -65,15 +63,15 @@ describe("provider payload limits", () => {
         "content-type": "application/json",
       },
       method: "POST",
-    })
+    });
 
-    expect(response.status).toBe(413)
-    expect(await response.json()).toEqual({ error: "Request body too large" })
-  })
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: "Request body too large" });
+  });
 
   /** Clientes OpenAI-compatible podem enviar developer, content null e arguments como objeto. */
   it("accepts OpenAI-compatible payloads (developer role, null content, tool arguments as object)", async () => {
-    const chat = vi.fn().mockResolvedValue(new Response("ok"))
+    const chat = vi.fn().mockResolvedValue(new Response("ok"));
 
     const app = createProviderApp({
       basePath: "/test-provider",
@@ -87,7 +85,7 @@ describe("provider payload limits", () => {
         },
       ],
       providerId: "test-provider",
-    })
+    });
 
     const response = await app.request("/test-provider/api/chat", {
       body: JSON.stringify({
@@ -110,22 +108,20 @@ describe("provider payload limits", () => {
       }),
       headers: { "content-type": "application/json" },
       method: "POST",
-    })
+    });
 
-    expect(response.status).toBe(200)
-    expect(chat).toHaveBeenCalled()
+    expect(response.status).toBe(200);
+    expect(chat).toHaveBeenCalled();
     const firstArg = chat.mock.calls[0]?.[0] as Array<{
-      role: string
-      tool_calls?: Array<{ function: { arguments: string } }>
-    }>
-    expect(firstArg[0]?.role).toBe("system")
-    expect(firstArg[2]?.tool_calls?.[0]?.function.arguments).toBe(
-      '{"query":"x"}',
-    )
-  })
+      role: string;
+      tool_calls?: Array<{ function: { arguments: string } }>;
+    }>;
+    expect(firstArg[0]?.role).toBe("system");
+    expect(firstArg[2]?.tool_calls?.[0]?.function.arguments).toBe('{"query":"x"}');
+  });
 
   it("accepts more than 50 messages (agent sessions with tools)", async () => {
-    const chat = vi.fn().mockResolvedValue(new Response("ok"))
+    const chat = vi.fn().mockResolvedValue(new Response("ok"));
     const app = createProviderApp({
       basePath: "/test-provider",
       chat,
@@ -138,24 +134,24 @@ describe("provider payload limits", () => {
         },
       ],
       providerId: "test-provider",
-    })
+    });
 
     const messages = Array.from({ length: 60 }, (_, i) => ({
       content: `m${i}`,
       role: "user" as const,
-    }))
+    }));
 
     const response = await app.request("/test-provider/api/chat", {
       body: JSON.stringify({ messages, modelId: "demo-model" }),
       headers: { "content-type": "application/json" },
       method: "POST",
-    })
+    });
 
-    expect(response.status).toBe(200)
-  })
+    expect(response.status).toBe(200);
+  });
 
   it("rejects tool calls when the selected model does not support tools", async () => {
-    const chat = vi.fn().mockResolvedValue(new Response("ok"))
+    const chat = vi.fn().mockResolvedValue(new Response("ok"));
     const app = createProviderApp({
       basePath: "/test-provider",
       chat,
@@ -168,29 +164,27 @@ describe("provider payload limits", () => {
         },
       ],
       providerId: "test-provider",
-    })
+    });
 
     const response = await app.request("/test-provider/api/chat", {
       body: JSON.stringify({
         messages: [{ content: "hello", role: "user" }],
         modelId: "text-only-model",
-        tools: [
-          { function: { name: "search", parameters: {} }, type: "function" },
-        ],
+        tools: [{ function: { name: "search", parameters: {} }, type: "function" }],
       }),
       headers: { "content-type": "application/json" },
       method: "POST",
-    })
+    });
 
-    expect(response.status).toBe(400)
+    expect(response.status).toBe(400);
     expect(await response.json()).toEqual({
       error: 'Modelo "text-only-model" nao suporta tools',
-    })
-    expect(chat).not.toHaveBeenCalled()
-  })
+    });
+    expect(chat).not.toHaveBeenCalled();
+  });
 
   it("accepts a large system prompt with tool inventory", async () => {
-    const chat = vi.fn().mockResolvedValue(new Response("ok"))
+    const chat = vi.fn().mockResolvedValue(new Response("ok"));
     const app = createProviderApp({
       basePath: "/test-provider",
       chat,
@@ -203,9 +197,9 @@ describe("provider payload limits", () => {
         },
       ],
       providerId: "test-provider",
-    })
+    });
 
-    const giantSystemPrompt = `You are an agentic runtime.\n${"tool: read, write, edit, exec, browser\n".repeat(2500)}`
+    const giantSystemPrompt = `You are an agentic runtime.\n${"tool: read, write, edit, exec, browser\n".repeat(2500)}`;
 
     const response = await app.request("/test-provider/api/chat", {
       body: JSON.stringify({
@@ -217,9 +211,9 @@ describe("provider payload limits", () => {
       }),
       headers: { "content-type": "application/json" },
       method: "POST",
-    })
+    });
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(200);
     expect(chat).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
@@ -231,8 +225,8 @@ describe("provider payload limits", () => {
       expect.any(Object),
       expect.any(Object),
       undefined,
-    )
-  })
+    );
+  });
 
   it("injects extracted document text into the provider payload", async () => {
     mockPrisma.conversationAttachment.findMany.mockResolvedValueOnce([
@@ -243,10 +237,9 @@ describe("provider payload limits", () => {
         fileName: "report.docx",
         id: "att-doc-1",
         kind: "document",
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       },
-    ])
+    ]);
 
     const messages = await resolveMessagesForProvider({
       config: {
@@ -270,8 +263,7 @@ describe("provider payload limits", () => {
               attachmentId: "att-doc-1",
               fileName: "report.docx",
               kind: "document",
-              mimeType:
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+              mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
               type: "attachment",
             },
           ],
@@ -280,15 +272,15 @@ describe("provider payload limits", () => {
       ],
       modelId: "demo-model",
       userId: "user-1",
-    })
+    });
 
     expect(messages[0]?.content).toEqual([
       {
         text: "[document:report.docx mime=application/vnd.openxmlformats-officedocument.wordprocessingml.document]\nQuarterly report body\n[/document]",
         type: "text",
       },
-    ])
-  })
+    ]);
+  });
 
   it("rejects image attachments when the selected model lacks vision support", async () => {
     mockPrisma.conversationAttachment.findMany.mockResolvedValueOnce([
@@ -301,7 +293,7 @@ describe("provider payload limits", () => {
         kind: "image",
         mimeType: "image/jpeg",
       },
-    ])
+    ]);
 
     await expect(
       resolveMessagesForProvider({
@@ -339,36 +331,34 @@ describe("provider payload limits", () => {
     ).rejects.toMatchObject({
       message: 'Modelo "demo-model" nao suporta anexos de imagem',
       status: 400,
-    })
-  })
-})
+    });
+  });
+});
 
 describe("provider usage correlation and streaming metrics", () => {
   beforeEach(() => {
-    process.env.REQUIRE_AUTH = "true"
-    vi.clearAllMocks()
+    process.env.REQUIRE_AUTH = "true";
+    vi.clearAllMocks();
     mockPrisma.apiKey.findFirst.mockResolvedValue({
       expiresAt: null,
       id: "key-1",
       userId: "user-1",
-    })
-    mockPrisma.apiKey.update.mockReturnValue({ catch: vi.fn() })
-    mockPrisma.conversation.findFirst.mockResolvedValue({ id: "conv-1" })
-    mockPrisma.usageLog.create.mockResolvedValue({ id: "log-1" })
-    mockPrisma.usageLog.update.mockReturnValue({ catch: vi.fn() })
-  })
+    });
+    mockPrisma.apiKey.update.mockReturnValue({ catch: vi.fn() });
+    mockPrisma.conversation.findFirst.mockResolvedValue({ id: "conv-1" });
+    mockPrisma.usageLog.create.mockResolvedValue({ id: "log-1" });
+    mockPrisma.usageLog.update.mockReturnValue({ catch: vi.fn() });
+  });
 
   afterEach(() => {
-    process.env.REQUIRE_AUTH = originalRequireAuth
-  })
+    process.env.REQUIRE_AUTH = originalRequireAuth;
+  });
 
   it("correlaciona apenas conversa do usuario e atualiza a duracao ao fim do stream", async () => {
     const app = createProviderApp({
       basePath: "/test-provider",
       chat: async () =>
-        new Response(
-          '0:"ok"\nd:{"usage":{"promptTokens":2,"completionTokens":1}}\n',
-        ),
+        new Response('0:"ok"\nd:{"usage":{"promptTokens":2,"completionTokens":1}}\n'),
       defaultModel: "demo-model",
       models: [
         {
@@ -378,7 +368,7 @@ describe("provider usage correlation and streaming metrics", () => {
         },
       ],
       providerId: "test-provider",
-    })
+    });
 
     const response = await app.request("/test-provider/api/chat", {
       body: JSON.stringify({
@@ -391,8 +381,8 @@ describe("provider usage correlation and streaming metrics", () => {
         "x-modelhub-message-id": "assistant-1",
       },
       method: "POST",
-    })
-    await response.text()
+    });
+    await response.text();
 
     await vi.waitFor(() => {
       expect(mockPrisma.usageLog.create).toHaveBeenCalledWith(
@@ -403,16 +393,16 @@ describe("provider usage correlation and streaming metrics", () => {
             userId: "user-1",
           }),
         }),
-      )
+      );
       expect(mockPrisma.usageLog.update).toHaveBeenCalledWith(
         expect.objectContaining({
           data: { durationMs: expect.any(Number) },
           where: { id: "log-1" },
         }),
-      )
-    })
-  })
-})
+      );
+    });
+  });
+});
 
 describe("project context injection", () => {
   const demoConfig = {
@@ -427,20 +417,18 @@ describe("project context injection", () => {
       },
     ],
     providerId: "test-provider",
-  }
+  };
 
   beforeEach(() => {
-    process.env.REQUIRE_AUTH = "false"
-    vi.clearAllMocks()
-  })
+    process.env.REQUIRE_AUTH = "false";
+    vi.clearAllMocks();
+  });
 
-  function systemContent(
-    messages: Array<{ content: string | unknown[]; role: string }>,
-  ): string {
-    const system = messages[0]
-    expect(system?.role).toBe("system")
-    expect(typeof system?.content).toBe("string")
-    return system?.content as string
+  function systemContent(messages: Array<{ content: string | unknown[]; role: string }>): string {
+    const system = messages[0];
+    expect(system?.role).toBe("system");
+    expect(typeof system?.content).toBe("string");
+    return system?.content as string;
   }
 
   it("injects owned project instructions and knowledge into the system context", async () => {
@@ -450,11 +438,11 @@ describe("project context injection", () => {
       instructions: "Sempre responda em pt-BR",
       name: "Projeto Alpha",
       userId: "user-1",
-    })
+    });
     mockPrisma.projectFile.findMany.mockResolvedValueOnce([
       { extractedText: "Conteúdo do arquivo A", fileName: "a.pdf" },
       { extractedText: "Conteúdo do arquivo B", fileName: "b.md" },
-    ])
+    ]);
 
     const messages = await resolveMessagesForProvider({
       config: demoConfig,
@@ -463,20 +451,18 @@ describe("project context injection", () => {
       modelId: "demo-model",
       projectId: "proj-1",
       userId: "user-1",
-    })
+    });
 
-    const content = systemContent(messages)
-    expect(content).toContain("Project instructions:\nSempre responda em pt-BR")
-    expect(content).toContain(
-      "Project knowledge:\n[a.pdf]\nConteúdo do arquivo A",
-    )
-    expect(content).toContain("[b.md]\nConteúdo do arquivo B")
-    expect(messages[1]?.content).toBe("oi")
-  })
+    const content = systemContent(messages);
+    expect(content).toContain("Project instructions:\nSempre responda em pt-BR");
+    expect(content).toContain("Project knowledge:\n[a.pdf]\nConteúdo do arquivo A");
+    expect(content).toContain("[b.md]\nConteúdo do arquivo B");
+    expect(messages[1]?.content).toBe("oi");
+  });
 
   it("validates ownership with findFirst({ id, userId }) and ignores another user's project", async () => {
     // findFirst com o userId do solicitante não encontra projeto de outro usuário
-    mockPrisma.project.findFirst.mockResolvedValueOnce(null)
+    mockPrisma.project.findFirst.mockResolvedValueOnce(null);
 
     const messages = await resolveMessagesForProvider({
       config: demoConfig,
@@ -485,16 +471,16 @@ describe("project context injection", () => {
       modelId: "demo-model",
       projectId: "proj-other",
       userId: "user-1",
-    })
+    });
 
     expect(mockPrisma.project.findFirst).toHaveBeenCalledWith({
       where: { id: "proj-other", userId: "user-1" },
-    })
-    expect(mockPrisma.projectFile.findMany).not.toHaveBeenCalled()
+    });
+    expect(mockPrisma.projectFile.findMany).not.toHaveBeenCalled();
     // Sem settings/memories e sem projeto válido → nenhuma mensagem de sistema extra
-    expect(messages).toHaveLength(1)
-    expect(messages[0]?.content).toBe("oi")
-  })
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.content).toBe("oi");
+  });
 
   it("does not fetch project context when projectId is absent", async () => {
     const messages = await resolveMessagesForProvider({
@@ -503,12 +489,12 @@ describe("project context injection", () => {
       messages: [{ content: "oi", role: "user" }],
       modelId: "demo-model",
       userId: "user-1",
-    })
+    });
 
-    expect(messages).toHaveLength(1)
-    expect(mockPrisma.project.findFirst).not.toHaveBeenCalled()
-    expect(mockPrisma.projectFile.findMany).not.toHaveBeenCalled()
-  })
+    expect(messages).toHaveLength(1);
+    expect(mockPrisma.project.findFirst).not.toHaveBeenCalled();
+    expect(mockPrisma.projectFile.findMany).not.toHaveBeenCalled();
+  });
 
   it("enforces instructions 20k cap and knowledge per-file 20k / total 60k caps", async () => {
     mockPrisma.project.findFirst.mockResolvedValueOnce({
@@ -517,13 +503,13 @@ describe("project context injection", () => {
       instructions: "i".repeat(25_000),
       name: "Projeto Alpha",
       userId: "user-1",
-    })
+    });
     mockPrisma.projectFile.findMany.mockResolvedValueOnce([
       { extractedText: "x".repeat(25_000), fileName: "a.pdf" },
       { extractedText: "y".repeat(25_000), fileName: "b.pdf" },
       { extractedText: "z".repeat(25_000), fileName: "c.pdf" },
       { extractedText: "w".repeat(25_000), fileName: "d.pdf" },
-    ])
+    ]);
 
     const messages = await resolveMessagesForProvider({
       config: demoConfig,
@@ -532,39 +518,39 @@ describe("project context injection", () => {
       modelId: "demo-model",
       projectId: "proj-1",
       userId: "user-1",
-    })
+    });
 
-    const content = systemContent(messages)
+    const content = systemContent(messages);
     // instruções: 20k máx
-    expect(content).toContain(`Project instructions:\n${"i".repeat(20_000)}`)
-    expect(content).not.toContain("i".repeat(20_001))
+    expect(content).toContain(`Project instructions:\n${"i".repeat(20_000)}`);
+    expect(content).not.toContain("i".repeat(20_001));
     // knowledge: cada arquivo cortado a 20k e agregado a 60k (4º arquivo fica de fora)
-    expect(content).toContain(`[a.pdf]\n${"x".repeat(20_000)}`)
-    expect(content).toContain(`[b.pdf]\n${"y".repeat(20_000)}`)
-    expect(content).toContain(`[c.pdf]\n${"z".repeat(20_000)}`)
-    expect(content).not.toContain("[d.pdf]")
-    expect(content).not.toContain("w".repeat(20_000))
-  })
+    expect(content).toContain(`[a.pdf]\n${"x".repeat(20_000)}`);
+    expect(content).toContain(`[b.pdf]\n${"y".repeat(20_000)}`);
+    expect(content).toContain(`[c.pdf]\n${"z".repeat(20_000)}`);
+    expect(content).not.toContain("[d.pdf]");
+    expect(content).not.toContain("w".repeat(20_000));
+  });
 
   it("reads x-modelhub-project-id header and injects project context via /api/chat", async () => {
-    process.env.REQUIRE_AUTH = "true"
+    process.env.REQUIRE_AUTH = "true";
     mockPrisma.apiKey.findFirst.mockResolvedValueOnce({
       expiresAt: null,
       id: "key-1",
       userId: "user-1",
-    })
+    });
     mockPrisma.project.findFirst.mockResolvedValueOnce({
       description: null,
       id: "proj-1",
       instructions: "Sempre responda em pt-BR",
       name: "Projeto Alpha",
       userId: "user-1",
-    })
+    });
     mockPrisma.projectFile.findMany.mockResolvedValueOnce([
       { extractedText: "Conteúdo do arquivo A", fileName: "a.pdf" },
-    ])
+    ]);
 
-    const chat = vi.fn().mockResolvedValue(new Response("ok"))
+    const chat = vi.fn().mockResolvedValue(new Response("ok"));
     const app = createProviderApp({
       basePath: "/test-provider",
       chat,
@@ -577,7 +563,7 @@ describe("project context injection", () => {
         },
       ],
       providerId: "test-provider",
-    })
+    });
 
     const response = await app.request("/test-provider/api/chat", {
       body: JSON.stringify({
@@ -590,20 +576,18 @@ describe("project context injection", () => {
         "x-modelhub-project-id": "proj-1",
       },
       method: "POST",
-    })
+    });
 
-    expect(response.status).toBe(200)
+    expect(response.status).toBe(200);
     expect(mockPrisma.project.findFirst).toHaveBeenCalledWith({
       where: { id: "proj-1", userId: "user-1" },
-    })
+    });
     const firstArg = chat.mock.calls[0]?.[0] as Array<{
-      role: string
-      content: string
-    }>
-    const content = systemContent(firstArg)
-    expect(content).toContain("Project instructions:\nSempre responda em pt-BR")
-    expect(content).toContain(
-      "Project knowledge:\n[a.pdf]\nConteúdo do arquivo A",
-    )
-  })
-})
+      role: string;
+      content: string;
+    }>;
+    const content = systemContent(firstArg);
+    expect(content).toContain("Project instructions:\nSempre responda em pt-BR");
+    expect(content).toContain("Project knowledge:\n[a.pdf]\nConteúdo do arquivo A");
+  });
+});

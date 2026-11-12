@@ -27,7 +27,9 @@ function validateDatabaseUrl(databaseUrl: string | undefined, issues: string[]):
     const hostname = parsed.hostname.toLowerCase();
     const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
     if (!isLocalHost && !hostname.includes("-pooler")) {
-      issues.push("DATABASE_URL must point to a pooled Neon endpoint (-pooler) in Vercel preview/production.");
+      issues.push(
+        "DATABASE_URL must point to a pooled Neon endpoint (-pooler) in Vercel preview/production.",
+      );
     }
   } catch {
     issues.push("DATABASE_URL must be a valid connection string.");
@@ -87,6 +89,15 @@ function validatePositiveNumber(name: string, env: NodeJS.ProcessEnv, issues: st
   const parsed = Number(rawValue);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     issues.push(`${name} must be a positive number when configured.`);
+  }
+}
+
+const LOG_LEVELS = new Set(["debug", "info", "warn", "error", "silent"]);
+
+function validateLogLevel(env: NodeJS.ProcessEnv, issues: string[]): void {
+  const level = env.LOG_LEVEL?.trim().toLowerCase();
+  if (level && !LOG_LEVELS.has(level)) {
+    issues.push("LOG_LEVEL must be one of debug, info, warn, error or silent when configured.");
   }
 }
 
@@ -153,6 +164,7 @@ export function validateRuntimeEnvConfig(env: NodeJS.ProcessEnv = process.env): 
   validatePositiveNumber("RATE_LIMIT_WINDOW_MS", env, issues);
   validatePositiveNumber("RATE_LIMIT_MAX", env, issues);
   validatePositiveNumber("USER_RATE_LIMIT_MAX", env, issues);
+  validateLogLevel(env, issues);
   validateAllowedOrigins(env, issues);
   validateUpstashRateLimitEnv(env, issues);
 

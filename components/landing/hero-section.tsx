@@ -1,9 +1,4 @@
-import {
-  ActivityIcon,
-  GlobeIcon,
-  PlugIcon,
-  SparklesIcon,
-} from "lucide-react";
+import { ActivityIcon, GlobeIcon, PlugIcon, SparklesIcon } from "lucide-react";
 
 import { AuthButtons } from "@/components/landing/auth-buttons";
 import { Badge } from "@/components/ui/badge";
@@ -24,8 +19,8 @@ export function HeroSection() {
           </span>
         </h1>
         <p className="max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-          Conecte, gerencie e converse com múltiplos modelos de inteligência artificial
-          direto no browser. API compatível com OpenAI, sem instalar nada.
+          Conecte, gerencie e converse com múltiplos modelos de inteligência artificial direto no
+          browser. API compatível com OpenAI, sem instalar nada.
         </p>
       </div>
 

@@ -10,7 +10,11 @@ export const PROVIDER_CATALOG: readonly UiProvider[] = PROVIDERS.map((provider) 
   hasModels: true,
   requiredEnv: provider.apiKeyEnv,
   requiredKeys: [
-    { envName: provider.apiKeyEnv, label: "API Key", placeholder: provider.keyPlaceholder ?? "Cole sua chave" },
+    {
+      envName: provider.apiKeyEnv,
+      label: "API Key",
+      placeholder: provider.keyPlaceholder ?? "Cole sua chave",
+    },
   ],
   signupUrl: provider.signupUrl,
   signupLabel: provider.signupUrl ? `Obter chave em ${provider.label}` : undefined,

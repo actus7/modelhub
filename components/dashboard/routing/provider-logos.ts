@@ -26,10 +26,8 @@ const PROVIDERS_WITH_LOGO = new Set([
   "togetherai",
   "zai",
   "zaicoding",
-])
+]);
 
 export function providerLogoSrc(providerId: string): string | undefined {
-  return PROVIDERS_WITH_LOGO.has(providerId)
-    ? `/providers/${providerId}.svg`
-    : undefined
+  return PROVIDERS_WITH_LOGO.has(providerId) ? `/providers/${providerId}.svg` : undefined;
 }

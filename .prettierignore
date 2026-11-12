@@ -1,0 +1,13 @@
+.next/
+.vercel/
+coverage/
+generated/
+graft/
+manifest-main/
+node_modules/
+public/
+videos/
+prisma/migrations/
+pnpm-lock.yaml
+next-env.d.ts
+*.md

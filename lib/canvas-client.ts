@@ -16,7 +16,9 @@ export type CanvasVersionContent = {
 };
 
 export async function listCanvases(conversationId: string): Promise<CanvasSummary[]> {
-  const data = await apiJson<{ canvases: CanvasSummary[] }>(`/conversations/${conversationId}/canvases`);
+  const data = await apiJson<{ canvases: CanvasSummary[] }>(
+    `/conversations/${conversationId}/canvases`,
+  );
   return data.canvases;
 }
 
@@ -41,16 +43,28 @@ export async function updateCanvas(
   canvasId: string,
   payload: Partial<Pick<CanvasDetail, "content" | "kind" | "language" | "title">>,
 ): Promise<CanvasDetail> {
-  const data = await apiJsonRequest<{ canvas: CanvasDetail }>(`/canvas/${canvasId}`, "PATCH", payload);
+  const data = await apiJsonRequest<{ canvas: CanvasDetail }>(
+    `/canvas/${canvasId}`,
+    "PATCH",
+    payload,
+  );
   return data.canvas;
 }
 
-export async function getCanvasVersion(canvasId: string, version: number): Promise<CanvasVersionContent> {
-  const data = await apiJson<{ version: CanvasVersionContent }>(`/canvas/${canvasId}/versions/${version}`);
+export async function getCanvasVersion(
+  canvasId: string,
+  version: number,
+): Promise<CanvasVersionContent> {
+  const data = await apiJson<{ version: CanvasVersionContent }>(
+    `/canvas/${canvasId}/versions/${version}`,
+  );
   return data.version;
 }
 
-export async function restoreCanvasVersion(canvasId: string, version: number): Promise<CanvasDetail> {
+export async function restoreCanvasVersion(
+  canvasId: string,
+  version: number,
+): Promise<CanvasDetail> {
   const data = await apiJsonRequest<{ canvas: CanvasDetail }>(
     `/canvas/${canvasId}/versions/${version}/restore`,
     "POST",
@@ -72,9 +86,16 @@ export async function listProjects(): Promise<ProjectSummary[]> {
   return data.projects;
 }
 
-export async function pinCanvas(canvasId: string, projectId: string): Promise<ProjectArtifactDetail> {
-  const data = await apiJsonRequest<{ artifact: ProjectArtifactDetail }>(`/canvas/${canvasId}/pin`, "POST", {
-    projectId,
-  });
+export async function pinCanvas(
+  canvasId: string,
+  projectId: string,
+): Promise<ProjectArtifactDetail> {
+  const data = await apiJsonRequest<{ artifact: ProjectArtifactDetail }>(
+    `/canvas/${canvasId}/pin`,
+    "POST",
+    {
+      projectId,
+    },
+  );
   return data.artifact;
 }

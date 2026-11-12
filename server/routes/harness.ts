@@ -1,17 +1,20 @@
-import { Hono } from "hono"
-import { z } from "zod"
+import { z } from "zod";
 
-import { Prisma } from "../../generated/prisma/client"
-import type { HarnessEvent, HarnessRunStatus } from "../../lib/harness/contracts"
-import { appendHarnessEvent, ensureLegacyMessageEvents, listHarnessEvents } from "../harness/events"
-import { assertPublicHttpUrl } from "../harness/core-tools"
-import { assertSecureMcpUrl } from "../harness/mcp"
-import { normalizeRequestMessages, type ModelMessage } from "../harness/prompt"
+import { Prisma } from "../../generated/prisma/client";
+import type { HarnessEvent, HarnessRunStatus } from "../../lib/harness/contracts";
+import {
+  appendHarnessEvent,
+  ensureLegacyMessageEvents,
+  listHarnessEvents,
+} from "../harness/events";
+import { assertPublicHttpUrl } from "../harness/core-tools";
+import { assertSecureMcpUrl } from "../harness/mcp";
+import { normalizeRequestMessages, type ModelMessage } from "../harness/prompt";
 import {
   buildRunReplaySnapshot,
   findActiveRootRun,
   reconcileStaleRootRuns,
-} from "../harness/run-lifecycle"
+} from "../harness/run-lifecycle";
 import {
   acquireRunLease,
   abortActiveHarnessRun,
@@ -20,23 +23,15 @@ import {
   refreshRunToolProjection,
   runHarness,
   type ModelDispatcher,
-} from "../harness/runtime"
-import { encryptCredential } from "../lib/crypto"
-import { prisma } from "../lib/db"
-import { jsonErrorResponse } from "../lib/provider-core"
-import { authenticateAccess, protectedCors, securityHeaders } from "../lib/security"
-import { requireAuth } from "./route-helpers"
-import v1Fetch from "./v1"
+} from "../harness/runtime";
+import { encryptCredential } from "../lib/crypto";
+import { prisma } from "../lib/db";
+import { jsonErrorResponse } from "../lib/http";
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers";
+import v1Fetch from "./v1";
 
-const app = new Hono().basePath("/harness")
-const MAX_HARNESS_TURN_BYTES = 4 * 1024 * 1024
-app.use("*", securityHeaders)
-app.use("*", protectedCors)
-app.use("*", async (c, next) => {
-  const authError = await authenticateAccess(c)
-  if (authError) return authError
-  return next()
-})
+const app = createAuthenticatedRouter("/harness");
+const MAX_HARNESS_TURN_BYTES = 4 * 1024 * 1024;
 
 const harnessMessageSchema = z.object({
   content: z.unknown().optional(),
@@ -45,7 +40,7 @@ const harnessMessageSchema = z.object({
   role: z.enum(["assistant", "system", "tool", "user"]),
   tool_call_id: z.string().optional(),
   tool_calls: z.unknown().optional(),
-})
+});
 
 const turnSchema = z.object({
   enteredMessages: z.array(harnessMessageSchema).min(1).max(8).optional(),
@@ -54,23 +49,22 @@ const turnSchema = z.object({
   messages: z.array(harnessMessageSchema).min(1).max(500),
   model: z.string().trim().min(1).max(300),
   projectId: z.string().trim().min(1).max(64).optional(),
-})
+});
 
 const approvalSchema = z.object({
   decision: z.enum(["approved", "denied"]),
   response: z.record(z.string(), z.unknown()).optional(),
-})
+});
 
 const mcpServerSchema = z.object({
   headers: z.record(z.string(), z.string()).optional(),
   name: z.string().trim().min(1).max(80),
   status: z.enum(["active", "disabled"]).default("active"),
   url: z.url().max(2_048),
-})
-const mcpServerUpdateSchema = mcpServerSchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  "At least one field is required",
-)
+});
+const mcpServerUpdateSchema = mcpServerSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 const skillSchema = z.object({
   content: z.string().trim().min(1).max(100_000),
@@ -78,58 +72,57 @@ const skillSchema = z.object({
   enabled: z.boolean().default(true),
   name: z.string().trim().min(1).max(100),
   projectId: z.string().trim().min(1).max(64).nullable().optional(),
-})
-const skillUpdateSchema = skillSchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  "At least one field is required",
-)
+});
+const skillUpdateSchema = skillSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 const forkSchema = z.object({
   boundarySeq: z.string().regex(/^\d+$/).optional(),
   title: z.string().trim().min(1).max(200).optional(),
-})
+});
 
 const projectionSchema = z.object({
   content: z.string().max(2_000_000),
   modelLabel: z.string().max(200).optional(),
   parts: z.array(z.unknown()).max(64),
-})
+});
 
 const pluginConfigSchema = z.object({
   config: z.record(z.string(), z.unknown()).default({}),
   enabled: z.boolean(),
-})
+});
 
 function json(value: unknown): Prisma.InputJsonValue {
-  return value as Prisma.InputJsonValue
+  return value as Prisma.InputJsonValue;
 }
 
 function messageText(content: unknown, parts: unknown): string {
-  if (typeof content === "string") return content
-  if (!Array.isArray(parts)) return ""
+  if (typeof content === "string") return content;
+  if (!Array.isArray(parts)) return "";
   return parts
     .filter((part): part is { text: string; type?: string } => {
-      if (!part || typeof part !== "object") return false
-      const candidate = part as { text?: unknown; type?: unknown }
-      return typeof candidate.text === "string" && (!candidate.type || candidate.type === "text")
+      if (!part || typeof part !== "object") return false;
+      const candidate = part as { text?: unknown; type?: unknown };
+      return typeof candidate.text === "string" && (!candidate.type || candidate.type === "text");
     })
     .map((part) => part.text)
-    .join("\n")
+    .join("\n");
 }
 
 async function ownedConversation(conversationId: string, userId: string) {
-  return prisma.conversation.findFirst({ where: { id: conversationId, userId } })
+  return prisma.conversation.findFirst({ where: { id: conversationId, userId } });
 }
 
 function dispatchFromRequest(request: Request): ModelDispatcher {
   return async ({ assistantMessageId, body, signal }) => {
-    const url = new URL(request.url)
-    url.pathname = "/v1/chat/completions"
-    url.search = ""
-    const headers = new Headers(request.headers)
-    headers.set("content-type", "application/json")
-    headers.set("x-modelhub-message-id", assistantMessageId)
-    headers.delete("content-length")
+    const url = new URL(request.url);
+    url.pathname = "/v1/chat/completions";
+    url.search = "";
+    const headers = new Headers(request.headers);
+    headers.set("content-type", "application/json");
+    headers.set("x-modelhub-message-id", assistantMessageId);
+    headers.delete("content-length");
     return v1Fetch(
       new Request(url, {
         body: JSON.stringify(body),
@@ -137,8 +130,8 @@ function dispatchFromRequest(request: Request): ModelDispatcher {
         method: "POST",
         signal,
       }),
-    )
-  }
+    );
+  };
 }
 
 function activeRunConflictResponse(
@@ -146,90 +139,84 @@ function activeRunConflictResponse(
 ): Response {
   const retryAfterMs = activeRun.leaseExpiresAt
     ? Math.max(0, activeRun.leaseExpiresAt.getTime() - Date.now())
-    : null
-  return jsonErrorResponse(
-    409,
-    "Conversation still has an active generation",
-    {
-      canCancel: true,
-      code: "HARNESS_ACTIVE_RUN",
-      leaseExpiresAt: activeRun.leaseExpiresAt?.toISOString() ?? null,
-      retryAfterMs,
-      runId: activeRun.id,
-      status: activeRun.status,
-    },
-  )
+    : null;
+  return jsonErrorResponse(409, "Conversation still has an active generation", {
+    canCancel: true,
+    code: "HARNESS_ACTIVE_RUN",
+    leaseExpiresAt: activeRun.leaseExpiresAt?.toISOString() ?? null,
+    retryAfterMs,
+    runId: activeRun.id,
+    status: activeRun.status,
+  });
 }
 
 async function streamRun(input: {
-  initialMessages?: ModelMessage[]
-  request: Request
+  initialMessages?: ModelMessage[];
+  request: Request;
   run: {
-    conversationId: string
-    id: string
-    status: string
-  }
-  userId: string
+    conversationId: string;
+    id: string;
+    status: string;
+  };
+  userId: string;
 }): Promise<Response> {
-  const run = input.run
-  let lease: Awaited<ReturnType<typeof acquireRunLease>> = null
+  const run = input.run;
+  let lease: Awaited<ReturnType<typeof acquireRunLease>> = null;
   if (["queued", "yielded", "running"].includes(run.status)) {
-    lease = await acquireRunLease(run.id, input.userId)
+    lease = await acquireRunLease(run.id, input.userId);
     if (!lease) {
       const current = await prisma.agentRun.findFirst({
         where: { id: run.id, userId: input.userId },
         select: { leaseExpiresAt: true, status: true },
-      })
-      return jsonErrorResponse(
-        409,
-        "Agent run is still owned by another worker",
-        {
-          code: "HARNESS_RUN_BUSY",
-          leaseExpiresAt: current?.leaseExpiresAt?.toISOString() ?? null,
-          retryAfterMs: current?.leaseExpiresAt
-            ? Math.max(0, current.leaseExpiresAt.getTime() - Date.now())
-            : 1_000,
-          runId: run.id,
-          status: current?.status ?? run.status,
-        },
-      )
+      });
+      return jsonErrorResponse(409, "Agent run is still owned by another worker", {
+        code: "HARNESS_RUN_BUSY",
+        leaseExpiresAt: current?.leaseExpiresAt?.toISOString() ?? null,
+        retryAfterMs: current?.leaseExpiresAt
+          ? Math.max(0, current.leaseExpiresAt.getTime() - Date.now())
+          : 1_000,
+        runId: run.id,
+        status: current?.status ?? run.status,
+      });
     }
   }
-  const encoder = new TextEncoder()
-  const abortController = new AbortController()
-  const abort = () => abortController.abort()
-  input.request.signal.addEventListener("abort", abort, { once: true })
+  const encoder = new TextEncoder();
+  const abortController = new AbortController();
+  const abort = () => abortController.abort();
+  input.request.signal.addEventListener("abort", abort, { once: true });
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: HarnessEvent) => {
         if (!abortController.signal.aborted) {
           try {
-            controller.enqueue(encoder.encode(`event: harness\ndata: ${JSON.stringify(event)}\n\n`))
+            controller.enqueue(
+              encoder.encode(`event: harness\ndata: ${JSON.stringify(event)}\n\n`),
+            );
           } catch {
-            abortController.abort("Harness response stream closed")
+            abortController.abort("Harness response stream closed");
           }
         }
-      }
+      };
       const close = () => {
         try {
-          controller.close()
+          controller.close();
         } catch {
           // The browser can close the stream before the server observes abort.
         }
-      }
+      };
 
       try {
-        let status = run.status as HarnessRunStatus
+        let status = run.status as HarnessRunStatus;
         if (lease) {
-            status = await runHarness({
-              dispatchModel: dispatchFromRequest(input.request),
-              initialMessages: input.initialMessages,
-              leaseToken: lease.token,
-              onEvent: send,
-              runId: run.id,
-              signal: abortController.signal,
-            })
+          status = await runHarness({
+            dispatchModel: dispatchFromRequest(input.request),
+            initialMessages: input.initialMessages,
+            leaseToken: lease.token,
+            onEvent: send,
+            runId: run.id,
+            signal: abortController.signal,
+          });
         }
 
         if (!lease && status === "completed") {
@@ -240,8 +227,8 @@ async function streamRun(input: {
             },
             orderBy: { seq: "asc" },
             select: { payload: true, type: true },
-          })
-          const snapshot = buildRunReplaySnapshot(replayEvents)
+          });
+          const snapshot = buildRunReplaySnapshot(replayEvents);
           if (snapshot) {
             send({
               conversationId: run.conversationId,
@@ -259,7 +246,7 @@ async function streamRun(input: {
               stepId: null,
               turnId: null,
               type: "assistant/message",
-            })
+            });
           }
         }
 
@@ -280,28 +267,30 @@ async function streamRun(input: {
               stepId: null,
               turnId: null,
               type: "run/status",
-            }
-        send(statusEvent)
-        close()
+            };
+        send(statusEvent);
+        close();
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
+        const message = error instanceof Error ? error.message : String(error);
         if (!abortController.signal.aborted) {
           try {
-            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ message })}\n\n`))
+            controller.enqueue(
+              encoder.encode(`event: error\ndata: ${JSON.stringify({ message })}\n\n`),
+            );
           } catch {
-            abortController.abort("Harness response stream closed")
+            abortController.abort("Harness response stream closed");
           }
         }
-        close()
+        close();
       } finally {
-        input.request.signal.removeEventListener("abort", abort)
+        input.request.signal.removeEventListener("abort", abort);
       }
     },
     cancel() {
-      abortController.abort()
-      input.request.signal.removeEventListener("abort", abort)
+      abortController.abort();
+      input.request.signal.removeEventListener("abort", abort);
     },
-  })
+  });
 
   return new Response(stream, {
     headers: {
@@ -311,150 +300,159 @@ async function streamRun(input: {
       "X-ModelHub-Run-Id": run.id,
       "X-Accel-Buffering": "no",
     },
-  })
+  });
 }
 
 app.get("/capabilities", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
   const registry = await createHarnessRegistry(userId, c.req.raw.signal, {
     discoverMcp: false,
-  })
+  });
   try {
-    return c.json({ capabilities: registry.listCapabilities(), plugins: registry.listPlugins() })
+    return c.json({ capabilities: registry.listCapabilities(), plugins: registry.listPlugins() });
   } finally {
-    registry.dispose()
+    registry.dispose();
   }
-})
+});
 
 app.get("/plugins", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
   const configs = await prisma.harnessPluginConfig.findMany({
     where: { userId },
     orderBy: { pluginId: "asc" },
-  })
-  return c.json({ configs })
-})
+  });
+  return c.json({ configs });
+});
 
 app.patch("/plugins/:pluginId", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const pluginId = c.req.param("pluginId")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const pluginId = c.req.param("pluginId");
   if (!["modelhub.core-tools", "modelhub.mcp-remote"].includes(pluginId)) {
-    return jsonErrorResponse(404, "Plugin not found")
+    return jsonErrorResponse(404, "Plugin not found");
   }
-  const parsed = pluginConfigSchema.safeParse(await c.req.json().catch(() => null))
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid plugin config")
+  const parsed = pluginConfigSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid plugin config");
   const config = await prisma.harnessPluginConfig.upsert({
     where: { userId_pluginId: { pluginId, userId } },
     create: { ...parsed.data, config: json(parsed.data.config), pluginId, userId },
     update: { ...parsed.data, config: json(parsed.data.config) },
-  })
-  return c.json({ config })
-})
+  });
+  return c.json({ config });
+});
 
 app.post("/conversations/:id/turns", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const conversationId = c.req.param("id")
-  const conversation = await ownedConversation(conversationId, userId)
-  if (!conversation) return jsonErrorResponse(404, "Conversation not found")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const conversationId = c.req.param("id");
+  const conversation = await ownedConversation(conversationId, userId);
+  if (!conversation) return jsonErrorResponse(404, "Conversation not found");
 
-  const contentLength = Number(c.req.header("content-length") ?? "0")
+  const contentLength = Number(c.req.header("content-length") ?? "0");
   if (Number.isFinite(contentLength) && contentLength > MAX_HARNESS_TURN_BYTES) {
-    return jsonErrorResponse(413, "Harness turn payload is too large")
+    return jsonErrorResponse(413, "Harness turn payload is too large");
   }
-  const rawBody = await c.req.text()
+  const rawBody = await c.req.text();
   if (Buffer.byteLength(rawBody, "utf8") > MAX_HARNESS_TURN_BYTES) {
-    return jsonErrorResponse(413, "Harness turn payload is too large")
+    return jsonErrorResponse(413, "Harness turn payload is too large");
   }
-  const parsed = turnSchema.safeParse((() => {
-    try {
-      return JSON.parse(rawBody) as unknown
-    } catch {
-      return null
-    }
-  })())
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid harness turn payload")
-  const body = parsed.data
+  const parsed = turnSchema.safeParse(
+    (() => {
+      try {
+        return JSON.parse(rawBody) as unknown;
+      } catch {
+        return null;
+      }
+    })(),
+  );
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid harness turn payload");
+  const body = parsed.data;
 
   if (body.projectId) {
-    const project = await prisma.project.findFirst({ where: { id: body.projectId, userId }, select: { id: true } })
-    if (!project) return jsonErrorResponse(404, "Project not found")
+    const project = await prisma.project.findFirst({
+      where: { id: body.projectId, userId },
+      select: { id: true },
+    });
+    if (!project) return jsonErrorResponse(404, "Project not found");
   }
 
-  await reconcileStaleRootRuns({ conversationId, userId })
+  await reconcileStaleRootRuns({ conversationId, userId });
 
   const existing = await prisma.agentRun.findUnique({
-    where: { conversationId_idempotencyKey: { conversationId, idempotencyKey: body.idempotencyKey } },
-  })
-  let run = existing
+    where: {
+      conversationId_idempotencyKey: { conversationId, idempotencyKey: body.idempotencyKey },
+    },
+  });
+  let run = existing;
   if (!run) {
-    const activeRun = await findActiveRootRun(conversationId, userId)
+    const activeRun = await findActiveRootRun(conversationId, userId);
     if (activeRun) {
-      return activeRunConflictResponse(activeRun)
+      return activeRunConflictResponse(activeRun);
     }
-    await ensureLegacyMessageEvents(conversationId)
-    const lastUser = [...body.messages].reverse().find((message) => message.role === "user")
-    if (!lastUser) return jsonErrorResponse(400, "A user message is required")
-    const messageId = lastUser.id ?? crypto.randomUUID()
-    const content = messageText(lastUser.content, lastUser.parts)
-    const providerId = body.model.includes("/") ? body.model.slice(0, body.model.indexOf("/")) : null
+    await ensureLegacyMessageEvents(conversationId);
+    const lastUser = [...body.messages].reverse().find((message) => message.role === "user");
+    if (!lastUser) return jsonErrorResponse(400, "A user message is required");
+    const messageId = lastUser.id ?? crypto.randomUUID();
+    const content = messageText(lastUser.content, lastUser.parts);
+    const providerId = body.model.includes("/")
+      ? body.model.slice(0, body.model.indexOf("/"))
+      : null;
 
     try {
       run = await prisma.$transaction(async (tx) => {
         const createdRun = await tx.agentRun.create({
-        data: {
-          conversationId,
-          idempotencyKey: body.idempotencyKey,
-          maxSteps: body.maxSteps,
-          modelId: body.model,
-          providerId,
-          userId,
-        },
-      })
-      await tx.message.create({
-        data: {
-          content,
-          conversationId,
-          id: messageId,
-          parts: lastUser.parts === undefined ? undefined : json(lastUser.parts),
-          role: "user",
-        },
-      })
-      const enteredMessages = body.enteredMessages ?? [lastUser]
-      await tx.sessionEvent.createMany({
-        data: enteredMessages.map((message, index) => {
-          const isProjectedUser = index === enteredMessages.length - 1
-          const enteredId = isProjectedUser ? messageId : (message.id ?? crypto.randomUUID())
-          return {
+          data: {
             conversationId,
-            id: `evt_${enteredId}`,
-            payload: json({
-              content: messageText(message.content, message.parts),
-              messageId: enteredId,
-              parts: message.parts ?? null,
-              source: isProjectedUser ? "direct" : "injected",
-            }),
-            runId: createdRun.id,
-            type: "user/message",
-          }
-        }),
-      })
-      await tx.conversation.update({
-        where: { id: conversationId },
-        data: {
-          engineVersion: "harness-v1",
-          modelId: body.model,
-          projectId: body.projectId ?? conversation.projectId,
-          providerId,
-        },
-      })
-        return createdRun
-      })
+            idempotencyKey: body.idempotencyKey,
+            maxSteps: body.maxSteps,
+            modelId: body.model,
+            providerId,
+            userId,
+          },
+        });
+        await tx.message.create({
+          data: {
+            content,
+            conversationId,
+            id: messageId,
+            parts: lastUser.parts === undefined ? undefined : json(lastUser.parts),
+            role: "user",
+          },
+        });
+        const enteredMessages = body.enteredMessages ?? [lastUser];
+        await tx.sessionEvent.createMany({
+          data: enteredMessages.map((message, index) => {
+            const isProjectedUser = index === enteredMessages.length - 1;
+            const enteredId = isProjectedUser ? messageId : (message.id ?? crypto.randomUUID());
+            return {
+              conversationId,
+              id: `evt_${enteredId}`,
+              payload: json({
+                content: messageText(message.content, message.parts),
+                messageId: enteredId,
+                parts: message.parts ?? null,
+                source: isProjectedUser ? "direct" : "injected",
+              }),
+              runId: createdRun.id,
+              type: "user/message",
+            };
+          }),
+        });
+        await tx.conversation.update({
+          where: { id: conversationId },
+          data: {
+            engineVersion: "harness-v1",
+            modelId: body.model,
+            projectId: body.projectId ?? conversation.projectId,
+            providerId,
+          },
+        });
+        return createdRun;
+      });
     } catch (error) {
-      if ((error as { code?: string }).code !== "P2002") throw error
+      if ((error as { code?: string }).code !== "P2002") throw error;
       run = await prisma.agentRun.findUnique({
         where: {
           conversationId_idempotencyKey: {
@@ -462,113 +460,115 @@ app.post("/conversations/:id/turns", async (c) => {
             idempotencyKey: body.idempotencyKey,
           },
         },
-      })
+      });
       if (!run) {
-        await reconcileStaleRootRuns({ conversationId, userId })
-        const activeRun = await findActiveRootRun(conversationId, userId)
+        await reconcileStaleRootRuns({ conversationId, userId });
+        const activeRun = await findActiveRootRun(conversationId, userId);
         if (activeRun) {
-          return activeRunConflictResponse(activeRun)
+          return activeRunConflictResponse(activeRun);
         }
-        throw error
+        throw error;
       }
     }
   }
 
   return await streamRun({
-    initialMessages: existing
-      ? undefined
-      : normalizeRequestMessages(body.messages),
+    initialMessages: existing ? undefined : normalizeRequestMessages(body.messages),
     request: c.req.raw,
     run,
     userId,
-  })
-})
+  });
+});
 
 app.get("/conversations/:id/events", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const conversationId = c.req.param("id")
-  if (!(await ownedConversation(conversationId, userId))) return jsonErrorResponse(404, "Conversation not found")
-  let after = 0n
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const conversationId = c.req.param("id");
+  if (!(await ownedConversation(conversationId, userId)))
+    return jsonErrorResponse(404, "Conversation not found");
+  let after = 0n;
   try {
-    after = BigInt(c.req.query("after") ?? "0")
+    after = BigInt(c.req.query("after") ?? "0");
   } catch {
-    return jsonErrorResponse(400, "Invalid event cursor")
+    return jsonErrorResponse(400, "Invalid event cursor");
   }
-  return c.json({ events: await listHarnessEvents(conversationId, after) })
-})
+  return c.json({ events: await listHarnessEvents(conversationId, after) });
+});
 
 app.post("/conversations/:id/fork", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const sourceId = c.req.param("id")
-  const source = await ownedConversation(sourceId, userId)
-  if (!source) return jsonErrorResponse(404, "Conversation not found")
-  const parsed = forkSchema.safeParse(await c.req.json().catch(() => ({})))
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid fork payload")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const sourceId = c.req.param("id");
+  const source = await ownedConversation(sourceId, userId);
+  if (!source) return jsonErrorResponse(404, "Conversation not found");
+  const parsed = forkSchema.safeParse(await c.req.json().catch(() => ({})));
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid fork payload");
 
-  await ensureLegacyMessageEvents(sourceId)
+  await ensureLegacyMessageEvents(sourceId);
   const latest = await prisma.sessionEvent.findFirst({
     where: { conversationId: sourceId },
     orderBy: { seq: "desc" },
     select: { seq: true },
-  })
+  });
   const boundarySeq = parsed.data.boundarySeq
     ? BigInt(parsed.data.boundarySeq)
-    : (latest?.seq ?? 0n)
-  if (latest && boundarySeq > latest.seq) return jsonErrorResponse(400, "Fork boundary is beyond the event log")
+    : (latest?.seq ?? 0n);
+  if (latest && boundarySeq > latest.seq)
+    return jsonErrorResponse(400, "Fork boundary is beyond the event log");
 
   const events = await prisma.sessionEvent.findMany({
     where: { conversationId: sourceId, seq: { lte: boundarySeq } },
     orderBy: { seq: "asc" },
-  })
+  });
   const messageIds = events
     .map((event) => {
-      const payload = event.payload as Record<string, unknown>
-      return typeof payload.messageId === "string" ? payload.messageId : null
+      const payload = event.payload as Record<string, unknown>;
+      return typeof payload.messageId === "string" ? payload.messageId : null;
     })
-    .filter((id): id is string => Boolean(id))
+    .filter((id): id is string => Boolean(id));
   const messages = await prisma.message.findMany({
     where: { conversationId: sourceId, id: { in: messageIds } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-  })
+  });
   const attachments = await prisma.conversationAttachment.findMany({
     where: { conversationId: sourceId, messageId: { in: messageIds } },
-  })
+  });
   const referencedCanvasIds = messages.flatMap((message) =>
     Array.isArray(message.parts)
       ? message.parts
           .map((part) => {
-            if (!part || typeof part !== "object") return null
-            const canvasId = (part as Record<string, unknown>).canvasId
-            return typeof canvasId === "string" ? canvasId : null
+            if (!part || typeof part !== "object") return null;
+            const canvasId = (part as Record<string, unknown>).canvasId;
+            return typeof canvasId === "string" ? canvasId : null;
           })
           .filter((id): id is string => Boolean(id))
       : [],
-  )
+  );
   const canvases = await prisma.canvas.findMany({
     where: { conversationId: sourceId, id: { in: referencedCanvasIds } },
     include: { versions: { orderBy: { version: "asc" } } },
-  })
-  const messageIdMap = new Map(messages.map((message) => [message.id, crypto.randomUUID()]))
-  const attachmentIdMap = new Map(attachments.map((attachment) => [attachment.id, crypto.randomUUID()]))
-  const canvasIdMap = new Map(canvases.map((canvas) => [canvas.id, crypto.randomUUID()]))
+  });
+  const messageIdMap = new Map(messages.map((message) => [message.id, crypto.randomUUID()]));
+  const attachmentIdMap = new Map(
+    attachments.map((attachment) => [attachment.id, crypto.randomUUID()]),
+  );
+  const canvasIdMap = new Map(canvases.map((canvas) => [canvas.id, crypto.randomUUID()]));
   const rewriteParts = (value: unknown): Prisma.InputJsonValue | undefined => {
-    if (!Array.isArray(value)) return value == null ? undefined : json(value)
+    if (!Array.isArray(value)) return value == null ? undefined : json(value);
     return json(
       value.map((part) => {
-        if (!part || typeof part !== "object") return part
-        const record = { ...(part as Record<string, unknown>) }
+        if (!part || typeof part !== "object") return part;
+        const record = { ...(part as Record<string, unknown>) };
         if (typeof record.attachmentId === "string") {
-          record.attachmentId = attachmentIdMap.get(record.attachmentId) ?? record.attachmentId
+          record.attachmentId = attachmentIdMap.get(record.attachmentId) ?? record.attachmentId;
         }
         if (typeof record.canvasId === "string") {
-          record.canvasId = canvasIdMap.get(record.canvasId) ?? record.canvasId
+          record.canvasId = canvasIdMap.get(record.canvasId) ?? record.canvasId;
         }
-        return record
+        return record;
       }),
-    )
-  }
+    );
+  };
 
   const fork = await prisma.$transaction(async (tx) => {
     const created = await tx.conversation.create({
@@ -582,9 +582,9 @@ app.post("/conversations/:id/fork", async (c) => {
         title: parsed.data.title ?? `${source.title} (fork)`,
         userId,
       },
-    })
+    });
     for (const canvas of canvases) {
-      const canvasId = canvasIdMap.get(canvas.id)!
+      const canvasId = canvasIdMap.get(canvas.id)!;
       await tx.canvas.create({
         data: {
           activeVersion: canvas.activeVersion,
@@ -596,7 +596,7 @@ app.post("/conversations/:id/fork", async (c) => {
           language: canvas.language,
           title: canvas.title,
         },
-      })
+      });
       if (canvas.versions.length > 0) {
         await tx.canvasVersion.createMany({
           data: canvas.versions.map((version) => ({
@@ -608,7 +608,7 @@ app.post("/conversations/:id/fork", async (c) => {
             language: version.language,
             version: version.version,
           })),
-        })
+        });
       }
     }
     for (const attachment of attachments) {
@@ -625,7 +625,7 @@ app.post("/conversations/:id/fork", async (c) => {
           kind: attachment.kind,
           mimeType: attachment.mimeType,
         },
-      })
+      });
     }
     for (const message of messages) {
       await tx.message.create({
@@ -638,37 +638,35 @@ app.post("/conversations/:id/fork", async (c) => {
           parts: rewriteParts(message.parts),
           role: message.role,
         },
-      })
+      });
     }
     for (const message of messages) {
-      const parentId = message.parentId
-        ? messageIdMap.get(message.parentId)
-        : undefined
+      const parentId = message.parentId ? messageIdMap.get(message.parentId) : undefined;
       if (parentId) {
         await tx.message.update({
           where: { id: messageIdMap.get(message.id)! },
           data: { parentId },
-        })
+        });
       }
     }
     for (const attachment of attachments) {
       const mappedMessageId = attachment.messageId
         ? messageIdMap.get(attachment.messageId)
-        : undefined
+        : undefined;
       if (mappedMessageId) {
         await tx.conversationAttachment.update({
           where: { id: attachmentIdMap.get(attachment.id)! },
           data: { messageId: mappedMessageId },
-        })
+        });
       }
     }
     for (const event of events) {
       const payload: Record<string, unknown> = {
         ...(event.payload as Record<string, unknown>),
         forkedFromEventId: event.id,
-      }
+      };
       if (typeof payload.messageId === "string") {
-        payload.messageId = messageIdMap.get(payload.messageId) ?? payload.messageId
+        payload.messageId = messageIdMap.get(payload.messageId) ?? payload.messageId;
       }
       await tx.sessionEvent.create({
         data: {
@@ -679,10 +677,10 @@ app.post("/conversations/:id/fork", async (c) => {
           turnId: event.turnId,
           type: event.type,
         },
-      })
+      });
     }
-    return created
-  })
+    return created;
+  });
   return c.json(
     {
       conversation: {
@@ -691,37 +689,34 @@ app.post("/conversations/:id/fork", async (c) => {
       },
     },
     201,
-  )
-})
+  );
+});
 
 app.patch("/conversations/:id/messages/:messageId/projection", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const conversationId = c.req.param("id")
-  if (!(await ownedConversation(conversationId, userId))) return jsonErrorResponse(404, "Conversation not found")
-  const parsed = projectionSchema.safeParse(await c.req.json().catch(() => null))
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid message projection")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const conversationId = c.req.param("id");
+  if (!(await ownedConversation(conversationId, userId)))
+    return jsonErrorResponse(404, "Conversation not found");
+  const parsed = projectionSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid message projection");
   const message = await prisma.message.findFirst({
     where: { conversationId, id: c.req.param("messageId"), role: "assistant" },
     select: { id: true, parts: true },
-  })
-  if (!message) return jsonErrorResponse(404, "Assistant message not found")
+  });
+  if (!message) return jsonErrorResponse(404, "Assistant message not found");
   const harnessPart = Array.isArray(message.parts)
     ? message.parts.find(
         (part) =>
-          part &&
-          typeof part === "object" &&
-          (part as Record<string, unknown>).type === "harness",
+          part && typeof part === "object" && (part as Record<string, unknown>).type === "harness",
       )
-    : undefined
+    : undefined;
   const existingMetaPart = Array.isArray(message.parts)
     ? message.parts.find(
         (part) =>
-          part &&
-          typeof part === "object" &&
-          (part as Record<string, unknown>).type === "meta",
+          part && typeof part === "object" && (part as Record<string, unknown>).type === "meta",
       )
-    : undefined
+    : undefined;
   const parts = [
     ...parsed.data.parts,
     ...(harnessPart ? [harnessPart] : []),
@@ -730,172 +725,217 @@ app.patch("/conversations/:id/messages/:messageId/projection", async (c) => {
       : existingMetaPart
         ? [existingMetaPart]
         : []),
-  ]
+  ];
   await prisma.message.update({
     where: { id: message.id },
     data: { content: parsed.data.content, parts: json(parts) },
-  })
+  });
   await appendHarnessEvent({
     conversationId,
     payload: { content: parsed.data.content, messageId: message.id, parts },
     type: "assistant/projection-updated",
-  })
-  return c.json({ success: true })
-})
+  });
+  return c.json({ success: true });
+});
 
 app.get("/agent-runs/:id", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
   const run = await prisma.agentRun.findFirst({
     where: { id: c.req.param("id"), userId },
     include: { approvals: { orderBy: { createdAt: "asc" } } },
-  })
-  if (!run) return jsonErrorResponse(404, "Agent run not found")
-  return c.json({ run })
-})
+  });
+  if (!run) return jsonErrorResponse(404, "Agent run not found");
+  return c.json({ run });
+});
 
 app.post("/agent-runs/:id/continue", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const run = await prisma.agentRun.findFirst({ where: { id: c.req.param("id"), userId } })
-  if (!run) return jsonErrorResponse(404, "Agent run not found")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const run = await prisma.agentRun.findFirst({ where: { id: c.req.param("id"), userId } });
+  if (!run) return jsonErrorResponse(404, "Agent run not found");
   // A continuation can race with the worker that just made the run terminal.
   // Replaying the terminal status over the normal stream keeps this endpoint
   // idempotent and prevents a harmless retry from surfacing as a chat error.
-  return await streamRun({ request: c.req.raw, run, userId })
-})
+  return await streamRun({ request: c.req.raw, run, userId });
+});
 
 app.post("/agent-runs/:id/cancel", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const run = await prisma.agentRun.findFirst({ where: { id: c.req.param("id"), userId } })
-  if (!run) return jsonErrorResponse(404, "Agent run not found")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const run = await prisma.agentRun.findFirst({ where: { id: c.req.param("id"), userId } });
+  if (!run) return jsonErrorResponse(404, "Agent run not found");
   const cancelled = await prisma.$transaction(async (tx) => {
     const updated = await tx.agentRun.updateMany({
       where: { id: run.id, status: { in: ["queued", "running", "yielded", "waiting_approval"] } },
       data: { leaseExpiresAt: null, leaseToken: null, status: "cancelled" },
-    })
+    });
     if (updated.count === 1) {
       const openApprovals = await tx.toolApproval.findMany({
         where: { runId: run.id, status: { in: ["pending", "executing"] } },
         select: { status: true, toolCallId: true, toolName: true },
-      })
+      });
       await tx.toolApproval.updateMany({
         where: { runId: run.id, status: "pending" },
-        data: { decision: "cancelled", resolvedAt: new Date(), result: json({ cancelled: true }), status: "cancelled" },
-      })
+        data: {
+          decision: "cancelled",
+          resolvedAt: new Date(),
+          result: json({ cancelled: true }),
+          status: "cancelled",
+        },
+      });
       await tx.toolApproval.updateMany({
         where: { runId: run.id, status: "executing" },
         data: {
           decision: "cancelled",
           executionExpiresAt: null,
           resolvedAt: new Date(),
-          result: json({ error: "Run cancelled while external outcome was unknown", unknown: true }),
+          result: json({
+            error: "Run cancelled while external outcome was unknown",
+            unknown: true,
+          }),
           status: "unknown",
         },
-      })
+      });
       await tx.sessionEvent.create({
-        data: { conversationId: run.conversationId, payload: json({ status: "cancelled" }), runId: run.id, type: "run/status" },
-      })
+        data: {
+          conversationId: run.conversationId,
+          payload: json({ status: "cancelled" }),
+          runId: run.id,
+          type: "run/status",
+        },
+      });
       if (openApprovals.length > 0) {
         await tx.sessionEvent.createMany({
           data: openApprovals.map((approval) => ({
             conversationId: run.conversationId,
             payload: json({
-              result: approval.status === "executing"
-                ? { error: "Run cancelled while external outcome was unknown", unknown: true }
-                : { cancelled: true },
+              result:
+                approval.status === "executing"
+                  ? { error: "Run cancelled while external outcome was unknown", unknown: true }
+                  : { cancelled: true },
               toolCallId: approval.toolCallId,
               toolName: approval.toolName,
             }),
             runId: run.id,
             type: "tool/result",
           })),
-        })
+        });
       }
     }
-    return updated
-  })
-  const status = cancelled.count === 1 ? "cancelled" : run.status
+    return updated;
+  });
+  const status = cancelled.count === 1 ? "cancelled" : run.status;
   if (cancelled.count === 1) {
-    abortActiveHarnessRun(run.id)
-    await refreshRunToolProjection(run.id)
+    abortActiveHarnessRun(run.id);
+    await refreshRunToolProjection(run.id);
   }
-  return c.json({ runId: run.id, status })
-})
+  return c.json({ runId: run.id, status });
+});
 
 app.get("/agent-runs/:id/approvals", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const run = await prisma.agentRun.findFirst({ where: { id: c.req.param("id"), userId }, select: { id: true } })
-  if (!run) return jsonErrorResponse(404, "Agent run not found")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const run = await prisma.agentRun.findFirst({
+    where: { id: c.req.param("id"), userId },
+    select: { id: true },
+  });
+  if (!run) return jsonErrorResponse(404, "Agent run not found");
   const approvals = await prisma.toolApproval.findMany({
     where: { runId: run.id, userId },
     orderBy: { createdAt: "asc" },
-    select: { createdAt: true, id: true, reason: true, risk: true, status: true, toolCallId: true, toolName: true },
-  })
-  return c.json({ approvals })
-})
+    select: {
+      createdAt: true,
+      id: true,
+      reason: true,
+      risk: true,
+      status: true,
+      toolCallId: true,
+      toolName: true,
+    },
+  });
+  return c.json({ approvals });
+});
 
 app.post("/tool-approvals/:id/resolve", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const parsed = approvalSchema.safeParse(await c.req.json().catch(() => null))
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid approval decision")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const parsed = approvalSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid approval decision");
   try {
-    return c.json(await executeApprovedTool({ ...parsed.data, approvalId: c.req.param("id"), signal: c.req.raw.signal, userId }))
+    return c.json(
+      await executeApprovedTool({
+        ...parsed.data,
+        approvalId: c.req.param("id"),
+        signal: c.req.raw.signal,
+        userId,
+      }),
+    );
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Approval could not be resolved"
-    return jsonErrorResponse(message === "Approval not found" ? 404 : 409, message)
+    const message = error instanceof Error ? error.message : "Approval could not be resolved";
+    return jsonErrorResponse(message === "Approval not found" ? 404 : 409, message);
   }
-})
+});
 
 app.get("/mcp-servers", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
   const servers = await prisma.mcpServer.findMany({
     where: { userId },
     orderBy: { name: "asc" },
-    select: { createdAt: true, id: true, name: true, status: true, toolsCache: true, updatedAt: true, url: true },
-  })
-  return c.json({ servers })
-})
+    select: {
+      createdAt: true,
+      id: true,
+      name: true,
+      status: true,
+      toolsCache: true,
+      updatedAt: true,
+      url: true,
+    },
+  });
+  return c.json({ servers });
+});
 
 app.post("/mcp-servers", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const parsed = mcpServerSchema.safeParse(await c.req.json().catch(() => null))
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid MCP server payload")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const parsed = mcpServerSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid MCP server payload");
   try {
-    assertSecureMcpUrl(parsed.data.url)
-    await assertPublicHttpUrl(parsed.data.url)
+    assertSecureMcpUrl(parsed.data.url);
+    await assertPublicHttpUrl(parsed.data.url);
     const server = await prisma.mcpServer.create({
       data: {
-        encryptedHeaders: parsed.data.headers ? encryptCredential(JSON.stringify(parsed.data.headers)) : null,
+        encryptedHeaders: parsed.data.headers
+          ? encryptCredential(JSON.stringify(parsed.data.headers))
+          : null,
         name: parsed.data.name,
         status: parsed.data.status,
         url: parsed.data.url,
         userId,
       },
       select: { createdAt: true, id: true, name: true, status: true, updatedAt: true, url: true },
-    })
-    return c.json({ server }, 201)
+    });
+    return c.json({ server }, 201);
   } catch (error) {
-    return jsonErrorResponse(400, error instanceof Error ? error.message : "Could not create MCP server")
+    return jsonErrorResponse(
+      400,
+      error instanceof Error ? error.message : "Could not create MCP server",
+    );
   }
-})
+});
 
 app.patch("/mcp-servers/:id", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const current = await prisma.mcpServer.findFirst({ where: { id: c.req.param("id"), userId } })
-  if (!current) return jsonErrorResponse(404, "MCP server not found")
-  const parsed = mcpServerUpdateSchema.safeParse(await c.req.json().catch(() => null))
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid MCP server payload")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const current = await prisma.mcpServer.findFirst({ where: { id: c.req.param("id"), userId } });
+  if (!current) return jsonErrorResponse(404, "MCP server not found");
+  const parsed = mcpServerUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid MCP server payload");
   try {
     if (parsed.data.url) {
-      assertSecureMcpUrl(parsed.data.url)
-      await assertPublicHttpUrl(parsed.data.url)
+      assertSecureMcpUrl(parsed.data.url);
+      await assertPublicHttpUrl(parsed.data.url);
     }
     const server = await prisma.mcpServer.update({
       where: { id: current.id },
@@ -909,78 +949,94 @@ app.patch("/mcp-servers/:id", async (c) => {
         ...(parsed.data.url ? { toolsCache: Prisma.JsonNull } : {}),
       },
       select: { createdAt: true, id: true, name: true, status: true, updatedAt: true, url: true },
-    })
-    return c.json({ server })
+    });
+    return c.json({ server });
   } catch (error) {
-    return jsonErrorResponse(400, error instanceof Error ? error.message : "Could not update MCP server")
+    return jsonErrorResponse(
+      400,
+      error instanceof Error ? error.message : "Could not update MCP server",
+    );
   }
-})
+});
 
 app.delete("/mcp-servers/:id", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const removed = await prisma.mcpServer.deleteMany({ where: { id: c.req.param("id"), userId } })
-  if (!removed.count) return jsonErrorResponse(404, "MCP server not found")
-  return c.json({ success: true })
-})
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const removed = await prisma.mcpServer.deleteMany({ where: { id: c.req.param("id"), userId } });
+  if (!removed.count) return jsonErrorResponse(404, "MCP server not found");
+  return c.json({ success: true });
+});
 
 app.get("/skills", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  return c.json({ skills: await prisma.harnessSkill.findMany({ where: { userId }, orderBy: { updatedAt: "desc" } }) })
-})
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  return c.json({
+    skills: await prisma.harnessSkill.findMany({
+      where: { userId },
+      orderBy: { updatedAt: "desc" },
+    }),
+  });
+});
 
 app.post("/skills", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const parsed = skillSchema.safeParse(await c.req.json().catch(() => null))
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid skill payload")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const parsed = skillSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid skill payload");
   if (parsed.data.projectId) {
-    const project = await prisma.project.findFirst({ where: { id: parsed.data.projectId, userId }, select: { id: true } })
-    if (!project) return jsonErrorResponse(404, "Project not found")
+    const project = await prisma.project.findFirst({
+      where: { id: parsed.data.projectId, userId },
+      select: { id: true },
+    });
+    if (!project) return jsonErrorResponse(404, "Project not found");
   }
   try {
-    const skill = await prisma.harnessSkill.create({ data: { ...parsed.data, userId } })
-    return c.json({ skill }, 201)
+    const skill = await prisma.harnessSkill.create({ data: { ...parsed.data, userId } });
+    return c.json({ skill }, 201);
   } catch (error) {
     if ((error as { code?: string }).code === "P2002") {
-      return jsonErrorResponse(409, "A skill with this name already exists in this scope")
+      return jsonErrorResponse(409, "A skill with this name already exists in this scope");
     }
-    throw error
+    throw error;
   }
-})
+});
 
 app.patch("/skills/:id", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const current = await prisma.harnessSkill.findFirst({ where: { id: c.req.param("id"), userId } })
-  if (!current) return jsonErrorResponse(404, "Skill not found")
-  const parsed = skillUpdateSchema.safeParse(await c.req.json().catch(() => null))
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid skill payload")
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const current = await prisma.harnessSkill.findFirst({ where: { id: c.req.param("id"), userId } });
+  if (!current) return jsonErrorResponse(404, "Skill not found");
+  const parsed = skillUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid skill payload");
   if (parsed.data.projectId) {
-    const project = await prisma.project.findFirst({ where: { id: parsed.data.projectId, userId }, select: { id: true } })
-    if (!project) return jsonErrorResponse(404, "Project not found")
+    const project = await prisma.project.findFirst({
+      where: { id: parsed.data.projectId, userId },
+      select: { id: true },
+    });
+    if (!project) return jsonErrorResponse(404, "Project not found");
   }
   try {
     const skill = await prisma.harnessSkill.update({
       where: { id: current.id },
       data: { ...parsed.data, version: { increment: 1 } },
-    })
-    return c.json({ skill })
+    });
+    return c.json({ skill });
   } catch (error) {
     if ((error as { code?: string }).code === "P2002") {
-      return jsonErrorResponse(409, "A skill with this name already exists in this scope")
+      return jsonErrorResponse(409, "A skill with this name already exists in this scope");
     }
-    throw error
+    throw error;
   }
-})
+});
 
 app.delete("/skills/:id", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
-  const removed = await prisma.harnessSkill.deleteMany({ where: { id: c.req.param("id"), userId } })
-  if (!removed.count) return jsonErrorResponse(404, "Skill not found")
-  return c.json({ success: true })
-})
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
+  const removed = await prisma.harnessSkill.deleteMany({
+    where: { id: c.req.param("id"), userId },
+  });
+  if (!removed.count) return jsonErrorResponse(404, "Skill not found");
+  return c.json({ success: true });
+});
 
-export default app.fetch
+export default app.fetch;

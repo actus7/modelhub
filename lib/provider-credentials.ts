@@ -1,8 +1,6 @@
 import type { ProviderCredentialSummary, UiProvider } from "@/lib/contracts";
 
-function providerCredentialKeys(
-  provider: UiProvider | null | undefined,
-): string[] {
+function providerCredentialKeys(provider: UiProvider | null | undefined): string[] {
   return provider?.requiredKeys?.map((field) => field.envName) ?? [];
 }
 

@@ -36,18 +36,21 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { apiJson, apiJsonRequest } from "@/lib/api";
-import type {
-  ProjectArtifactSummary,
-  ProjectDetail,
-  ProjectFileSummary,
-} from "@/lib/contracts";
+import type { ProjectArtifactSummary, ProjectDetail, ProjectFileSummary } from "@/lib/contracts";
 
 type ProjectConversationSummary = {
   archived: boolean;
@@ -59,11 +62,7 @@ type ProjectConversationSummary = {
   updatedAt: string;
 };
 
-export function ProjectDetailPage({
-  projectId,
-}: {
-  projectId: string;
-}) {
+export function ProjectDetailPage({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<ProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -148,11 +147,9 @@ export function ProjectDetailPage({
     if (!projectId || !artifact.sourceCanvasId) return;
     setWorkingArtifact(artifact.id);
     try {
-      await apiJsonRequest(
-        `/projects/${projectId}/artifacts/${artifact.id}/refresh`,
-        "POST",
-        { canvasId: artifact.sourceCanvasId },
-      );
+      await apiJsonRequest(`/projects/${projectId}/artifacts/${artifact.id}/refresh`, "POST", {
+        canvasId: artifact.sourceCanvasId,
+      });
       toast.success("Artefato atualizado a partir do canvas.");
       if (projectId) {
         const artifactsData = await apiJson<{ artifacts: ProjectArtifactSummary[] }>(
@@ -183,7 +180,9 @@ export function ProjectDetailPage({
       return;
     }
     try {
-      await navigator.clipboard.writeText(`${globalThis.location.origin}/share/${artifact.shareToken}`);
+      await navigator.clipboard.writeText(
+        `${globalThis.location.origin}/share/${artifact.shareToken}`,
+      );
       toast.success("Link copiado.");
     } catch {
       toast.error("Não foi possível copiar o link.");
@@ -321,7 +320,8 @@ export function ProjectDetailPage({
           <div className="mx-auto flex max-w-3xl flex-col gap-3">
             <div className="flex items-center justify-between gap-2">
               <p className="text-xs text-muted-foreground">
-                Arquivos de conhecimento: o texto extraído é injetado no contexto das conversas do projeto.
+                Arquivos de conhecimento: o texto extraído é injetado no contexto das conversas do
+                projeto.
               </p>
               <input
                 accept=".png,.jpg,.jpeg,.gif,.webp,.pdf,.txt,.md,.csv,.doc,.docx"
@@ -369,7 +369,11 @@ export function ProjectDetailPage({
                     size="icon-sm"
                     variant="ghost"
                   >
-                    <a href={`/projects/${project.id}/files/${file.id}/content`} rel="noreferrer" target="_blank">
+                    <a
+                      href={`/projects/${project.id}/files/${file.id}/content`}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
                       <FileIcon className="size-4" />
                     </a>
                   </Button>
@@ -468,8 +472,8 @@ export function ProjectDetailPage({
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir projeto?</AlertDialogTitle>
             <AlertDialogDescription>
-              O projeto &quot;{project.name}&quot; e todas as suas conversas, arquivos e artefatos serão
-              excluídos permanentemente. Esta ação não pode ser desfeita.
+              O projeto &quot;{project.name}&quot; e todas as suas conversas, arquivos e artefatos
+              serão excluídos permanentemente. Esta ação não pode ser desfeita.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -541,7 +545,9 @@ function EditProjectDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Editar projeto</DialogTitle>
-          <DialogDescription>Instruções aplicadas ao contexto de todas as conversas.</DialogDescription>
+          <DialogDescription>
+            Instruções aplicadas ao contexto de todas as conversas.
+          </DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
@@ -571,7 +577,9 @@ function EditProjectDialog({
               onChange={(event) => setInstructions(event.target.value)}
               value={instructions}
             />
-            <FieldDescription>Injetadas no system context das conversas do projeto.</FieldDescription>
+            <FieldDescription>
+              Injetadas no system context das conversas do projeto.
+            </FieldDescription>
           </Field>
         </FieldGroup>
         <div className="mt-2 flex justify-end gap-2">

@@ -51,10 +51,10 @@ function CopyButton({ text, className }: { text: string; className?: string }) {
  */
 function normaliseMarkdown(raw: string): string {
   // Ensure a blank line before opening fences: ```, ```lang
-  const withPreFence = raw.replaceAll(/([^\n])\n?(```\w*)/g, '$1\n\n$2');
+  const withPreFence = raw.replaceAll(/([^\n])\n?(```\w*)/g, "$1\n\n$2");
 
   // Ensure a blank line after closing fences
-  return withPreFence.replaceAll(/(```)(\n?)([^\n`])/g, '$1\n\n$3');
+  return withPreFence.replaceAll(/(```)(\n?)([^\n`])/g, "$1\n\n$3");
 }
 
 export function MarkdownRenderer({ content }: { content: string }) {
@@ -107,7 +107,9 @@ function extractTextFromChildren(children: React.ReactNode): string {
   if (!children) return "";
   if (Array.isArray(children)) return children.map(extractTextFromChildren).join("");
   if (typeof children === "object" && "props" in children) {
-    return extractTextFromChildren((children as React.ReactElement<{ children?: React.ReactNode }>).props.children);
+    return extractTextFromChildren(
+      (children as React.ReactElement<{ children?: React.ReactNode }>).props.children,
+    );
   }
   return "";
 }

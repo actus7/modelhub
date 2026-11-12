@@ -1,6 +1,6 @@
-"use client"
+"use client";
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   CheckIcon,
   CopyIcon,
@@ -9,27 +9,21 @@ import {
   PlusIcon,
   RouteIcon,
   SparklesIcon,
-} from "lucide-react"
-import Link from "next/link"
-import { toast } from "sonner"
+} from "lucide-react";
+import Link from "next/link";
+import { toast } from "sonner";
 
-import { SuggestionPreview } from "@/components/dashboard/routing/suggestion-preview"
-import { TierCard } from "@/components/dashboard/routing/tier-card"
+import { SuggestionPreview } from "@/components/dashboard/routing/suggestion-preview";
+import { TierCard } from "@/components/dashboard/routing/tier-card";
 import {
   buildModelIndex,
   slotKey,
   toAssignment,
   toSlots,
   type RoutingSlot,
-} from "@/components/dashboard/routing/routing-utils"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
+} from "@/components/dashboard/routing/routing-utils";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -37,11 +31,11 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"
-import { Switch } from "@/components/ui/switch"
-import { Textarea } from "@/components/ui/textarea"
-import { apiJson, apiJsonRequest } from "@/lib/api"
-import { cn } from "@/lib/utils"
+} from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { apiJson, apiJsonRequest } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import type {
   RoutingConfigSummary,
   RoutingModelCatalog,
@@ -49,19 +43,15 @@ import type {
   RoutingSuggestion,
   TierAssignment,
   UiProvider,
-} from "@/lib/contracts"
-import {
-  scoreComplexity,
-  type RoutingTier,
-} from "@/server/lib/routing/complexity-scorer"
+} from "@/lib/contracts";
+import { scoreComplexity, type RoutingTier } from "@/server/lib/routing/complexity-scorer";
 
 const TIERS = [
   {
     id: "simple",
     label: "Simples",
     hint: "score 0–15",
-    description:
-      "Perguntas diretas e bate-papo casual. Use o modelo mais barato aqui.",
+    description: "Perguntas diretas e bate-papo casual. Use o modelo mais barato aqui.",
   },
   {
     id: "standard",
@@ -81,7 +71,7 @@ const TIERS = [
     hint: "score 66+",
     description: "Matemática, lógica formal, planejamento profundo.",
   },
-] as const
+] as const;
 
 const TASK_CATEGORIES = [
   { id: "coding", label: "Programação" },
@@ -93,171 +83,147 @@ const TASK_CATEGORIES = [
   { id: "calendar", label: "Calendário" },
   { id: "social_media", label: "Redes sociais" },
   { id: "trading", label: "Trading" },
-] as const
+] as const;
 
 const SNIPPET = `curl -X POST https://www.modelhub.com.br/v1/chat/completions \\
   -H "Authorization: Bearer $MODELHUB_API_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{"model": "auto", "messages": [{"role": "user", "content": "Sua pergunta aqui"}]}'`
+  -d '{"model": "auto", "messages": [{"role": "user", "content": "Sua pergunta aqui"}]}'`;
 
-const AUTOSAVE_DELAY_MS = 700
+const AUTOSAVE_DELAY_MS = 700;
 
-type SaveState = "idle" | "saving" | "saved" | "error"
+type SaveState = "idle" | "saving" | "saved" | "error";
 
 export function RoutingSection() {
-  const [providers, setProviders] = useState<UiProvider[]>([])
-  const [catalog, setCatalog] = useState<RoutingModelOption[]>([])
-  const [failedProviders, setFailedProviders] = useState<string[]>([])
-  const [loading, setLoading] = useState(true)
-  const [saveState, setSaveState] = useState<SaveState>("idle")
-  const [copied, setCopied] = useState(false)
-  const [suggesting, setSuggesting] = useState(false)
+  const [providers, setProviders] = useState<UiProvider[]>([]);
+  const [catalog, setCatalog] = useState<RoutingModelOption[]>([]);
+  const [failedProviders, setFailedProviders] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [copied, setCopied] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
 
-  const [complexityEnabled, setComplexityEnabled] = useState(false)
-  const [taskRoutingEnabled, setTaskRoutingEnabled] = useState(false)
-  const [tiers, setTiers] = useState<Record<string, TierAssignment>>({})
-  const [taskOverrides, setTaskOverrides] = useState<
-    Record<string, TierAssignment>
-  >({})
+  const [complexityEnabled, setComplexityEnabled] = useState(false);
+  const [taskRoutingEnabled, setTaskRoutingEnabled] = useState(false);
+  const [tiers, setTiers] = useState<Record<string, TierAssignment>>({});
+  const [taskOverrides, setTaskOverrides] = useState<Record<string, TierAssignment>>({});
 
-  const [probe, setProbe] = useState("")
+  const [probe, setProbe] = useState("");
   /** Sugestão pendente de confirmação; `null` = nenhum preview aberto. */
-  const [suggestion, setSuggestion] = useState<
-    RoutingSuggestion["tiers"] | null
-  >(null)
+  const [suggestion, setSuggestion] = useState<RoutingSuggestion["tiers"] | null>(null);
 
   // Não dispara autosave no primeiro render nem enquanto a config inicial carrega.
-  const hydratedRef = useRef(false)
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
     void (async () => {
-      setLoading(true)
+      setLoading(true);
       try {
         const [config, providerData, modelData] = await Promise.all([
           apiJson<RoutingConfigSummary>("/user/routing-config"),
-          apiJson<{ providers: UiProvider[] }>(
-            "/user/routing-config/providers",
-          ),
+          apiJson<{ providers: UiProvider[] }>("/user/routing-config/providers"),
           apiJson<RoutingModelCatalog>("/user/routing-config/models"),
-        ])
-        setComplexityEnabled(config.complexityEnabled)
-        setTaskRoutingEnabled(config.taskRoutingEnabled)
+        ]);
+        setComplexityEnabled(config.complexityEnabled);
+        setTaskRoutingEnabled(config.taskRoutingEnabled);
         // O servidor já sanitiza tiers/overrides contra os providers prontos
         // (getRoutingConfig → sanitizeRoutingMap), então a UI confia no payload.
-        setTiers(config.tiers ?? {})
-        setTaskOverrides(config.taskOverrides ?? {})
-        setProviders(providerData.providers ?? [])
-        setCatalog(modelData.models ?? [])
-        setFailedProviders(modelData.failedProviders ?? [])
+        setTiers(config.tiers ?? {});
+        setTaskOverrides(config.taskOverrides ?? {});
+        setProviders(providerData.providers ?? []);
+        setCatalog(modelData.models ?? []);
+        setFailedProviders(modelData.failedProviders ?? []);
       } catch (error) {
         toast.error(
           error instanceof Error
             ? error.message
             : "Falha ao carregar a configuração de roteamento.",
-        )
+        );
       } finally {
-        setLoading(false)
-        hydratedRef.current = true
+        setLoading(false);
+        hydratedRef.current = true;
       }
-    })()
-  }, [])
+    })();
+  }, []);
 
   // Autosave: o botão "Salvar" antigo ficava no fim de uma página longa e
   // silenciosamente perdia o trabalho de quem não rolava até lá.
   useEffect(() => {
-    if (!hydratedRef.current) return
+    if (!hydratedRef.current) return;
 
-    setSaveState("saving")
+    setSaveState("saving");
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          await apiJsonRequest<RoutingConfigSummary>(
-            "/user/routing-config",
-            "PATCH",
-            {
-              complexityEnabled,
-              taskRoutingEnabled,
-              tiers,
-              taskOverrides,
-            },
-          )
-          setSaveState("saved")
+          await apiJsonRequest<RoutingConfigSummary>("/user/routing-config", "PATCH", {
+            complexityEnabled,
+            taskRoutingEnabled,
+            tiers,
+            taskOverrides,
+          });
+          setSaveState("saved");
         } catch (error) {
-          setSaveState("error")
-          toast.error(
-            error instanceof Error
-              ? error.message
-              : "Falha ao salvar o roteamento.",
-          )
+          setSaveState("error");
+          toast.error(error instanceof Error ? error.message : "Falha ao salvar o roteamento.");
         }
-      })()
-    }, AUTOSAVE_DELAY_MS)
+      })();
+    }, AUTOSAVE_DELAY_MS);
 
-    return () => clearTimeout(timer)
-  }, [complexityEnabled, taskRoutingEnabled, tiers, taskOverrides])
+    return () => clearTimeout(timer);
+  }, [complexityEnabled, taskRoutingEnabled, tiers, taskOverrides]);
 
-  const modelIndex = useMemo(() => buildModelIndex(catalog), [catalog])
+  const modelIndex = useMemo(() => buildModelIndex(catalog), [catalog]);
 
-  function writeAssignment(
-    setter: typeof setTiers,
-    key: string,
-    slots: RoutingSlot[],
-  ) {
+  function writeAssignment(setter: typeof setTiers, key: string, slots: RoutingSlot[]) {
     setter((previous) => {
-      const assignment = toAssignment(slots)
+      const assignment = toAssignment(slots);
       if (!assignment) {
-        const next = { ...previous }
-        delete next[key]
-        return next
+        const next = { ...previous };
+        delete next[key];
+        return next;
       }
-      return { ...previous, [key]: assignment }
-    })
+      return { ...previous, [key]: assignment };
+    });
   }
 
   async function handleSuggest() {
-    setSuggesting(true)
+    setSuggesting(true);
     try {
-      const data = await apiJson<RoutingSuggestion>(
-        "/user/routing-config/suggest",
-      )
+      const data = await apiJson<RoutingSuggestion>("/user/routing-config/suggest");
       if (!data.tiers || Object.keys(data.tiers).length === 0) {
-        toast.error(
-          "Nenhum modelo disponível para sugerir. Conecte provedores primeiro.",
-        )
-        return
+        toast.error("Nenhum modelo disponível para sugerir. Conecte provedores primeiro.");
+        return;
       }
       // Preview em vez de aplicar direto: a versão anterior sobrescrevia os
       // principais sem aviso e sem explicar o critério da escolha.
-      setSuggestion(data.tiers)
+      setSuggestion(data.tiers);
     } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Falha ao sugerir modelos.",
-      )
+      toast.error(error instanceof Error ? error.message : "Falha ao sugerir modelos.");
     } finally {
-      setSuggesting(false)
+      setSuggesting(false);
     }
   }
 
   function applySuggestion() {
-    if (!suggestion) return
+    if (!suggestion) return;
     setTiers((previous) => {
-      const next = { ...previous }
+      const next = { ...previous };
       for (const [tierId, slots] of Object.entries(suggestion)) {
-        const assignment = toAssignment(slots)
-        if (assignment) next[tierId] = assignment
+        const assignment = toAssignment(slots);
+        if (assignment) next[tierId] = assignment;
       }
-      return next
-    })
-    setSuggestion(null)
-    toast.success("Sugestão aplicada. Ajuste o que quiser — salva sozinho.")
+      return next;
+    });
+    setSuggestion(null);
+    toast.success("Sugestão aplicada. Ajuste o que quiser — salva sozinho.");
   }
 
   function handleCopySnippet() {
     void navigator.clipboard.writeText(SNIPPET).then(() => {
-      setCopied(true)
-      toast.success("Snippet copiado!")
-      setTimeout(() => setCopied(false), 2000)
-    })
+      setCopied(true);
+      toast.success("Snippet copiado!");
+      setTimeout(() => setCopied(false), 2000);
+    });
   }
 
   if (loading) {
@@ -265,7 +231,7 @@ export function RoutingSection() {
       <div className="flex flex-1 items-center justify-center p-10">
         <Loader2Icon className="size-5 animate-spin text-muted-foreground" />
       </div>
-    )
+    );
   }
 
   if (providers.length === 0) {
@@ -277,9 +243,8 @@ export function RoutingSection() {
             Roteamento automático
           </CardTitle>
           <CardDescription>
-            Nenhum provedor está pronto para roteamento ainda. Conecte pelo
-            menos um provedor com credenciais válidas para escolher os modelos
-            de cada nível.
+            Nenhum provedor está pronto para roteamento ainda. Conecte pelo menos um provedor com
+            credenciais válidas para escolher os modelos de cada nível.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -291,25 +256,17 @@ export function RoutingSection() {
           </Button>
         </CardContent>
       </Card>
-    )
+    );
   }
 
-  const probeScore = probe.trim()
-    ? scoreComplexity([{ role: "user", content: probe }])
-    : null
-  const activeTier: RoutingTier | null = probeScore?.tier ?? null
-  const resolvedSlots = activeTier ? toSlots(tiers[activeTier]) : []
-  const resolvedPrimary = resolvedSlots[0]
-  const resolvedModel = resolvedPrimary
-    ? modelIndex.get(slotKey(resolvedPrimary))
-    : undefined
+  const probeScore = probe.trim() ? scoreComplexity([{ role: "user", content: probe }]) : null;
+  const activeTier: RoutingTier | null = probeScore?.tier ?? null;
+  const resolvedSlots = activeTier ? toSlots(tiers[activeTier]) : [];
+  const resolvedPrimary = resolvedSlots[0];
+  const resolvedModel = resolvedPrimary ? modelIndex.get(slotKey(resolvedPrimary)) : undefined;
 
-  const unusedCategories = TASK_CATEGORIES.filter(
-    (task) => !taskOverrides[task.id],
-  )
-  const usedCategories = TASK_CATEGORIES.filter(
-    (task) => taskOverrides[task.id],
-  )
+  const unusedCategories = TASK_CATEGORIES.filter((task) => !taskOverrides[task.id]);
+  const usedCategories = TASK_CATEGORIES.filter((task) => taskOverrides[task.id]);
 
   return (
     <div className="flex flex-col gap-4 md:gap-6">
@@ -324,8 +281,7 @@ export function RoutingSection() {
             <code className="rounded bg-muted px-1 py-0.5 text-xs">
               &quot;model&quot;: &quot;auto&quot;
             </code>{" "}
-            e o ModelHub escolhe o modelo de cada mensagem seguindo as lanes
-            abaixo.
+            e o ModelHub escolhe o modelo de cada mensagem seguindo as lanes abaixo.
           </p>
         </div>
         <SaveIndicator state={saveState} />
@@ -333,9 +289,8 @@ export function RoutingSection() {
 
       {failedProviders.length > 0 ? (
         <p className="rounded-lg border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          Não foi possível listar os modelos de: {failedProviders.join(", ")}.
-          Modelos já configurados continuam funcionando, mas não aparecem no
-          seletor até o provedor responder.
+          Não foi possível listar os modelos de: {failedProviders.join(", ")}. Modelos já
+          configurados continuam funcionando, mas não aparecem no seletor até o provedor responder.
         </p>
       ) : null}
 
@@ -359,10 +314,7 @@ export function RoutingSection() {
                 variant="outline"
               >
                 {suggesting ? (
-                  <Loader2Icon
-                    className="animate-spin"
-                    data-icon="inline-start"
-                  />
+                  <Loader2Icon className="animate-spin" data-icon="inline-start" />
                 ) : (
                   <SparklesIcon data-icon="inline-start" />
                 )}
@@ -371,10 +323,7 @@ export function RoutingSection() {
             ) : null}
             <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
               Rotear por complexidade
-              <Switch
-                checked={complexityEnabled}
-                onCheckedChange={setComplexityEnabled}
-              />
+              <Switch checked={complexityEnabled} onCheckedChange={setComplexityEnabled} />
             </label>
           </div>
         </div>
@@ -403,9 +352,7 @@ export function RoutingSection() {
                 hint="usado sempre"
                 modelIndex={modelIndex}
                 models={catalog}
-                onChange={(slots) =>
-                  writeAssignment(setTiers, "default", slots)
-                }
+                onChange={(slots) => writeAssignment(setTiers, "default", slots)}
                 slots={toSlots(tiers.default)}
                 title="Modelo padrão"
               />
@@ -419,8 +366,8 @@ export function RoutingSection() {
           <CardHeader>
             <CardTitle className="text-sm">Testar antes de confiar</CardTitle>
             <CardDescription>
-              Cole uma mensagem real. O mesmo classificador que roda em produção
-              mostra o nível escolhido e o porquê — sem gastar créditos.
+              Cole uma mensagem real. O mesmo classificador que roda em produção mostra o nível
+              escolhido e o porquê — sem gastar créditos.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
@@ -433,12 +380,10 @@ export function RoutingSection() {
             {probeScore ? (
               <div className="flex flex-wrap items-center gap-2 text-xs">
                 <span className="rounded-full bg-primary/10 px-2 py-1 font-semibold text-primary">
-                  {TIERS.find((tier) => tier.id === probeScore.tier)?.label ??
-                    probeScore.tier}
+                  {TIERS.find((tier) => tier.id === probeScore.tier)?.label ?? probeScore.tier}
                 </span>
                 <span className="text-muted-foreground">
-                  score {probeScore.rawScore} · confiança{" "}
-                  {Math.round(probeScore.confidence * 100)}%
+                  score {probeScore.rawScore} · confiança {Math.round(probeScore.confidence * 100)}%
                 </span>
                 <span className="text-muted-foreground">→</span>
                 <span className="font-medium">
@@ -460,20 +405,15 @@ export function RoutingSection() {
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <p className="text-sm font-semibold">
-              Roteamento por categoria de tarefa
-            </p>
+            <p className="text-sm font-semibold">Roteamento por categoria de tarefa</p>
             <p className="text-sm text-muted-foreground">
-              Detecta a intenção da mensagem e, com confiança ≥ 40%, ignora o
-              nível de complexidade e usa o modelo especializado.
+              Detecta a intenção da mensagem e, com confiança ≥ 40%, ignora o nível de complexidade
+              e usa o modelo especializado.
             </p>
           </div>
           <label className="flex shrink-0 cursor-pointer items-center gap-2 text-sm font-medium">
             Rotear por tarefa
-            <Switch
-              checked={taskRoutingEnabled}
-              onCheckedChange={setTaskRoutingEnabled}
-            />
+            <Switch checked={taskRoutingEnabled} onCheckedChange={setTaskRoutingEnabled} />
           </label>
         </div>
 
@@ -485,9 +425,7 @@ export function RoutingSection() {
                 key={task.id}
                 modelIndex={modelIndex}
                 models={catalog}
-                onChange={(slots) =>
-                  writeAssignment(setTaskOverrides, task.id, slots)
-                }
+                onChange={(slots) => writeAssignment(setTaskOverrides, task.id, slots)}
                 slots={toSlots(taskOverrides[task.id])}
                 title={task.label}
               />
@@ -557,22 +495,22 @@ export function RoutingSection() {
         modelIndex={modelIndex}
         onApply={applySuggestion}
         onOpenChange={(next) => {
-          if (!next) setSuggestion(null)
+          if (!next) setSuggestion(null);
         }}
         open={suggestion !== null}
       />
     </div>
-  )
+  );
 }
 
 function SaveIndicator({ state }: { state: SaveState }) {
-  if (state === "idle") return null
+  if (state === "idle") return null;
 
   const copy = {
     saving: "Salvando…",
     saved: "Alterações salvas",
     error: "Falha ao salvar",
-  }[state]
+  }[state];
 
   return (
     <p
@@ -582,11 +520,9 @@ function SaveIndicator({ state }: { state: SaveState }) {
         state === "error" ? "text-destructive" : "text-muted-foreground",
       )}
     >
-      {state === "saving" ? (
-        <Loader2Icon className="size-3 animate-spin" />
-      ) : null}
+      {state === "saving" ? <Loader2Icon className="size-3 animate-spin" /> : null}
       {state === "saved" ? <CheckIcon className="size-3" /> : null}
       {copy}
     </p>
-  )
+  );
 }

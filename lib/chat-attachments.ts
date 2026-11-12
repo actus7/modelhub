@@ -82,22 +82,30 @@ export function validateFileSelection(
 
     if (isImage) {
       if (file.size > MAX_ATTACHMENT_FILE_BYTES) {
-        errors.push(`Arquivo muito grande: ${file.name}. Maximo ${formatBytes(MAX_ATTACHMENT_FILE_BYTES)} por imagem.`);
+        errors.push(
+          `Arquivo muito grande: ${file.name}. Maximo ${formatBytes(MAX_ATTACHMENT_FILE_BYTES)} por imagem.`,
+        );
         continue;
       }
       if (totalImageBytes + file.size > MAX_TOTAL_ATTACHMENT_BYTES) {
-        errors.push(`Limite total de imagens excedido. Use ate ${formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} por mensagem.`);
+        errors.push(
+          `Limite total de imagens excedido. Use ate ${formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} por mensagem.`,
+        );
         continue;
       }
       totalImageBytes += file.size;
       accepted.push({ file, kind: "image" });
     } else {
       if (file.size > MAX_DOCUMENT_ATTACHMENT_FILE_BYTES) {
-        errors.push(`Arquivo muito grande: ${file.name}. Maximo ${formatBytes(MAX_DOCUMENT_ATTACHMENT_FILE_BYTES)} por documento.`);
+        errors.push(
+          `Arquivo muito grande: ${file.name}. Maximo ${formatBytes(MAX_DOCUMENT_ATTACHMENT_FILE_BYTES)} por documento.`,
+        );
         continue;
       }
       if (totalDocumentBytes + file.size > MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES) {
-        errors.push(`Limite total de documentos excedido. Use ate ${formatBytes(MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES)} por mensagem.`);
+        errors.push(
+          `Limite total de documentos excedido. Use ate ${formatBytes(MAX_TOTAL_DOCUMENT_ATTACHMENT_BYTES)} por mensagem.`,
+        );
         continue;
       }
       totalDocumentBytes += file.size;

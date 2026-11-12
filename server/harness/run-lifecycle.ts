@@ -1,23 +1,18 @@
-import type { Prisma } from "../../generated/prisma/client"
+import type { Prisma } from "../../generated/prisma/client";
 
-import { prisma } from "../lib/db"
-import { toHarnessJson } from "./json"
+import { prisma } from "../lib/db";
+import { toHarnessJson } from "./json";
 
-const ACTIVE_ROOT_RUN_STATUSES = [
-  "queued",
-  "running",
-  "yielded",
-  "waiting_approval",
-] as const
+const ACTIVE_ROOT_RUN_STATUSES = ["queued", "running", "yielded", "waiting_approval"] as const;
 
-export const RUN_LEASE_MS = 60_000
-export const RUN_LEASE_HEARTBEAT_MS = 20_000
-export const RUN_IDLE_GRACE_MS = 2 * RUN_LEASE_MS
-export const RUN_APPROVAL_GRACE_MS = 24 * 60 * 60 * 1_000
+export const RUN_LEASE_MS = 60_000;
+export const RUN_LEASE_HEARTBEAT_MS = 20_000;
+export const RUN_IDLE_GRACE_MS = 2 * RUN_LEASE_MS;
+export const RUN_APPROVAL_GRACE_MS = 24 * 60 * 60 * 1_000;
 
 export function staleRootRunWhere(now = new Date()): Prisma.AgentRunWhereInput {
-  const idleCutoff = new Date(now.getTime() - RUN_IDLE_GRACE_MS)
-  const approvalCutoff = new Date(now.getTime() - RUN_APPROVAL_GRACE_MS)
+  const idleCutoff = new Date(now.getTime() - RUN_IDLE_GRACE_MS);
+  const approvalCutoff = new Date(now.getTime() - RUN_APPROVAL_GRACE_MS);
   return {
     parentRunId: null,
     OR: [
@@ -36,16 +31,16 @@ export function staleRootRunWhere(now = new Date()): Prisma.AgentRunWhereInput {
         updatedAt: { lt: approvalCutoff },
       },
     ],
-  }
+  };
 }
 
 export async function reconcileStaleRootRuns(input: {
-  conversationId: string
-  now?: Date
-  userId: string
+  conversationId: string;
+  now?: Date;
+  userId: string;
 }): Promise<string[]> {
-  const now = input.now ?? new Date()
-  const staleWhere = staleRootRunWhere(now)
+  const now = input.now ?? new Date();
+  const staleWhere = staleRootRunWhere(now);
 
   return prisma.$transaction(async (tx) => {
     const candidates = await tx.agentRun.findMany({
@@ -56,8 +51,8 @@ export async function reconcileStaleRootRuns(input: {
       },
       orderBy: { createdAt: "asc" },
       select: { id: true },
-    })
-    const reconciled: string[] = []
+    });
+    const reconciled: string[] = [];
 
     for (const candidate of candidates) {
       const updated = await tx.agentRun.updateMany({
@@ -71,10 +66,10 @@ export async function reconcileStaleRootRuns(input: {
           leaseToken: null,
           status: "failed",
         },
-      })
-      if (updated.count !== 1) continue
+      });
+      if (updated.count !== 1) continue;
 
-      reconciled.push(candidate.id)
+      reconciled.push(candidate.id);
       await tx.agentRun.updateMany({
         where: {
           parentRunId: candidate.id,
@@ -86,7 +81,7 @@ export async function reconcileStaleRootRuns(input: {
           leaseToken: null,
           status: "failed",
         },
-      })
+      });
       await tx.toolApproval.updateMany({
         where: { runId: candidate.id, status: "pending" },
         data: {
@@ -95,7 +90,7 @@ export async function reconcileStaleRootRuns(input: {
           result: toHarnessJson({ error: "Run became orphaned" }),
           status: "cancelled",
         },
-      })
+      });
       await tx.toolApproval.updateMany({
         where: { runId: candidate.id, status: "executing" },
         data: {
@@ -108,7 +103,7 @@ export async function reconcileStaleRootRuns(input: {
           }),
           status: "unknown",
         },
-      })
+      });
       await tx.sessionEvent.createMany({
         data: [
           {
@@ -127,11 +122,11 @@ export async function reconcileStaleRootRuns(input: {
             type: "run/status",
           },
         ],
-      })
+      });
     }
 
-    return reconciled
-  })
+    return reconciled;
+  });
 }
 
 export function buildRunReplaySnapshot(
@@ -140,23 +135,17 @@ export function buildRunReplaySnapshot(
   const durableText = events
     .filter((event) => event.type === "assistant/chunk")
     .flatMap((event) => {
-      const deltas = (event.payload as Record<string, unknown>)?.deltas
+      const deltas = (event.payload as Record<string, unknown>)?.deltas;
       return Array.isArray(deltas)
         ? deltas.filter((delta): delta is string => typeof delta === "string")
-        : []
+        : [];
     })
-    .join("")
-  const finalMessage = [...events]
-    .reverse()
-    .find((event) => event.type === "assistant/message")
-  const finalPayload = finalMessage?.payload as Record<string, unknown> | undefined
-  const fallbackText = typeof finalPayload?.content === "string"
-    ? finalPayload.content
-    : ""
-  const messageId = typeof finalPayload?.messageId === "string"
-    ? finalPayload.messageId
-    : ""
-  if (!messageId || (!durableText && !fallbackText)) return null
+    .join("");
+  const finalMessage = [...events].reverse().find((event) => event.type === "assistant/message");
+  const finalPayload = finalMessage?.payload as Record<string, unknown> | undefined;
+  const fallbackText = typeof finalPayload?.content === "string" ? finalPayload.content : "";
+  const messageId = typeof finalPayload?.messageId === "string" ? finalPayload.messageId : "";
+  if (!messageId || (!durableText && !fallbackText)) return null;
 
   return {
     content: durableText || fallbackText,
@@ -164,7 +153,7 @@ export function buildRunReplaySnapshot(
     ...(typeof finalPayload?.modelLabel === "string"
       ? { modelLabel: finalPayload.modelLabel }
       : {}),
-  }
+  };
 }
 
 export async function findActiveRootRun(conversationId: string, userId: string) {
@@ -182,5 +171,5 @@ export async function findActiveRootRun(conversationId: string, userId: string) 
       status: true,
       updatedAt: true,
     },
-  })
+  });
 }

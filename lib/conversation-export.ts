@@ -41,9 +41,7 @@ export function conversationToMarkdown(
   conversation: ExportableConversationMeta | null,
   messages: MarkdownExportMessage[],
 ): string {
-  const body = messages
-    .map((m) => `## ${roleLabel(m.role)}\n\n${m.content}`)
-    .join("\n\n---\n\n");
+  const body = messages.map((m) => `## ${roleLabel(m.role)}\n\n${m.content}`).join("\n\n---\n\n");
 
   const title = conversation?.title?.trim();
   if (!title) return body;

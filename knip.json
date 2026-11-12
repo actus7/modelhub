@@ -1,8 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "ignoreDependencies": [
-    "@prisma/client"
-  ],
+  "ignoreDependencies": ["@prisma/client"],
   "ignoreExportsUsedInFile": {
     "interface": true,
     "type": true
