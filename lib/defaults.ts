@@ -1,1 +1,1 @@
-export const DEFAULT_MODEL_ID = "quillbot/quillbot-ai";
+export const DEFAULT_MODEL_ID = "groq/llama-3.3-70b-versatile";

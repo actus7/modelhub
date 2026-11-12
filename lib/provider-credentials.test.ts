@@ -1,10 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  providerAuthMode,
   providerHasRequiredCredentials,
-  providerSupportsExternalApi,
-  providerUsesBrowserSession,
   sortProvidersByConfiguredCredentials,
 } from "./provider-credentials";
 
@@ -48,52 +45,31 @@ describe("providerHasRequiredCredentials", () => {
     expect(
       providerHasRequiredCredentials(
         {
-          base: "/cloudflareworkersai",
+          base: "/example",
           hasModels: true,
-          id: "cloudflareworkersai",
-          label: "Cloudflare Workers AI",
+          id: "example",
+          label: "Example",
           requiredKeys: [
-            { envName: "CLOUDFLARE_API_TOKEN", label: "Token", placeholder: "..." },
-            { envName: "CLOUDFLARE_ACCOUNT_ID", label: "Account ID", placeholder: "..." },
+            { envName: "EXAMPLE_TOKEN", label: "Token", placeholder: "..." },
+            { envName: "EXAMPLE_ACCOUNT", label: "Account ID", placeholder: "..." },
           ],
         },
         [
           {
-            credentialKey: "CLOUDFLARE_API_TOKEN",
+            credentialKey: "EXAMPLE_TOKEN",
             id: "1",
-            providerId: "cloudflareworkersai",
+            providerId: "example",
             updatedAt: new Date().toISOString(),
           },
           {
-            credentialKey: "CLOUDFLARE_ACCOUNT_ID",
+            credentialKey: "EXAMPLE_ACCOUNT",
             id: "2",
-            providerId: "cloudflareworkersai",
+            providerId: "example",
             updatedAt: new Date().toISOString(),
           },
         ],
       ),
     ).toBe(true);
-  });
-
-  it("uses explicit provider runtime metadata before requiredKeys heuristics", () => {
-    const browserProvider = {
-      base: "/puter",
-      hasModels: true,
-      id: "puter",
-      label: "Puter",
-      runtime: {
-        authMode: "browser-session" as const,
-        externalApi: false,
-        kind: "client" as const,
-        openAiCompatible: false,
-        transport: "browser-sdk" as const,
-      },
-    };
-
-    expect(providerAuthMode(browserProvider)).toBe("browser-session");
-    expect(providerHasRequiredCredentials(browserProvider, [])).toBe(true);
-    expect(providerUsesBrowserSession(browserProvider)).toBe(true);
-    expect(providerSupportsExternalApi(browserProvider)).toBe(false);
   });
 
   it("sorts providers with configured credentials first", () => {

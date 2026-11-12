@@ -6,28 +6,12 @@ function providerCredentialKeys(
   return provider?.requiredKeys?.map((field) => field.envName) ?? [];
 }
 
-export function providerAuthMode(provider: UiProvider | null | undefined) {
-  if (provider?.runtime?.authMode) {
-    return provider.runtime.authMode;
-  }
-
+function providerAuthMode(provider: UiProvider | null | undefined): "api-key" | "none" {
   return providerCredentialKeys(provider).length > 0 ? "api-key" : "none";
 }
 
 export function providerUsesStoredCredentials(provider: UiProvider | null | undefined): boolean {
   return providerAuthMode(provider) === "api-key";
-}
-
-export function providerUsesBrowserSession(provider: UiProvider | null | undefined): boolean {
-  return providerAuthMode(provider) === "browser-session";
-}
-
-export function providerSupportsExternalApi(provider: UiProvider | null | undefined): boolean {
-  if (typeof provider?.runtime?.externalApi === "boolean") {
-    return provider.runtime.externalApi;
-  }
-
-  return provider?.runtime?.kind !== "client";
 }
 
 export function providerHasRequiredCredentials(

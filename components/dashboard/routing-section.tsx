@@ -284,7 +284,7 @@ export function RoutingSection() {
         </CardHeader>
         <CardContent>
           <Button asChild size="sm">
-            <Link href="/setup">
+            <Link href="/dashboard/credentials">
               Conectar provedores
               <ExternalLinkIcon data-icon="inline-end" />
             </Link>

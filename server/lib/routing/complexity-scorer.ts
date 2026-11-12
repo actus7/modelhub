@@ -32,12 +32,6 @@ const TIER_BOUNDARIES = [TIER_THRESHOLDS.simple, TIER_THRESHOLDS.standard, TIER_
 /** Sigmoide sobre a distância (em pontos) até a fronteira mais próxima. */
 const CONFIDENCE_SIGMOID_K = 0.15
 
-/**
- * Pings de keep-alive de agentes (ex.: OpenClaw) não devem consumir scoring
- * nem inflar estatísticas de complexidade.
- */
-const HEARTBEAT_PATTERN = /\bHEARTBEAT_OK\b/
-
 /** Mensagens curtas sem sinais complexos vão direto para "simple". */
 const SHORT_MESSAGE_MAX_CHARS = 50
 
@@ -152,11 +146,6 @@ export function scoreComplexity(
   const lastUser = [...scoreable].reverse().find((m) => m.role === 'user')
   const lastText = lastUser ? extractText(lastUser.content) : ''
   const allText = scoreable.map((m) => extractText(m.content)).join('\n')
-
-  // Heartbeat de agente: roteia direto para o tier mais barato sem scoring.
-  if (HEARTBEAT_PATTERN.test(lastText)) {
-    return { tier: 'simple', rawScore: 0, signals: ['heartbeat'], confidence: 0.99 }
-  }
 
   let score = 0
   const signals: string[] = []

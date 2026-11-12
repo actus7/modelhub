@@ -1,66 +1,48 @@
 import { describe, expect, it } from "vitest"
 
 import type { ProviderCredentialSummary, UiProvider } from "@/lib/contracts"
-import {
-  buildProviderGroups,
-  providerConnectionLabel,
-  providerGroupId,
-} from "./provider-ui"
+import { buildProviderGroups, providerConnectionLabel } from "./provider-ui"
 
-const provider = (
-  id: string,
-  authMode: "api-key" | "browser-session" | "none",
-): UiProvider => ({
+const provider = (id: string, label = id): UiProvider => ({
   base: `/${id}`,
   hasModels: true,
   id,
-  label: id === "moonshot" ? "Moonshot (Kimi)" : id,
-  requiredKeys: authMode === "api-key"
-    ? [{ envName: `${id.toUpperCase()}_KEY`, label: "API key", placeholder: "sk-..." }]
-    : [],
-  runtime: {
-    authMode,
-    externalApi: authMode !== "browser-session",
-    kind: authMode === "browser-session" ? "client" : "server",
-    openAiCompatible: authMode !== "browser-session",
-    transport: authMode === "browser-session" ? "browser-sdk" : "openai-compatible",
-  },
+  label,
+  requiredKeys: [{ envName: `${id.toUpperCase()}_KEY`, label: "API key", placeholder: "sk-..." }],
 })
 
+const moonshotCredential: ProviderCredentialSummary = {
+  credentialKey: "MOONSHOT_KEY",
+  id: "credential-1",
+  providerId: "moonshot",
+  updatedAt: new Date().toISOString(),
+}
+
 describe("provider UI grouping", () => {
-  it("groups providers by their real authentication mode", () => {
-    expect(providerGroupId(provider("duckai", "none"))).toBe("ready")
-    expect(providerGroupId(provider("puter", "browser-session"))).toBe("browser-session")
-    expect(providerGroupId(provider("moonshot", "api-key"))).toBe("api-key")
+  it("splits providers into connected and available groups", () => {
+    const groups = buildProviderGroups(
+      [provider("openai", "OpenAI"), provider("moonshot", "Moonshot (Kimi)")],
+      [moonshotCredential],
+      "",
+    )
+    expect(groups.map((group) => [group.id, group.providers.map((item) => item.id)])).toEqual([
+      ["connected", ["moonshot"]],
+      ["available", ["openai"]],
+    ])
   })
 
-  it("filters by label and keeps configured API providers first", () => {
-    const providers = [
-      provider("openai", "api-key"),
-      provider("moonshot", "api-key"),
-      provider("duckai", "none"),
-    ]
-    const credentials: ProviderCredentialSummary[] = [{
-      credentialKey: "MOONSHOT_KEY",
-      id: "credential-1",
-      providerId: "moonshot",
-      updatedAt: new Date().toISOString(),
-    }]
-
-    const apiGroup = buildProviderGroups(providers, credentials, "")[1]
-    expect(apiGroup?.providers.map((item) => item.id)).toEqual(["moonshot", "openai"])
-    expect(buildProviderGroups(providers, credentials, "kimi")[0]?.providers[0]?.id).toBe("moonshot")
+  it("filters by label", () => {
+    const groups = buildProviderGroups(
+      [provider("openai", "OpenAI"), provider("moonshot", "Moonshot (Kimi)")],
+      [],
+      "kimi",
+    )
+    expect(groups.flatMap((group) => group.providers.map((item) => item.id))).toEqual(["moonshot"])
   })
 
   it("describes connection readiness without exposing secret values", () => {
-    const moonshot = provider("moonshot", "api-key")
+    const moonshot = provider("moonshot")
     expect(providerConnectionLabel(moonshot, [])).toBe("Não conectado")
-    expect(providerConnectionLabel(moonshot, [{
-      credentialKey: "MOONSHOT_KEY",
-      id: "credential-1",
-      providerId: "moonshot",
-      updatedAt: new Date().toISOString(),
-    }])).toBe("Conectado")
+    expect(providerConnectionLabel(moonshot, [moonshotCredential])).toBe("Conectado")
   })
 })
-

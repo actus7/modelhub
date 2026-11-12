@@ -148,13 +148,6 @@ describe('scoreComplexity', () => {
     expect(result.tier).toBe('simple')
   })
 
-  it('detecta heartbeat e roteia para simple sem scoring', () => {
-    const result = scoreComplexity(msg('HEARTBEAT_OK ping'))
-    expect(result.tier).toBe('simple')
-    expect(result.signals).toContain('heartbeat')
-    expect(result.confidence).toBeGreaterThanOrEqual(0.99)
-  })
-
   it('força reasoning quando há lógica formal na última mensagem', () => {
     const result = scoreComplexity(msg('Prove the theorem: if and only if P, therefore Q.'))
     expect(result.tier).toBe('reasoning')
@@ -179,11 +172,6 @@ describe('scoreComplexity', () => {
     const result = scoreComplexity(msg('ok, valeu!'), { hasTools: true })
     expect(result.tier).toBe('standard')
     expect(result.signals).toContain('tools_floor')
-  })
-
-  it('não aplica tools_floor em heartbeat', () => {
-    const result = scoreComplexity(msg('HEARTBEAT_OK'), { hasTools: true })
-    expect(result.tier).toBe('simple')
   })
 
   it('aplica piso complex para contexto gigante', () => {

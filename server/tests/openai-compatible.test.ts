@@ -10,10 +10,18 @@ vi.mock("../lib/db", () => ({
 vi.mock("../env", () => ({}));
 vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
 
-const { chatViaOpenAiCompatible, createOpenAiFetchModels } = await import("../lib/openai-compatible");
-const { buildNvidiaNimBody, isNvidiaNimChatModel, isNvidiaNimModelUnavailableError, resolveNvidiaNimModelId, testNvidiaNimCredentials } = await import("../providers/nvidianim");
+const { chatViaOpenAiCompatible, createOpenAiFetchModels, isChatModelId, testViaOpenAiModels } = await import(
+  "../lib/openai-compatible"
+);
 
-describe("OpenAI-compatible provider helpers", () => {
+const provider = { label: "Example", baseUrl: "https://api.example.com/v1", apiKeyEnv: "EXAMPLE_API_KEY" };
+const credentials = { EXAMPLE_API_KEY: "sk-test" };
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status });
+}
+
+describe("OpenAI-compatible provider standard", () => {
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
@@ -24,203 +32,76 @@ describe("OpenAI-compatible provider helpers", () => {
     globalThis.fetch = originalFetch;
   });
 
-  it("falls back when NVIDIA NIM returns a plain 404 for a listed model", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response("404 page not found", { status: 404 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        choices: [{ message: { content: "fallback ok" } }],
-      }), { headers: { "content-type": "application/json" }, status: 200 }));
+  it("posts to baseUrl/chat/completions with Bearer auth and passthrough fields only", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: "oi" } }] }));
     globalThis.fetch = fetchMock;
 
     const response = await chatViaOpenAiCompatible(
+      provider,
       {
-        apiKeyEnv: "NVIDIA_NIM_API_KEY",
-        chatUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
-        fallbackModelIds: ["openai/gpt-oss-120b"],
-        isModelUnavailableError: isNvidiaNimModelUnavailableError,
-        providerName: "NVIDIA NIM",
+        messages: [{ role: "user", content: "olá" }],
+        modelId: "model-a",
+        rawBody: { temperature: 0.2, unknown_field: true },
       },
-      {
-        messages: [{ content: "Oi", role: "user" }],
-        modelId: "nvidia/nemotron-nano-9b-v2",
-        rawBody: {},
-      },
-      { NVIDIA_NIM_API_KEY: "nvapi-test" },
+      credentials,
     );
 
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("fallback ok");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe("https://api.example.com/v1/chat/completions");
+    expect(new Headers(init.headers).get("authorization")).toBe("Bearer sk-test");
+    const body = JSON.parse(init.body as string);
+    expect(body).toMatchObject({ model: "model-a", temperature: 0.2, stream: true });
+    expect(body.unknown_field).toBeUndefined();
+    expect(body.messages).toEqual([{ role: "user", content: "olá" }]);
   });
 
-  it("does not fall back when NVIDIA NIM rejects the credential", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      detail: "Authorization failed",
-      status: 403,
-      title: "Forbidden",
-    }), { status: 403 }));
+  it("returns the upstream error without retrying another model", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: { message: "model_not_found" } }, 404));
     globalThis.fetch = fetchMock;
 
     const response = await chatViaOpenAiCompatible(
-      {
-        apiKeyEnv: "NVIDIA_NIM_API_KEY",
-        chatUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
-        fallbackModelIds: ["nvidia/nemotron-3-super-120b-a12b"],
-        isModelUnavailableError: isNvidiaNimModelUnavailableError,
-        providerName: "NVIDIA NIM",
-      },
-      {
-        messages: [{ content: "Oi", role: "user" }],
-        modelId: "nvidia/nemotron-3-ultra-550b-a55b",
-        rawBody: {},
-      },
-      { NVIDIA_NIM_API_KEY: "nvapi-test" },
+      provider,
+      { messages: [{ role: "user", content: "olá" }], modelId: "missing", rawBody: {} },
+      credentials,
     );
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("tests NVIDIA credentials against chat instead of the global model catalog", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      detail: "Authorization failed",
-      status: 403,
-      title: "Forbidden",
-    }), { status: 403 }));
-    globalThis.fetch = fetchMock;
-
-    await expect(testNvidiaNimCredentials({ NVIDIA_NIM_API_KEY: "nvapi-test" })).resolves.toEqual({
-      error: "Chat NVIDIA NIM retornou 403. Gere uma nova chave.",
-      ok: false,
-    });
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).model).toBe("nvidia/nemotron-3-ultra-550b-a55b");
-  });
-
-  it("falls back when NVIDIA NIM returns function-not-found for a listed model", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        detail: "Function '23bd454d-b225-49a3-8118-582a62fc51b8': Not found for account 'acct'",
-        status: 404,
-        title: "Not Found",
-      }), { status: 404 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({
-        choices: [{ message: { content: "fallback ok" } }],
-      }), { headers: { "content-type": "application/json" }, status: 200 }));
-    globalThis.fetch = fetchMock;
-
-    const response = await chatViaOpenAiCompatible(
-      {
-        apiKeyEnv: "NVIDIA_NIM_API_KEY",
-        chatUrl: "https://integrate.api.nvidia.com/v1/chat/completions",
-        fallbackModelIds: ["nvidia/nemotron-3-super-120b-a12b"],
-        providerName: "NVIDIA NIM",
-      },
-      {
-        messages: [{ content: "Oi", role: "user" }],
-        modelId: "01-ai/yi-large",
-        rawBody: {},
-      },
-      { NVIDIA_NIM_API_KEY: "nvapi-test" },
+  it("lists chat models from /models, deduplicating and dropping non-chat models", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(
+      jsonResponse({
+        data: [
+          { id: "chat-a", supported_parameters: ["tools"] },
+          { id: "chat-a" },
+          { id: "chat-b", supported_parameters: ["temperature"] },
+          { id: "text-embedding-3-small" },
+          { id: "whisper-1" },
+        ],
+      }),
     );
 
-    expect(response.status).toBe(200);
-    expect(await response.text()).toContain("fallback ok");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body)).model).toBe("01-ai/yi-large");
-    expect(JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body)).model).toBe("nvidia/nemotron-3-super-120b-a12b");
-  });
-
-  it("deduplicates model IDs returned by OpenAI-compatible model APIs", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      data: [
-        { id: "openai/gpt-oss-20b" },
-        { id: "openai/gpt-oss-20b" },
-        { id: "nvidia/nemotron-3-super-120b-a12b" },
-      ],
-    }), { headers: { "content-type": "application/json" }, status: 200 }));
-
-    const fetchModels = createOpenAiFetchModels({
-      apiKeyEnv: "NVIDIA_NIM_API_KEY",
-      modelsUrl: "https://integrate.api.nvidia.com/v1/models",
-      providerName: "NVIDIA NIM",
-    });
-
-    const models = await fetchModels({ NVIDIA_NIM_API_KEY: "nvapi-test" });
-
-    expect(models.map((model) => model.id)).toEqual([
-      "openai/gpt-oss-20b",
-      "nvidia/nemotron-3-super-120b-a12b",
-    ]);
-  });
-
-  it("derives tool capability from OpenAI-compatible model metadata when available", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      data: [
-        { id: "tool-model", supported_parameters: ["tools", "temperature"] },
-        { id: "text-model", supported_parameters: ["temperature"] },
-        { capabilities: { tools: false }, id: "capability-model" },
-      ],
-    }), { headers: { "content-type": "application/json" }, status: 200 }));
-
-    const fetchModels = createOpenAiFetchModels({
-      apiKeyEnv: "OPENROUTER_API_KEY",
-      modelsUrl: "https://openrouter.ai/api/v1/models",
-      providerName: "OpenRouter",
-    });
-
-    const models = await fetchModels({ OPENROUTER_API_KEY: "sk-test" });
+    const models = await createOpenAiFetchModels(provider)(credentials);
 
     expect(models.map((model) => [model.id, model.capabilities.tools])).toEqual([
-      ["tool-model", true],
-      ["text-model", false],
-      ["capability-model", false],
+      ["chat-a", true],
+      ["chat-b", false],
     ]);
   });
 
-  it("filters NVIDIA NIM utility and unavailable models out of chat discovery", async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      data: [
-        { id: "nvidia/llama-nemotron-embed-vl-1b-v2" },
-        { id: "nvidia/nemotron-content-safety-reasoning-4b" },
-        { id: "nvidia/nemotron-4-340b-reward" },
-        { id: "nvidia/nemotron-4-340b-instruct" },
-        { id: "01-ai/yi-large" },
-        { id: "nvidia/llama-3.3-nemotron-super-49b-v1.5" },
-        { id: "openai/gpt-oss-20b" },
-      ],
-    }), { headers: { "content-type": "application/json" }, status: 200 }));
+  it("classifies non-chat model ids", () => {
+    expect(isChatModelId("gpt-4.1-mini")).toBe(true);
+    expect(isChatModelId("nvidia/nv-embed-v1")).toBe(false);
+    expect(isChatModelId("tts-1-hd")).toBe(false);
+  });
 
-    const fetchModels = createOpenAiFetchModels({
-      apiKeyEnv: "NVIDIA_NIM_API_KEY",
-      filter: isNvidiaNimChatModel,
-      modelsUrl: "https://integrate.api.nvidia.com/v1/models",
-      providerName: "NVIDIA NIM",
+  it("validates credentials against /models", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue(new Response("", { status: 401 }));
+    await expect(testViaOpenAiModels(provider, credentials)).resolves.toEqual({
+      ok: false,
+      error: "Chave inválida ou sem permissão (401).",
     });
-
-    const models = await fetchModels({ NVIDIA_NIM_API_KEY: "nvapi-test" });
-
-    expect(models.map((model) => model.id)).toEqual([
-      "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-      "openai/gpt-oss-20b",
-    ]);
-  });
-
-  it("does not send stream_options to NVIDIA NIM chat", () => {
-    expect(buildNvidiaNimBody({
-      messages: [{ content: "Oi", role: "user" }],
-      modelId: "nvidia/nemotron-3-ultra-550b-a55b",
-      rawBody: {},
-    })).not.toHaveProperty("stream_options");
-  });
-
-  it("maps retired NVIDIA NIM model IDs before the upstream request", () => {
-    expect(resolveNvidiaNimModelId("nvidia/llama-3.1-nemotron-ultra-253b-v1"))
-      .toBe("nvidia/nemotron-3-ultra-550b-a55b");
-    expect(resolveNvidiaNimModelId("meta/codellama-70b"))
-      .toBe("nvidia/nemotron-3-ultra-550b-a55b");
-    expect(resolveNvidiaNimModelId("openai/gpt-oss-20b"))
-      .toBe("openai/gpt-oss-20b");
   });
 });

@@ -5,13 +5,11 @@ import { z } from "zod"
 
 import {
   MODELHUB_CONVERSATION_HEADER,
-  MODELHUB_FALLBACK_DIAGNOSTIC_HEADER,
   MODELHUB_MESSAGE_HEADER,
   MODELHUB_PROJECT_HEADER,
 } from "@/lib/contracts"
 import type { ProviderModelCapabilities } from "@/lib/chat-parts"
 import type { ProviderModel } from "@/lib/contracts"
-import type { Prisma } from "../../generated/prisma/client.ts"
 import { prisma } from "./db"
 import { decryptCredential } from "./crypto"
 import { DEFAULT_MODELS_CACHE_TTL_MS, getCachedModels } from "./model-cache"
@@ -145,9 +143,9 @@ export const MAX_PROVIDER_REQUEST_BODY_BYTES = 4 * 1024 * 1024
 const MAX_PROVIDER_IMAGE_URL_LENGTH = 4 * 1024 * 1024
 
 /** Caps de injeção de contexto de projeto — mesmos valores do GET /projects/:id/context. */
-export const PROJECT_INSTRUCTIONS_CHAR_CAP = 20_000
-export const PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP = 20_000
-export const PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP = 60_000
+const PROJECT_INSTRUCTIONS_CHAR_CAP = 20_000
+const PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP = 20_000
+const PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP = 60_000
 
 const rawMessagePartSchema = z
   .object({
@@ -709,39 +707,6 @@ export async function resolveMessagesForProvider(input: {
   return resolvedMessages
 }
 
-/**
- * Extract plain text from ChatMessage content (for providers that only support text).
- * Strips AI coding assistant system context (e.g. Kilo Code / Cline environment_details)
- * that simple models would otherwise echo back verbatim.
- */
-export function messageContentAsText(msg: ChatMessage): string {
-  let raw: string
-  if (typeof msg.content === "string") {
-    raw = msg.content
-  } else {
-    raw = msg.content
-      .filter((p): p is { type: "text"; text: string } => p.type === "text")
-      .map((p) => p.text)
-      .join("\n")
-  }
-
-  return stripCodingAssistantContext(raw)
-}
-
-/** Remove known AI coding assistant metadata blocks that simple models echo back. */
-function stripCodingAssistantContext(text: string): string {
-  // Strip <environment_details>...</environment_details> blocks (Kilo Code / Cline / Roo Code)
-  let cleaned = text.replace(
-    /<environment_details>[\s\S]*?<\/environment_details>/g,
-    "",
-  )
-
-  // Unwrap <task>...</task> to just the inner content
-  cleaned = cleaned.replace(/<task>\s*([\s\S]*?)\s*<\/task>/g, "$1")
-
-  return cleaned.trim()
-}
-
 function extractSseTextDelta(parsed: OpenAiSseChunk | null): string {
   const delta = parsed?.choices?.[0]?.delta
   if (!delta) return ""
@@ -757,91 +722,6 @@ function extractSseTextDelta(parsed: OpenAiSseChunk | null): string {
   }
 
   return ""
-}
-
-const HIDDEN_REASONING_OPEN_RE = /<\s*(?:thought|think|reasoning)\b[^>]*>/i
-const HIDDEN_REASONING_CLOSE_RE = /<\s*\/\s*(?:thought|think|reasoning)\s*>/i
-const HIDDEN_REASONING_TAG_NAMES = ["thought", "think", "reasoning"]
-const HIDDEN_REASONING_TAG_BOUNDARY_RE = /^(?:thought|think|reasoning)\b/i
-
-function couldBecomeHiddenReasoningTagName(normalized: string): boolean {
-  return (
-    HIDDEN_REASONING_TAG_NAMES.some((tag) => tag.startsWith(normalized)) ||
-    HIDDEN_REASONING_TAG_BOUNDARY_RE.test(normalized)
-  )
-}
-
-function splitPotentialHiddenReasoningTag(text: string): {
-  emit: string
-  pending: string
-} {
-  const lastOpen = text.lastIndexOf("<")
-  if (lastOpen < 0) return { emit: text, pending: "" }
-
-  const suffix = text.slice(lastOpen).toLowerCase()
-  const normalized = suffix.replace(/^<\s*\/?\s*/, "")
-  const couldBecomeHiddenTag = couldBecomeHiddenReasoningTagName(normalized)
-
-  if (!couldBecomeHiddenTag) return { emit: text, pending: "" }
-  return { emit: text.slice(0, lastOpen), pending: text.slice(lastOpen) }
-}
-
-function getPotentialHiddenReasoningClose(text: string): string {
-  const lastOpen = text.lastIndexOf("<")
-  if (lastOpen < 0) return ""
-
-  const suffix = text.slice(lastOpen).toLowerCase()
-  const normalized = suffix.replace(/^<\s*\/?\s*/, "")
-  const couldBecomeClose =
-    suffix.startsWith("</") && couldBecomeHiddenReasoningTagName(normalized)
-
-  return couldBecomeClose ? text.slice(lastOpen) : ""
-}
-
-function createHiddenReasoningSanitizer() {
-  let pending = ""
-  let insideHiddenBlock = false
-
-  return {
-    sanitize(chunk: string, final = false): string {
-      let text = pending + chunk
-      pending = ""
-      let out = ""
-
-      while (text.length > 0) {
-        if (insideHiddenBlock) {
-          const closeMatch = HIDDEN_REASONING_CLOSE_RE.exec(text)
-          if (!closeMatch) {
-            pending = final ? "" : getPotentialHiddenReasoningClose(text)
-            return out
-          }
-
-          text = text.slice(closeMatch.index + closeMatch[0].length)
-          insideHiddenBlock = false
-          continue
-        }
-
-        const openMatch = HIDDEN_REASONING_OPEN_RE.exec(text)
-        if (!openMatch) {
-          if (final) {
-            out += text
-            return out
-          }
-
-          const split = splitPotentialHiddenReasoningTag(text)
-          pending = split.pending
-          out += split.emit
-          return out
-        }
-
-        out += text.slice(0, openMatch.index)
-        text = text.slice(openMatch.index + openMatch[0].length)
-        insideHiddenBlock = true
-      }
-
-      return out
-    },
-  }
 }
 
 async function writeFinish(
@@ -913,7 +793,6 @@ async function processSseLine(
   usageAccumulator: {
     value: { promptTokens: number; completionTokens: number } | null
   },
-  reasoningSanitizer: ReturnType<typeof createHiddenReasoningSanitizer>,
 ): Promise<boolean> {
   const encoder = new TextEncoder()
   const line = lineRaw.trim()
@@ -930,7 +809,7 @@ async function processSseLine(
 
   try {
     const parsed = JSON.parse(data) as OpenAiSseChunk
-    const token = reasoningSanitizer.sanitize(extractSseTextDelta(parsed))
+    const token = extractSseTextDelta(parsed)
     if (token) {
       await writer.write(encoder.encode(`0:${JSON.stringify(token)}\n`))
     }
@@ -953,10 +832,6 @@ async function processSseLine(
 
     const finishReason = parsed.choices?.[0]?.finish_reason
     if (finishReason && finishReason !== "null") {
-      const finalText = reasoningSanitizer.sanitize("", true)
-      if (finalText) {
-        await writer.write(encoder.encode(`0:${JSON.stringify(finalText)}\n`))
-      }
       await flushAccumulatedToolCalls(toolCallAccumulator, writer)
       await writeFinish(
         writer,
@@ -983,7 +858,6 @@ export function toVercelStreamFromOpenAiSse(
   const usageAccumulator: {
     value: { promptTokens: number; completionTokens: number } | null
   } = { value: null }
-  const reasoningSanitizer = createHiddenReasoningSanitizer()
 
   ;(async () => {
     let didFinish = false
@@ -1007,17 +881,11 @@ export function toVercelStreamFromOpenAiSse(
               writer,
               toolCallAccumulator,
               usageAccumulator,
-              reasoningSanitizer,
             )) || didFinish
         }
       }
 
       if (!didFinish) {
-        const finalText = reasoningSanitizer.sanitize("", true)
-        if (finalText) {
-          const encoder = new TextEncoder()
-          await writer.write(encoder.encode(`0:${JSON.stringify(finalText)}\n`))
-        }
         await flushAccumulatedToolCalls(toolCallAccumulator, writer)
         await writeFinish(writer, "stop", usageAccumulator.value ?? undefined)
       }
@@ -1044,9 +912,7 @@ export function toVercelStreamFromOpenAiSse(
 }
 
 export function toVercelSingleTextResponse(text: string): Response {
-  const sanitizer = createHiddenReasoningSanitizer()
-  const sanitized = sanitizer.sanitize(text) + sanitizer.sanitize("", true)
-  const payload = `0:${JSON.stringify(sanitized)}\nd:{"finishReason":"stop"}\n`
+  const payload = `0:${JSON.stringify(text)}\nd:{"finishReason":"stop"}\n`
   return new Response(payload, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
@@ -1111,7 +977,6 @@ export function vercelStreamToOpenAiSse(
   const encoder = new TextEncoder()
   const { readable, writable } = new TransformStream()
   const writer = writable.getWriter()
-  const reasoningSanitizer = createHiddenReasoningSanitizer()
 
   ;(async () => {
     try {
@@ -1142,8 +1007,7 @@ export function vercelStreamToOpenAiSse(
           if (prefix === "0") {
             // Text chunk
             const text = JSON.parse(payload) as string
-            const sanitizedText = reasoningSanitizer.sanitize(text)
-            if (!sanitizedText) continue
+            if (!text) continue
             const chunk = {
               id: chatId,
               object: "chat.completion.chunk",
@@ -1152,7 +1016,7 @@ export function vercelStreamToOpenAiSse(
               choices: [
                 {
                   index: 0,
-                  delta: { content: sanitizedText },
+                  delta: { content: text },
                   finish_reason: null,
                 },
               ],
@@ -1180,25 +1044,6 @@ export function vercelStreamToOpenAiSse(
             const data = JSON.parse(payload) as {
               finishReason: string
               usage?: { promptTokens: number; completionTokens: number }
-            }
-            const finalText = reasoningSanitizer.sanitize("", true)
-            if (finalText) {
-              const textChunk = {
-                id: chatId,
-                object: "chat.completion.chunk",
-                created,
-                model,
-                choices: [
-                  {
-                    index: 0,
-                    delta: { content: finalText },
-                    finish_reason: null,
-                  },
-                ],
-              }
-              await writer.write(
-                encoder.encode(`data: ${JSON.stringify(textChunk)}\n\n`),
-              )
             }
             const finishReason =
               data.finishReason === "tool-calls"
@@ -1413,15 +1258,6 @@ function logProviderError(providerId: string, error: unknown): void {
  */
 const MAX_USAGE_LOG_ERROR_CHARS = 8000
 
-/** Uma tentativa de fallback entre provedores/modelos, para exibir nos Bastidores. */
-interface FallbackAttempt {
-  providerId?: string
-  modelId: string
-  status: number
-  durationMs?: number
-  errorSnippet?: string
-}
-
 function logUsage(data: {
   userId: string | undefined
   apiKeyId: string | undefined
@@ -1442,7 +1278,6 @@ function logUsage(data: {
   conversationId?: string | null
   messageId?: string | null
   ttftMs?: number | null
-  attempts?: FallbackAttempt[] | null
 }): Promise<string | null> {
   if (!data.userId) return Promise.resolve(null)
 
@@ -1473,8 +1308,6 @@ function logUsage(data: {
         conversationId: data.conversationId ?? null,
         messageId: data.messageId ?? null,
         ttftMs: data.ttftMs ?? null,
-        attempts:
-          (data.attempts as Prisma.InputJsonValue | undefined) ?? undefined,
       },
       select: { id: true },
     })
@@ -1676,44 +1509,6 @@ export function internalProviderErrorResponse(
   const max = 2000
   const truncated = detail.length > max ? `${detail.slice(0, max)}…` : detail
   return jsonErrorResponse(500, `${providerName} request failed: ${truncated}`)
-}
-
-function splitCombinedSetCookieHeader(headerValue: string): string[] {
-  return headerValue
-    .split(/,(?=\s*[^=;,\s]+=[^;])/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function getSetCookieHeaders(headers: Headers): string[] {
-  const headersWithGetSetCookie = headers as Headers & {
-    getSetCookie?: () => string[]
-  }
-
-  if (typeof headersWithGetSetCookie.getSetCookie === "function") {
-    return headersWithGetSetCookie.getSetCookie().filter(Boolean)
-  }
-
-  const collectedHeaders: string[] = []
-  headers.forEach((value, key) => {
-    if (key.toLowerCase() === "set-cookie") {
-      collectedHeaders.push(...splitCombinedSetCookieHeader(value))
-    }
-  })
-
-  if (collectedHeaders.length > 0) {
-    return collectedHeaders
-  }
-
-  const singleHeader = headers.get("set-cookie")
-  return singleHeader ? splitCombinedSetCookieHeader(singleHeader) : []
-}
-
-export function getCookieHeaderValue(headers: Headers): string {
-  return getSetCookieHeaders(headers)
-    .map((cookie) => cookie.split(";")[0]?.trim())
-    .filter(Boolean)
-    .join("; ")
 }
 
 type AppEnv = {
@@ -1922,7 +1717,6 @@ export function createProviderApp(config: ProviderConfig) {
       const durationMs = Date.now() - startedAt
 
       let errorDetail: string | null = null
-      let attempts: FallbackAttempt[] | null = null
       if (response.status >= 400) {
         try {
           errorDetail = (await response.clone().text()).slice(
@@ -1931,30 +1725,6 @@ export function createProviderApp(config: ProviderConfig) {
           )
         } catch {
           errorDetail = null
-        }
-      } else {
-        const diagB64 = response.headers
-          .get(MODELHUB_FALLBACK_DIAGNOSTIC_HEADER)
-          ?.trim()
-        if (diagB64) {
-          try {
-            const json = Buffer.from(diagB64, "base64url").toString("utf8")
-            const parsed = JSON.parse(json) as {
-              failedAttempts?: Array<{
-                modelId: string
-                status: number
-                upstreamSnippet: string
-              }>
-            }
-            attempts = (parsed.failedAttempts ?? []).map((f) => ({
-              modelId: f.modelId,
-              status: f.status,
-              errorSnippet: f.upstreamSnippet,
-            }))
-          } catch {
-            errorDetail =
-              "[model_fallback] diagnóstico em header inválido ou truncado"
-          }
         }
       }
 
@@ -1972,7 +1742,6 @@ export function createProviderApp(config: ProviderConfig) {
         taskCategory,
         conversationId,
         messageId,
-        attempts,
       })
 
       // Tap streaming response to extract token usage e TTFT (primeiro chunk) asynchronously

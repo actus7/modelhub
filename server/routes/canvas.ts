@@ -25,26 +25,7 @@ const canvasUpdateSchema = z.object({
   title: z.string().trim().min(1).max(200).optional(),
 });
 
-const canvasCreateInConversationSchema = z.object({
-  content: z.string().min(1).max(2_000_000),
-  kind: canvasKindSchema,
-  language: z.string().max(64).nullable().optional(),
-  title: z.string().trim().min(1).max(200).optional(),
-});
-
 const pinSchema = z.object({ projectId: z.string().min(1) });
-
-type CanvasRecord = {
-  activeVersion: number;
-  conversationId: string;
-  createdAt: Date;
-  id: string;
-  kind: string;
-  language: string | null;
-  shareToken: string | null;
-  title: string;
-  updatedAt: Date;
-};
 
 async function requireCanvas(c: Context, userId: string, canvasId: string) {
   const canvas = await prisma.canvas.findFirst({
@@ -393,6 +374,4 @@ app.post("/:id/pin", async (c) => {
   );
 });
 
-export { canvasCreateInConversationSchema, canvasKindSchema };
-export type { CanvasRecord };
 export default app.fetch;

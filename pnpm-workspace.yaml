@@ -1,7 +1,5 @@
-packages:
-  - 'packages/*'
-
+# Pacotes cujos scripts de instalação não precisam rodar (Prisma 7 usa driver adapter, sem engine nativo).
 ignoredBuiltDependencies:
-  - '@sentry-internal/node-cpu-profiler'
-  - core-js
-  - puppeteer
+  - '@prisma/engines'
+  - msw
+  - prisma

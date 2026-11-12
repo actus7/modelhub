@@ -2,8 +2,7 @@
 //
 // A versão anterior usava preço de saída como proxy de capacidade. Só que
 // `getModelPrice` conhece uma tabela hardcoded de ~20 providers por ID exato:
-// para catálogos como Cloudflare (`@cf/…`), Duck.ai, Pollinations ou os IDs
-// reais da Cerebras ela devolve null, e praticamente todo modelo caía no mesmo
+// para a maioria dos IDs reais dos catálogos ela devolve null, e praticamente todo modelo caía no mesmo
 // score default. Com a distribuição degenerada, a seleção por percentil
 // retornava posições arbitrárias — a ordem de iteração dos providers, não
 // qualidade.
@@ -53,7 +52,7 @@ export type SuggestTierAssignmentsOptions = {
   health?: ModelHealthMap
 }
 
-export const DEFAULT_SLOTS_PER_TIER = 5
+const DEFAULT_SLOTS_PER_TIER = 5
 
 /**
  * Modelos que não atendem chat completions. Sugerir um classificador de
@@ -260,11 +259,7 @@ export async function suggestTierAssignments(
 ): Promise<SuggestedTiers> {
   // Imports dinâmicos: a cadeia do registry puxa o cliente Prisma, que não deve
   // ser avaliada ao importar as funções puras (scoreModel/pickTiers) em testes.
-  const {
-    getProviderModels,
-    isProviderAvailableViaExternalApi,
-    providerRegistry,
-  } = await import("../../providers/registry")
+  const { getProviderModels, providerRegistry } = await import("../../providers/registry")
   const { isProviderEnabled } = await import("../catalog")
   // Aquece o cache de preços do OpenRouter para o desempate refletir custos atuais.
   const { ensureOpenRouterPricingFresh } = await import("../openrouter-pricing")
@@ -273,9 +268,7 @@ export async function suggestTierAssignments(
   const sources =
     options.sources ??
     Object.keys(providerRegistry)
-      .filter(
-        (id) => isProviderEnabled(id) && isProviderAvailableViaExternalApi(id),
-      )
+      .filter(isProviderEnabled)
       .map((providerId) => ({
         providerId,
         credentials: {},

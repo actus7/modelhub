@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-ModelHub is a unified AI gateway that proxies requests to multiple AI providers (OpenAI, Anthropic, Google, Groq, Mistral, Cohere, HuggingFace, OpenRouter, etc.) through a single OpenAI-compatible API. It includes a web chat interface, credential management, and usage dashboard. The project is written in Portuguese (Brazilian).
+ModelHub is a unified AI gateway that proxies requests to multiple AI providers (OpenAI, Google, Groq, Mistral, OpenRouter, DeepSeek, etc.) through a single OpenAI-compatible API. It includes a web chat interface, projects/canvas, an agent harness (tools + MCP), automatic routing, credential management, and a usage dashboard. The project is written in Portuguese (Brazilian).
 
 ## Common Commands
 
@@ -27,27 +27,27 @@ All Prisma commands require `--config prisma.config.ts` which the npm scripts al
 
 ### Dual-layer server: Next.js + Hono
 
-The app runs as a **Next.js 16 App Router** application, but the API layer is a **Hono** app (`server/app.ts`) mounted via a Next.js route handler (`server/route-handler.ts`). The Hono app handles all `/v1/*`, provider-specific, and proxy routes. Next.js handles pages, auth middleware, and the frontend.
+The app runs as a **Next.js 16 App Router** application, but the API layer is a **Hono** app (`server/app.ts`) mounted via a Next.js route handler (`server/route-handler.ts`). The Hono app handles all `/v1/*` and provider-specific routes. Next.js handles pages, auth middleware, and the frontend.
 
 ### Provider system
 
-Each AI provider lives in `server/providers/<name>.ts` and exports a fetch handler + static model list (+ optional dynamic `fetchModels`). All providers are registered in `server/providers/registry.ts` as a `providerRegistry` record. Many providers use `server/lib/openai-compatible.ts` for OpenAI-compatible API translation. Models are cached via `server/lib/model-cache.ts`.
+There is exactly one provider standard: an OpenAI-compatible API (`POST {baseUrl}/chat/completions`, `GET {baseUrl}/models`) authenticated with a Bearer API key. Providers are plain data entries in `server/providers/definitions.ts`; `server/providers/registry.ts` and `server/lib/catalog.ts` are derived from it via `createOpenAiCompatibleProvider` in `server/lib/openai-compatible.ts`. Do not add per-provider adaptations (body transforms, custom headers, model fallbacks, scraping, OAuth): a provider that does not fit the standard is not added. Models are cached via `server/lib/model-cache.ts`.
 
 ### Auth flow
 
-Authentication uses **Neon Auth** (`@neondatabase/auth`). Auth logic is in `lib/auth/server.ts` (server) and `lib/auth/client.ts` (client). Middleware in `proxy.ts` protects authenticated routes (`/account/*`, `/chat`, `/dashboard`, `/setup`).
+Authentication uses **Neon Auth** (`@neondatabase/auth`). Auth logic is in `lib/auth/server.ts` (server) and `lib/auth/client.ts` (client). Middleware in `proxy.ts` protects authenticated routes (`/account/*`, `/chat`, `/dashboard/*`, `/playground`, `/projects/*`).
 
 ### Database
 
-PostgreSQL via **Neon** (serverless), accessed through **Prisma 7** with the `@prisma/adapter-neon` adapter (`PrismaNeonHttp` in `server/lib/db.ts`). Schema at `prisma/schema.prisma`, generated client output to `generated/prisma/`. Key models: User, ApiKey, ProviderCredential, Conversation, Message, ConversationAttachment, UsageLog, UserMemory, UserSettings.
+PostgreSQL via **Neon** (serverless), accessed through **Prisma 7** with the `@prisma/adapter-neon` adapter (`PrismaNeon` in `server/lib/db.ts`). Schema at `prisma/schema.prisma`, generated client output to `generated/prisma/`. Key models: User, ApiKey, ProviderCredential, Conversation, Message, ConversationAttachment, UsageLog, UserMemory, UserSettings.
 
 ### Frontend
 
-- `app/(app)/` - authenticated pages (chat, dashboard, setup)
-- `components/` - React components organized by feature (chat/, dashboard/, landing/, setup/, ui/)
+- `app/(app)/` - authenticated pages (chat, dashboard, projects, playground)
+- `components/` - React components organized by feature (chat/, dashboard/, canvas/, projects/, landing/, ui/)
 - UI built with **shadcn/ui** (config in `components.json`), **Radix UI**, **Tailwind CSS v4**, **Recharts**
 - Markdown rendering with react-markdown, rehype-highlight, remark-gfm, KaTeX math support
-- Attachment processing: images, PDFs (pdfjs-dist), documents (jsdom) in `lib/chat-attachments.ts`
+- Attachment processing: images, PDFs (pdfjs-dist), Office documents (jszip) in `server/lib/conversation-attachments.ts`
 
 ### Security
 
@@ -61,9 +61,13 @@ PostgreSQL via **Neon** (serverless), accessed through **Prisma 7** with the `@p
 
 Copy `.env.example` to `.env`. Required variables: `DATABASE_URL`, `DIRECT_URL`, `NEON_AUTH_BASE_URL`, `NEON_AUTH_COOKIE_SECRET`, `ENCRYPTION_KEY` (64 hex chars). Provider API keys are optional and enable shared-credential mode for that provider.
 
+## Deploy
+
+Vercel with the default `next build` (no `vercel.json`). Migrations are not run during the build; apply them with `pnpm prisma:migrate:deploy`.
+
 ## CI
 
-GitHub Actions runs lint, typecheck, test, and build in parallel on push/PR to main and develop branches. Build step requires dummy env vars (see `.github/workflows/ci.yml`).
+GitHub Actions runs lint, typecheck, test, audit, and build in a single job on push/PR to main. Build step requires dummy env vars (see `.github/workflows/ci.yml`).
 
 ## Conventions
 

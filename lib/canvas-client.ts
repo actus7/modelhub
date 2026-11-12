@@ -45,10 +45,6 @@ export async function updateCanvas(
   return data.canvas;
 }
 
-export async function deleteCanvas(canvasId: string): Promise<void> {
-  await apiJsonRequest(`/canvas/${canvasId}`, "DELETE");
-}
-
 export async function getCanvasVersion(canvasId: string, version: number): Promise<CanvasVersionContent> {
   const data = await apiJson<{ version: CanvasVersionContent }>(`/canvas/${canvasId}/versions/${version}`);
   return data.version;

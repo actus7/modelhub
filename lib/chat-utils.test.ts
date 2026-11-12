@@ -6,14 +6,13 @@ import {
   buildTitleGenerationPrompt,
   buildUserMessageParts,
   createTextPart,
-  DUCKAI_TEMPORARY_INLINE_MESSAGE,
   formatMessageTimestamp,
   getUserMessageText,
   hydrateChatMessage,
   normalizeConversationTitle,
   parseApiErrorResponse,
   resolveAssistantModelLabel,
-  resolveModelFallbackFromHeaders,
+  resolveRoutedModelLabel,
   resolveModelSelectPlaceholder,
   resolveStickToBottom,
   resolveStreamErrorContent,
@@ -69,89 +68,38 @@ describe("resolveAssistantModelLabel", () => {
   });
 });
 
-describe("resolveModelFallbackFromHeaders", () => {
-  it("returns the default label and no fallback meta when headers are absent", () => {
-    const { resolvedLabel, fallbackMeta } = resolveModelFallbackFromHeaders(
-      makeResponse({}),
-      "Default Label",
-      MODELS,
-      "OpenAI",
-    );
-    expect(resolvedLabel).toBe("Default Label");
-    expect(fallbackMeta).toBeUndefined();
+describe("resolveRoutedModelLabel", () => {
+  it("returns the default label when routing headers are absent", () => {
+    expect(resolveRoutedModelLabel(makeResponse({}), "Default Label")).toBe("Default Label");
   });
 
   it("uses routing headers for auto model labels", () => {
-    const { resolvedLabel, fallbackMeta } = resolveModelFallbackFromHeaders(
+    const label = resolveRoutedModelLabel(
       makeResponse({
         "x-modelhub-model": "gpt-4o-mini",
         "x-modelhub-provider": "openai",
         "x-modelhub-tier": "standard",
       }),
-      "Auto · Smart Routing (Auto · Smart Routing)",
-      MODELS,
-      "Auto · Smart Routing",
+      "Auto",
     );
-
-    expect(resolvedLabel).toBe("Auto · Standard (openai/gpt-4o-mini)");
-    expect(fallbackMeta).toBeUndefined();
-  });
-
-  it("builds fallback meta when a model swap happened", () => {
-    const { resolvedLabel, fallbackMeta } = resolveModelFallbackFromHeaders(
-      makeResponse({
-        "x-modelhub-effective-model": "gpt-4o-mini",
-        "x-modelhub-requested-model": "gpt-4o",
-        "x-modelhub-model-fallback-used": "true",
-        "x-modelhub-models-attempted": "gpt-4o, gpt-4o-mini",
-      }),
-      "Default Label",
-      MODELS,
-      "OpenAI",
-    );
-    expect(resolvedLabel).toBe("GPT-4o mini (OpenAI)");
-    expect(fallbackMeta).toEqual({
-      requestedLabel: "GPT-4o (OpenAI)",
-      effectiveLabel: "GPT-4o mini (OpenAI)",
-      attemptedIds: ["gpt-4o", "gpt-4o-mini"],
-    });
-  });
-
-  it("omits fallback meta when fallback flag is not 'true'", () => {
-    const { fallbackMeta } = resolveModelFallbackFromHeaders(
-      makeResponse({
-        "x-modelhub-effective-model": "gpt-4o-mini",
-        "x-modelhub-requested-model": "gpt-4o",
-        "x-modelhub-models-attempted": "gpt-4o,gpt-4o-mini",
-      }),
-      "Default Label",
-      MODELS,
-      "OpenAI",
-    );
-    expect(fallbackMeta).toBeUndefined();
+    expect(label).toBe("Auto · Standard (openai/gpt-4o-mini)");
   });
 });
 
 describe("resolveStreamErrorContent", () => {
   it("returns null when there is no error message", () => {
-    expect(resolveStreamErrorContent({ hadPartialOutput: false, text: "" }, "", "openai")).toBeNull();
+    expect(resolveStreamErrorContent({ hadPartialOutput: false, text: "" }, "")).toBeNull();
   });
 
   it("appends the interrupted note when there was partial output", () => {
     expect(
-      resolveStreamErrorContent({ errorMessage: "boom", hadPartialOutput: true, text: "partial" }, "partial", "openai"),
+      resolveStreamErrorContent({ errorMessage: "boom", hadPartialOutput: true, text: "partial" }, "partial"),
     ).toBe(`partial${STREAM_INTERRUPTED_NOTE}`);
-  });
-
-  it("returns the duckai inline message for the duckai provider", () => {
-    expect(
-      resolveStreamErrorContent({ errorMessage: "boom", hadPartialOutput: false, text: "" }, "", "duckai"),
-    ).toBe(DUCKAI_TEMPORARY_INLINE_MESSAGE);
   });
 
   it("returns a generic error for other providers", () => {
     expect(
-      resolveStreamErrorContent({ errorMessage: "boom", hadPartialOutput: false, text: "" }, "", "openai"),
+      resolveStreamErrorContent({ errorMessage: "boom", hadPartialOutput: false, text: "" }, ""),
     ).toBe("Erro: boom");
   });
 });
@@ -276,19 +224,19 @@ describe("validateAttachmentCompatibility", () => {
 
   it("returns null when everything is allowed", () => {
     expect(
-      validateAttachmentCompatibility([{ kind: "image" }, { kind: "document" }], allowAll, "OpenAI"),
+      validateAttachmentCompatibility([{ kind: "image" }, { kind: "document" }], allowAll),
     ).toBeNull();
   });
 
   it("rejects images when the model has no image capability", () => {
     expect(
-      validateAttachmentCompatibility([{ kind: "image" }], { allowImages: false, allowDocuments: true }, "OpenAI"),
+      validateAttachmentCompatibility([{ kind: "image" }], { allowImages: false, allowDocuments: true }),
     ).toBe("O modelo selecionado nao suporta anexos de imagem.");
   });
 
   it("rejects documents when the model has no document capability", () => {
     expect(
-      validateAttachmentCompatibility([{ kind: "document" }], { allowImages: true, allowDocuments: false }, "OpenAI"),
+      validateAttachmentCompatibility([{ kind: "document" }], { allowImages: true, allowDocuments: false }),
     ).toBe("O modelo selecionado nao suporta anexos de documento.");
   });
 
@@ -297,22 +245,10 @@ describe("validateAttachmentCompatibility", () => {
       validateAttachmentCompatibility(
         [{ kind: "image" }, { kind: "document" }],
         { allowImages: false, allowDocuments: false },
-        "OpenAI",
       ),
     ).toBe("O modelo selecionado nao suporta anexos de imagem.");
   });
 
-  it("rejects attachments unsupported by the browser adapter", () => {
-    expect(
-      validateAttachmentCompatibility([{ kind: "image" }], allowAll, "Puter", { images: false, documents: true }),
-    ).toBe("Puter aceita apenas mensagens de texto por enquanto.");
-  });
-
-  it("allows attachments supported by the browser adapter", () => {
-    expect(
-      validateAttachmentCompatibility([{ kind: "image" }], allowAll, "Puter", { images: true, documents: true }),
-    ).toBeNull();
-  });
 });
 
 describe("buildTitleGenerationPrompt", () => {

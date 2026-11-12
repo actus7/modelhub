@@ -8,6 +8,6 @@ describe("providerLogoSrc", () => {
   })
 
   it("returns undefined for a provider without a logo", () => {
-    expect(providerLogoSrc("puter")).toBeUndefined()
+    expect(providerLogoSrc("unknown-provider")).toBeUndefined()
   })
 })

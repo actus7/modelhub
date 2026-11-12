@@ -14,7 +14,6 @@ export default defineConfig({
       "**/.next/**",
       "**/dist/**",
       "**/node_modules/**",
-      "apps/**",
       "**/manifest-main/**",
     ],
     coverage: {

@@ -7,6 +7,15 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+### Removido
+- Provedores fora do padrão OpenAI-compatível com API key: Duck.ai, Quillbot, Puter, Pollinations, Xiaomi AI Studio (cookie), GitHub Copilot, Cloudflare Workers AI, Cohere e Ollama local
+- Adaptações por provedor: transformação de body, fallback automático de modelo, prompt de sistema injetado, mensagens de erro por provedor, demo "labs" do Gateway
+- Deploy em nuvem (OpenClaw/Railway/Render), custom-model-proxy, proxies de gateway/embeddings, infraestrutura OAuth/translators
+- Dockerfile, build customizado da Vercel (migrations não rodam mais no build), dependências sem uso (puppeteer, jsdom, ws, @hono/zod-validator)
+
+### Alterado
+- Provedores declarados em uma tabela única (`server/providers/definitions.ts`) servida por um cliente OpenAI-compatível único
+
 ### Adicionado
 - Projetos, canvases versionados e artefatos persistidos, com compartilhamento, histórico de versões e respectivas migrações de banco.
 - Bastidores das respostas de chat com roteamento, fallback, TTFT, estimativa de tokens por segundo e notas em reações.

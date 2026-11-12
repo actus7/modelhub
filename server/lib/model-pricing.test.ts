@@ -9,8 +9,8 @@ describe('getModelPrice', () => {
     expect(price?.outputPer1M).toBeGreaterThan(0)
   })
 
-  it('returns price for anthropic claude', () => {
-    const price = getModelPrice('anthropic', 'claude-opus-4-8')
+  it('returns price for google ai studio gemini', () => {
+    const price = getModelPrice('googleaistudio', 'gemini-2.5-flash')
     expect(price).not.toBeNull()
   })
 
@@ -51,7 +51,7 @@ describe('calculateCostUsd', () => {
   })
 
   it('calculates google gemini flash cost', () => {
-    const cost = calculateCostUsd('google', 'gemini-2.0-flash', 100_000, 50_000)
+    const cost = calculateCostUsd('googleaistudio', 'gemini-2.0-flash', 100_000, 50_000)
     expect(cost).not.toBeNull()
     expect(cost!).toBeGreaterThanOrEqual(0)
   })

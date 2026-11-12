@@ -40,53 +40,6 @@ describe("runtime env validation", () => {
     );
   });
 
-  it("requires Cloudflare Workers AI Account ID when token is configured", () => {
-    const issues = validateRuntimeEnvConfig({
-      ...VALID_ENV,
-      CLOUDFLARE_API_TOKEN: "token",
-      ENABLED_PROVIDERS: "cloudflareworkersai",
-    });
-
-    expect(issues).toEqual(
-      expect.arrayContaining([
-        'Provider "cloudflareworkersai" is in shared-env mode and requires CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID.',
-      ]),
-    );
-  });
-
-  it("accepts Cloudflare Workers AI shared env with token and Account ID", () => {
-    const issues = validateRuntimeEnvConfig({
-      ...VALID_ENV,
-      CLOUDFLARE_ACCOUNT_ID: "account-id",
-      CLOUDFLARE_API_TOKEN: "token",
-      ENABLED_PROVIDERS: "cloudflareworkersai",
-    });
-
-    expect(issues).toEqual([]);
-  });
-
-  it("requires explicit opt-in for Duck.ai jsdom challenge execution", () => {
-    expect(
-      validateRuntimeEnvConfig({
-        ...VALID_ENV,
-        DUCKAI_CHALLENGE_RUNTIME: "jsdom-dangerous",
-      }),
-    ).toEqual(
-      expect.arrayContaining([
-        'DUCKAI_CHALLENGE_RUNTIME=jsdom-dangerous requires DUCKAI_ALLOW_UNTRUSTED_CHALLENGE_CODE="true".',
-      ]),
-    );
-  });
-
-  it("accepts the browser Duck.ai challenge runtime", () => {
-    expect(
-      validateRuntimeEnvConfig({
-        ...VALID_ENV,
-        DUCKAI_CHALLENGE_RUNTIME: "browser",
-      }),
-    ).toEqual([]);
-  });
-
   it("requires complete Upstash configuration when distributed rate limiting is enabled", () => {
     expect(
       validateRuntimeEnvConfig({

@@ -85,7 +85,7 @@ export function recordRateLimit(
  * para orientar a espera. Antes disso só 429 marcava cooldown, então um
  * provedor em queda seguia sendo eleito primário a cada request.
  */
-export const TRANSIENT_COOLDOWN_MS = 20_000
+const TRANSIENT_COOLDOWN_MS = 20_000
 
 export function recordUpstreamFailure(key: string, now = Date.now()): number {
   return setCooldown(key, TRANSIENT_COOLDOWN_MS, now)

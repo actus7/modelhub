@@ -3,7 +3,7 @@ import type { Prisma } from "../../generated/prisma/client"
 import { prisma } from "../lib/db"
 import { toHarnessJson } from "./json"
 
-export const ACTIVE_ROOT_RUN_STATUSES = [
+const ACTIVE_ROOT_RUN_STATUSES = [
   "queued",
   "running",
   "yielded",

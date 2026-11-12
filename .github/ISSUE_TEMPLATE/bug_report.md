@@ -38,7 +38,7 @@ Se aplicável, adicione screenshots para ajudar a explicar o problema.
 - Version: [e.g. 1.0.0]
 
 **Servidor:**
-- Plataforma: [e.g. Vercel, Docker, Local]
+- Plataforma: [e.g. Vercel, Local]
 - Database: [e.g. Neon, PostgreSQL 16]
 
 ## 📝 Logs

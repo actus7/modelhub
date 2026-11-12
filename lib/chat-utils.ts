@@ -1,10 +1,4 @@
-import {
-  MODELHUB_EFFECTIVE_MODEL_HEADER,
-  MODELHUB_MODEL_FALLBACK_USED_HEADER,
-  MODELHUB_MODELS_ATTEMPTED_HEADER,
-  MODELHUB_REQUESTED_MODEL_HEADER,
-  type ProviderModel,
-} from "@/lib/contracts"
+import type { ProviderModel } from "@/lib/contracts"
 
 const MODELHUB_ROUTING_TIER_HEADER = "x-modelhub-tier"
 const MODELHUB_ROUTING_PROVIDER_HEADER = "x-modelhub-provider"
@@ -51,12 +45,6 @@ export type ChatMessage = {
   id: string
   isError?: boolean
   modelLabel?: string
-  /** Só preenchido quando o backend confirmou fallback (`x-modelhub-model-fallback-used: true`). */
-  modelFallbackMeta?: {
-    attemptedIds: string[]
-    effectiveLabel: string
-    requestedLabel: string
-  }
   parts?: HydratedConversationMessagePart[]
   role: "assistant" | "user"
   toolCalls: ParsedToolCall[]
@@ -95,8 +83,6 @@ export type PersistedConversationMessage = {
   backstage?: MessageBackstage
 }
 
-export const DUCKAI_TEMPORARY_INLINE_MESSAGE =
-  "Duck.ai temporariamente indisponível. Tente novamente em instantes."
 export const STREAM_INTERRUPTED_NOTE =
   "\n\n_Resposta interrompida. Tente novamente._"
 export const EMPTY_STATE_PROMPTS = [
@@ -106,7 +92,7 @@ export const EMPTY_STATE_PROMPTS = [
   "Me ajude a diagnosticar um erro 500.",
 ] as const
 
-export const MAX_CONVERSATION_TITLE_LENGTH = 200
+const MAX_CONVERSATION_TITLE_LENGTH = 200
 
 export function normalizeConversationTitle(titleSeed: string): string {
   const title = titleSeed.trim() || "Nova conversa"
@@ -147,63 +133,17 @@ export async function parseApiErrorResponse(
   return `HTTP ${response.status}`
 }
 
-export function resolveModelFallbackFromHeaders(
+/** Rótulo do modelo escolhido pelo roteamento automático (headers `x-modelhub-*`), se houver. */
+export function resolveRoutedModelLabel(
   response: Response,
   defaultLabel: string | undefined,
-  models: ProviderModel[],
-  providerLabel: string,
-) {
-  const routingTier =
-    response.headers.get(MODELHUB_ROUTING_TIER_HEADER)?.trim() ?? ""
-  const routingProvider =
-    response.headers.get(MODELHUB_ROUTING_PROVIDER_HEADER)?.trim() ?? ""
-  const routingModel =
-    response.headers.get(MODELHUB_ROUTING_MODEL_HEADER)?.trim() ?? ""
-  const effectiveModelId =
-    response.headers.get(MODELHUB_EFFECTIVE_MODEL_HEADER)?.trim() ?? ""
-  const requestedModel =
-    response.headers.get(MODELHUB_REQUESTED_MODEL_HEADER)?.trim() ?? ""
-  const fallbackUsed =
-    response.headers.get(MODELHUB_MODEL_FALLBACK_USED_HEADER) === "true"
-  const attemptedIds = (
-    response.headers.get(MODELHUB_MODELS_ATTEMPTED_HEADER) ?? ""
-  )
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean)
-
-  const routedLabel =
-    routingTier && routingModel
-      ? `Auto · ${routingTier[0]?.toUpperCase()}${routingTier.slice(1)} (${routingProvider ? `${routingProvider}/` : ""}${routingModel})`
-      : undefined
-  const resolvedLabel =
-    routedLabel ??
-    (effectiveModelId.length > 0
-      ? resolveAssistantModelLabel({
-          modelId: effectiveModelId,
-          models,
-          providerLabel,
-        })
-      : defaultLabel)
-
-  const fallbackMeta =
-    fallbackUsed &&
-    requestedModel.length > 0 &&
-    effectiveModelId.length > 0 &&
-    attemptedIds.length > 0
-      ? {
-          requestedLabel:
-            resolveAssistantModelLabel({
-              modelId: requestedModel,
-              models,
-              providerLabel,
-            }) ?? requestedModel,
-          effectiveLabel: resolvedLabel ?? effectiveModelId,
-          attemptedIds: [...attemptedIds],
-        }
-      : undefined
-
-  return { resolvedLabel, fallbackMeta }
+): string | undefined {
+  const routingTier = response.headers.get(MODELHUB_ROUTING_TIER_HEADER)?.trim() ?? ""
+  const routingProvider = response.headers.get(MODELHUB_ROUTING_PROVIDER_HEADER)?.trim() ?? ""
+  const routingModel = response.headers.get(MODELHUB_ROUTING_MODEL_HEADER)?.trim() ?? ""
+  if (!routingTier || !routingModel) return defaultLabel
+  const tier = `${routingTier[0]?.toUpperCase()}${routingTier.slice(1)}`
+  return `Auto · ${tier} (${routingProvider ? `${routingProvider}/` : ""}${routingModel})`
 }
 
 export function resolveStreamErrorContent(
@@ -213,12 +153,10 @@ export function resolveStreamErrorContent(
     text: string
   },
   fullText: string,
-  providerId: string,
 ): string | null {
   if (!parsedStream.errorMessage) return null
   if (parsedStream.hadPartialOutput)
     return `${fullText}${STREAM_INTERRUPTED_NOTE}`
-  if (providerId === "duckai") return DUCKAI_TEMPORARY_INLINE_MESSAGE
   return `Erro: ${parsedStream.errorMessage}`
 }
 
@@ -273,15 +211,12 @@ export function buildUserMessageParts(
 
 /**
  * Validates whether the given attachments are compatible with the selected
- * model and (when applicable) the browser provider adapter. Returns the first
- * error message to show, or null when everything is allowed. Precedence: image
- * capability → document capability → browser adapter support.
+ * model. Returns the first error message to show, or null when everything is
+ * allowed. Precedence: image capability → document capability.
  */
 export function validateAttachmentCompatibility(
   attachments: { kind: AttachmentKind }[],
   caps: { allowImages: boolean; allowDocuments: boolean },
-  providerLabel: string,
-  browserAdapterCaps?: { images: boolean; documents: boolean },
 ): string | null {
   if (
     attachments.some((attachment) => attachment.kind === "image") &&
@@ -295,17 +230,6 @@ export function validateAttachmentCompatibility(
     !caps.allowDocuments
   ) {
     return "O modelo selecionado nao suporta anexos de documento."
-  }
-
-  if (
-    browserAdapterCaps &&
-    attachments.some((attachment) =>
-      attachment.kind === "image"
-        ? !browserAdapterCaps.images
-        : !browserAdapterCaps.documents,
-    )
-  ) {
-    return `${providerLabel} aceita apenas mensagens de texto por enquanto.`
   }
 
   return null
@@ -337,8 +261,7 @@ const ESTIMATED_CHARS_PER_TOKEN = 4
  * Resumo compacto de bastidores pra linha inline (TTFT, tokens/s, tokens totais).
  * Tokens/s usa a fase de decode (após o TTFT) quando dá, senão a duração inteira.
  *
- * Providers sem chave de API (Duck.ai, Pollinations, Quillbot etc.) não expõem uso
- * real de tokens no upstream — nesse caso, `responseText` permite estimar a partir
+ * Quando o provider não reporta uso real de tokens, `responseText` permite estimar a partir
  * do tamanho da resposta (marcado com "~" para não parecer um valor exato).
  */
 export function formatBackstageInline(
@@ -534,7 +457,7 @@ export function resolveModelSelectPlaceholder(input: {
 }
 
 /** Distância do fundo, em px, dentro da qual a área de mensagens é considerada "no fim". */
-export const STICK_TO_BOTTOM_THRESHOLD_PX = 100
+const STICK_TO_BOTTOM_THRESHOLD_PX = 100
 
 /** Tolerância para ruído subpixel de `scrollTop` ao detectar rolagem para cima. */
 const SCROLL_UP_TOLERANCE_PX = 1

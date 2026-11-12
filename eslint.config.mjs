@@ -18,11 +18,8 @@ const eslintConfig = defineConfig([
     "build/**",
     "coverage/**",
     "next-env.d.ts",
-    "apps/**",
-    "packages/*/dist/**",
-    "packages/*/coverage/**",
-    "dist/**",
     "manifest-main/**",
+    ".remember/**",
   ]),
 ]);
 

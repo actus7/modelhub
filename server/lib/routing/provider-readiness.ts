@@ -5,7 +5,7 @@ import type { UiProvider } from '@/lib/contracts'
 import { isProviderEnabled, PROVIDER_CATALOG } from '../catalog'
 import { decryptCredential } from '../crypto'
 import { prisma } from '../db'
-import { getProviderModels, isProviderAvailableViaExternalApi } from '../../providers/registry'
+import { getProviderModels } from '../../providers/registry'
 
 export type RoutingProviderSource = {
   providerId: string
@@ -22,11 +22,6 @@ function providerCredentialKeys(provider: UiProvider): string[] {
   return provider.requiredKeys?.map((field) => field.envName) ?? []
 }
 
-function providerAuthMode(provider: UiProvider): string {
-  if (provider.runtime?.authMode) return provider.runtime.authMode
-  return providerCredentialKeys(provider).length > 0 ? 'api-key' : 'none'
-}
-
 function hasConfiguredValue(credentials: Record<string, string>, key: string): boolean {
   const fromCredentials = credentials[key]
   if (typeof fromCredentials === 'string' && fromCredentials.trim().length > 0) return true
@@ -41,11 +36,6 @@ function isProviderReadyForRouting(
 ): boolean {
   if (!provider.hasModels) return false
   if (!isProviderEnabled(provider.id)) return false
-  if (!isProviderAvailableViaExternalApi(provider.id)) return false
-
-  const authMode = providerAuthMode(provider)
-  if (authMode === 'none') return true
-  if (authMode !== 'api-key') return false
 
   const requiredKeys = providerCredentialKeys(provider)
   if (requiredKeys.length === 0) return true

@@ -175,7 +175,7 @@ export function ProjectsPage() {
   );
 }
 
-export function CreateProjectDialog({
+function CreateProjectDialog({
   onCreated,
   onOpenChange,
   open,
