@@ -84,3 +84,8 @@ Thumbs.db
 
 # Projeto de referência (Manifest) — não faz parte do build/deploy
 manifest-main/
+
+# Gerados localmente por ferramentas (next dev, graft, playwright)
+AGENTS.md
+graft/
+.playwright-mcp/

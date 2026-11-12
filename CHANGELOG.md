@@ -7,6 +7,10 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-11-12
+
+Versão de limpeza e padronização. **Quebra compatibilidade**: provedores, rotas e recursos foram removidos.
+
 ### Removido
 - Provedores fora do padrão OpenAI-compatível com API key: Duck.ai, Quillbot, Puter, Pollinations, Xiaomi AI Studio (cookie), GitHub Copilot, Cloudflare Workers AI, Cohere e Ollama local
 - Adaptações por provedor: transformação de body, fallback automático de modelo, prompt de sistema injetado, mensagens de erro por provedor, demo "labs" do Gateway
@@ -15,19 +19,15 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 ### Alterado
 - Provedores declarados em uma tabela única (`server/providers/definitions.ts`) servida por um cliente OpenAI-compatível único
+- Dependências atualizadas: Next 16.4.6, React 19.3.1, Prisma 7.10.1, @neondatabase/auth 0.7, mermaid 12, vitest 5
+- Deploy na Vercel com o build padrão (`next build`); migrations aplicadas manualmente com `pnpm prisma:migrate:deploy`
 
 ### Adicionado
 - Projetos, canvases versionados e artefatos persistidos, com compartilhamento, histórico de versões e respectivas migrações de banco.
 - Bastidores das respostas de chat com roteamento, fallback, TTFT, estimativa de tokens por segundo e notas em reações.
 
 ### Segurança
-- Dependências transitivas corrigidas para eliminar os advisories conhecidos dos grafos completo e de produção.
-
-### Planejado
-- Suporte a mais provedores (Perplexity, Together AI)
-- Sistema de plugins
-- Análise de custos avançada
-- Mobile app
+- `better-auth` atualizado para `^1.7.22` (corrige advisory crítico); overrides reduzidos a correções pontuais de segurança.
 
 ## [1.0.0] - 2026-04-13
 
@@ -80,5 +80,6 @@ e este projeto adere ao [Semantic Versioning](https://semver.org/lang/pt-BR/).
 
 Veja [CONTRIBUTING.md](CONTRIBUTING.md) para detalhes sobre como contribuir com o projeto.
 
-[Unreleased]: https://github.com/actus7/modelhub/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/actus7/modelhub/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/actus7/modelhub/compare/v1.0.0...v2.0.0
 [1.0.0]: https://github.com/actus7/modelhub/releases/tag/v1.0.0
