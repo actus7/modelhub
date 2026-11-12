@@ -79,7 +79,9 @@ describe("providerHasRequiredCredentials", () => {
         hasModels: true,
         id: "openrouter",
         label: "OpenRouter",
-        requiredKeys: [{ envName: "OPENROUTER_API_KEY", label: "API Key", placeholder: "sk-or-..." }],
+        requiredKeys: [
+          { envName: "OPENROUTER_API_KEY", label: "API Key", placeholder: "sk-or-..." },
+        ],
       },
       {
         base: "/groq",

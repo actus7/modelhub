@@ -53,7 +53,7 @@ describe("parseChatStream", () => {
     const response = createStreamResponse([
       'data: {"choices":[{"delta":{"content":"Parcial"},"finish_reason":null}]}\n',
       'data: {"choices":[{"delta":{},"finish_reason":"length"}]}\n',
-      'data: [DONE]\n',
+      "data: [DONE]\n",
     ]);
 
     const parsed = await parseChatStream(response, {});
@@ -67,10 +67,7 @@ describe("parseChatStream", () => {
   });
 
   it("reports output truncation from Vercel finishReason length", async () => {
-    const response = createStreamResponse([
-      '0:"Parcial"\n',
-      'd:{"finishReason":"length"}\n',
-    ]);
+    const response = createStreamResponse(['0:"Parcial"\n', 'd:{"finishReason":"length"}\n']);
 
     const parsed = await parseChatStream(response, {});
 

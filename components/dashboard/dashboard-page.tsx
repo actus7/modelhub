@@ -2,12 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type {
-  ApiKeySummary,
-  RecentUsageLog,
-  UiProvider,
-  UsageSummary,
-} from "@/lib/contracts";
+import type { ApiKeySummary, RecentUsageLog, UiProvider, UsageSummary } from "@/lib/contracts";
 import {
   ActivityIcon,
   AlertTriangleIcon,
@@ -46,8 +41,20 @@ import { DEFAULT_MODEL_ID } from "@/lib/defaults";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -63,7 +70,8 @@ import {
 import { apiJson, apiJsonRequest } from "@/lib/api";
 import { providerHasRequiredCredentials } from "@/lib/provider-credentials";
 
-export type DashboardSection = "overview" | "keys" | "credentials" | "quotas" | "logs" | "analytics" | "routing" | "budget";
+export type DashboardSection =
+  "overview" | "keys" | "credentials" | "quotas" | "logs" | "analytics" | "routing" | "budget";
 
 function sectionNeedsDashboardData(section: DashboardSection) {
   return section === "overview" || section === "keys" || section === "logs";
@@ -142,15 +150,18 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
   );
 
   function handleCopyCommand(commandId: string, command: string, successMessage: string) {
-    void navigator.clipboard.writeText(command).then(() => {
-      setCopiedCommandId(commandId);
-      toast.success(successMessage);
-      setTimeout(() => {
-        setCopiedCommandId((current) => (current === commandId ? null : current));
-      }, 2000);
-    }).catch(() => {
-      toast.error("Falha ao copiar comando.");
-    });
+    void navigator.clipboard
+      .writeText(command)
+      .then(() => {
+        setCopiedCommandId(commandId);
+        toast.success(successMessage);
+        setTimeout(() => {
+          setCopiedCommandId((current) => (current === commandId ? null : current));
+        }, 2000);
+      })
+      .catch(() => {
+        toast.error("Falha ao copiar comando.");
+      });
   }
 
   async function loadDashboard() {
@@ -234,19 +245,40 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
   const showQuickStart = !hasAnyApiKey;
   const hasLogDetails = logs.some((log) => log.statusCode >= 400 || Boolean(log.errorDetail));
   const totalProviderRequests = providerChartData.reduce((sum, item) => sum + item.count, 0);
-  const sectionLinks: Array<{ count?: number; href: string; id: DashboardSection; label: string }> = [
-    { href: "/dashboard", id: "overview", label: "Visão geral" },
-    { count: shouldLoadDashboardData ? apiKeys.length : undefined, href: "/dashboard/api-keys", id: "keys", label: "API Keys" },
-    { count: providers.length, href: "/dashboard/credentials", id: "credentials", label: "Provedores" },
-    { href: "/dashboard/quotas", id: "quotas", label: "Quotas" },
-    { count: shouldLoadDashboardData ? logs.length : undefined, href: "/dashboard/logs", id: "logs", label: "Logs de uso" },
-    { href: "/dashboard/analytics", id: "analytics", label: "Analytics" },
-    { href: "/dashboard/routing", id: "routing", label: "Roteamento" },
-  ];
+  const sectionLinks: Array<{ count?: number; href: string; id: DashboardSection; label: string }> =
+    [
+      { href: "/dashboard", id: "overview", label: "Visão geral" },
+      {
+        count: shouldLoadDashboardData ? apiKeys.length : undefined,
+        href: "/dashboard/api-keys",
+        id: "keys",
+        label: "API Keys",
+      },
+      {
+        count: providers.length,
+        href: "/dashboard/credentials",
+        id: "credentials",
+        label: "Provedores",
+      },
+      { href: "/dashboard/quotas", id: "quotas", label: "Quotas" },
+      {
+        count: shouldLoadDashboardData ? logs.length : undefined,
+        href: "/dashboard/logs",
+        id: "logs",
+        label: "Logs de uso",
+      },
+      { href: "/dashboard/analytics", id: "analytics", label: "Analytics" },
+      { href: "/dashboard/routing", id: "routing", label: "Roteamento" },
+    ];
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-3 md:gap-6 md:p-6">
-      <Dialog open={!!newApiKey} onOpenChange={(open) => { if (!open) setNewApiKey(null); }}>
+      <Dialog
+        open={!!newApiKey}
+        onOpenChange={(open) => {
+          if (!open) setNewApiKey(null);
+        }}
+      >
         <DialogContent className="max-h-[min(90vh,40rem)] w-[calc(100vw-2rem)] max-w-2xl gap-4 overflow-y-auto overflow-x-hidden sm:max-w-2xl">
           <DialogHeader className="shrink-0 text-left">
             <DialogTitle>API key criada com sucesso</DialogTitle>
@@ -271,7 +303,11 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                 }
               }}
             >
-              {copiedKey ? <CheckIcon className="mr-2 size-4" /> : <CopyIcon className="mr-2 size-4" />}
+              {copiedKey ? (
+                <CheckIcon className="mr-2 size-4" />
+              ) : (
+                <CopyIcon className="mr-2 size-4" />
+              )}
               Copiar API key
             </Button>
           </div>
@@ -305,7 +341,11 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                     });
                   }}
                 >
-                  {copiedCommandId === "dialog-curl" ? <CheckIcon className="size-3" /> : <CopyIcon className="size-3" />}
+                  {copiedCommandId === "dialog-curl" ? (
+                    <CheckIcon className="size-3" />
+                  ) : (
+                    <CopyIcon className="size-3" />
+                  )}
                   Copiar cURL
                 </Button>
               </div>
@@ -343,7 +383,9 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                 <CardDescription>Requests em 30 dias</CardDescription>
                 <CardTitle className="text-3xl">{usage?.totalRequests ?? 0}</CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">Volume total por usuário autenticado.</CardContent>
+              <CardContent className="text-sm text-muted-foreground">
+                Volume total por usuário autenticado.
+              </CardContent>
             </Card>
             <Card className="border-border/60">
               <CardHeader className="pb-3">
@@ -356,14 +398,18 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">{errorRateTone.description}</CardContent>
+              <CardContent className="text-sm text-muted-foreground">
+                {errorRateTone.description}
+              </CardContent>
             </Card>
             <Card className="border-border/60">
               <CardHeader className="pb-3">
                 <CardDescription>API keys ativas</CardDescription>
                 <CardTitle className="text-3xl">{user?.counts?.activeApiKeys ?? 0}</CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-muted-foreground">Keys disponíveis para clientes externos.</CardContent>
+              <CardContent className="text-sm text-muted-foreground">
+                Keys disponíveis para clientes externos.
+              </CardContent>
             </Card>
             <Card className="border-border/60">
               <CardHeader className="pb-3">
@@ -390,7 +436,9 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                         <BarChart3Icon />
                       </EmptyMedia>
                       <EmptyTitle>Sem atividade neste período</EmptyTitle>
-                      <EmptyDescription>Os requests dos últimos 30 dias aparecerão aqui quando houver uso.</EmptyDescription>
+                      <EmptyDescription>
+                        Os requests dos últimos 30 dias aparecerão aqui quando houver uso.
+                      </EmptyDescription>
                     </EmptyHeader>
                   </Empty>
                 ) : (
@@ -409,7 +457,10 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                         <XAxis
                           dataKey="date"
                           tickFormatter={(value) =>
-                            new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(new Date(value))
+                            new Intl.DateTimeFormat("pt-BR", {
+                              day: "2-digit",
+                              month: "2-digit",
+                            }).format(new Date(value))
                           }
                         />
                         <ChartTooltip content={<ChartTooltipContent />} />
@@ -451,15 +502,20 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                 ) : (
                   <div className="flex flex-col gap-3">
                     {providerChartData.map((item) => {
-                      const percentage = totalProviderRequests > 0
-                        ? Math.round((item.count / totalProviderRequests) * 100)
-                        : 0;
+                      const percentage =
+                        totalProviderRequests > 0
+                          ? Math.round((item.count / totalProviderRequests) * 100)
+                          : 0;
 
                       return (
                         <div key={item.provider} className="flex flex-col gap-1.5">
                           <div className="flex items-center justify-between gap-3">
-                            <span className="truncate text-sm font-medium">{providerLabel(item.provider, providers)}</span>
-                            <span className="text-xs text-muted-foreground">{item.count} req ({percentage}%)</span>
+                            <span className="truncate text-sm font-medium">
+                              {providerLabel(item.provider, providers)}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {item.count} req ({percentage}%)
+                            </span>
                           </div>
                           <div className="h-2 rounded-full bg-muted">
                             <div
@@ -488,7 +544,8 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                       <CardTitle>Primeiros passos</CardTitle>
                     </div>
                     <CardDescription className="max-w-2xl leading-relaxed">
-                      Gere sua primeira API key e faça a primeira requisição pela API compatível com OpenAI.
+                      Gere sua primeira API key e faça a primeira requisição pela API compatível com
+                      OpenAI.
                     </CardDescription>
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -538,14 +595,18 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                   <BarChart3Icon className="size-4 text-primary" />
                   Criado em
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">{formatDate(user?.createdAt ?? null)}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {formatDate(user?.createdAt ?? null)}
+                </p>
               </div>
               <div className="rounded-xl border border-border/60 p-4">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <AlertTriangleIcon className="size-4 text-primary" />
                   Requests totais
                 </div>
-                <p className="mt-2 text-sm text-muted-foreground">{user?.counts?.totalRequests ?? 0}</p>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  {user?.counts?.totalRequests ?? 0}
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -572,7 +633,9 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                     <KeyRoundIcon />
                   </EmptyMedia>
                   <EmptyTitle>Nenhuma API key ativa</EmptyTitle>
-                  <EmptyDescription>Crie uma nova key para começar a consumir o proxy externamente.</EmptyDescription>
+                  <EmptyDescription>
+                    Crie uma nova key para começar a consumir o proxy externamente.
+                  </EmptyDescription>
                 </EmptyHeader>
               </Empty>
             ) : (
@@ -584,16 +647,25 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1">
                             <p className="text-sm font-medium">{apiKey.label || "Sem label"}</p>
-                            <code className="text-xs text-muted-foreground">{apiKey.prefix}...</code>
+                            <code className="text-xs text-muted-foreground">
+                              {apiKey.prefix}...
+                            </code>
                           </div>
-                          <Button variant="ghost" size="sm" onClick={() => setPendingApiKeyRevoke(apiKey)}>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setPendingApiKeyRevoke(apiKey)}
+                          >
                             <Trash2Icon data-icon="inline-start" />
                             Revogar
                           </Button>
                         </div>
                         <div className="grid gap-2 text-xs text-muted-foreground">
                           <p>Criada em {formatDate(apiKey.createdAt)}</p>
-                          <p>Último uso: {apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : "Nunca usada"}</p>
+                          <p>
+                            Último uso:{" "}
+                            {apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : "Nunca usada"}
+                          </p>
                         </div>
                       </CardContent>
                     </Card>
@@ -613,12 +685,20 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                     <TableBody>
                       {apiKeys.map((apiKey) => (
                         <TableRow key={apiKey.id}>
-                          <TableCell><code>{apiKey.prefix}...</code></TableCell>
+                          <TableCell>
+                            <code>{apiKey.prefix}...</code>
+                          </TableCell>
                           <TableCell>{apiKey.label || "—"}</TableCell>
                           <TableCell>{formatDate(apiKey.createdAt)}</TableCell>
-                          <TableCell>{apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : "Nunca usada"}</TableCell>
+                          <TableCell>
+                            {apiKey.lastUsedAt ? formatDate(apiKey.lastUsedAt) : "Nunca usada"}
+                          </TableCell>
                           <TableCell className="text-right">
-                            <Button variant="ghost" size="sm" onClick={() => setPendingApiKeyRevoke(apiKey)}>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setPendingApiKeyRevoke(apiKey)}
+                            >
                               <Trash2Icon data-icon="inline-start" />
                               Revogar
                             </Button>
@@ -634,9 +714,7 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
         </Card>
       ) : null}
 
-      {section === "credentials" ? (
-        <ProviderCatalog />
-      ) : null}
+      {section === "credentials" ? <ProviderCatalog /> : null}
 
       {section === "quotas" ? <QuotaTracker /> : null}
 
@@ -644,7 +722,9 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
         <Card className="border-border/60">
           <CardHeader>
             <CardTitle>Logs recentes</CardTitle>
-            <CardDescription>Últimos requests autenticados associados ao seu usuário.</CardDescription>
+            <CardDescription>
+              Últimos requests autenticados associados ao seu usuário.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {logs.length === 0 ? (
@@ -654,7 +734,9 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                     <ActivityIcon />
                   </EmptyMedia>
                   <EmptyTitle>Nenhum log recente</EmptyTitle>
-                  <EmptyDescription>Os logs aparecerão aqui conforme você usa os endpoints protegidos.</EmptyDescription>
+                  <EmptyDescription>
+                    Os logs aparecerão aqui conforme você usa os endpoints protegidos.
+                  </EmptyDescription>
                 </EmptyHeader>
               </Empty>
             ) : (
@@ -665,8 +747,12 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                       <CardContent className="space-y-3 p-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1">
-                            <p className="text-sm font-medium">{providerLabel(log.providerId ?? "—", providers)}</p>
-                            <p className="text-xs text-muted-foreground">{formatDate(log.createdAt)}</p>
+                            <p className="text-sm font-medium">
+                              {providerLabel(log.providerId ?? "—", providers)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {formatDate(log.createdAt)}
+                            </p>
                           </div>
                           <Badge variant={log.statusCode >= 400 ? "destructive" : "secondary"}>
                             {log.statusCode}
@@ -676,7 +762,8 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                           <p>Modelo: {log.modelId ?? "—"}</p>
                           <p>Key: {log.apiKey ? `${log.apiKey.prefix}...` : "—"}</p>
                         </div>
-                        {log.statusCode >= 400 || (log.errorDetail && log.errorDetail.length > 0) ? (
+                        {log.statusCode >= 400 ||
+                        (log.errorDetail && log.errorDetail.length > 0) ? (
                           <Button
                             type="button"
                             variant="outline"
@@ -700,14 +787,18 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                         <TableHead>Modelo</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Key</TableHead>
-                        {hasLogDetails ? <TableHead className="w-12 text-right">Detalhes</TableHead> : null}
+                        {hasLogDetails ? (
+                          <TableHead className="w-12 text-right">Detalhes</TableHead>
+                        ) : null}
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {logs.map((log) => (
                         <TableRow key={log.id}>
                           <TableCell className="text-xs">{formatDate(log.createdAt)}</TableCell>
-                          <TableCell className="text-xs">{providerLabel(log.providerId ?? "—", providers)}</TableCell>
+                          <TableCell className="text-xs">
+                            {providerLabel(log.providerId ?? "—", providers)}
+                          </TableCell>
                           <TableCell className="text-xs">{log.modelId ?? "—"}</TableCell>
                           <TableCell>
                             <Badge variant={log.statusCode >= 400 ? "destructive" : "secondary"}>
@@ -717,7 +808,8 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                           <TableCell>{log.apiKey ? `${log.apiKey.prefix}...` : "—"}</TableCell>
                           {hasLogDetails ? (
                             <TableCell className="text-right">
-                              {log.statusCode >= 400 || (log.errorDetail && log.errorDetail.length > 0) ? (
+                              {log.statusCode >= 400 ||
+                              (log.errorDetail && log.errorDetail.length > 0) ? (
                                 <Button
                                   type="button"
                                   variant="ghost"
@@ -747,7 +839,9 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
           </CardContent>
           {!hasLogDetails && logs.length > 0 ? (
             <CardContent className="pt-0">
-              <p className="text-xs text-muted-foreground">Nenhum dos logs recentes possui detalhes adicionais para exibir.</p>
+              <p className="text-xs text-muted-foreground">
+                Nenhum dos logs recentes possui detalhes adicionais para exibir.
+              </p>
             </CardContent>
           ) : null}
         </Card>
@@ -757,7 +851,12 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
 
       {section === "routing" ? <RoutingSection /> : null}
 
-      <Dialog open={!!usageLogDetail} onOpenChange={(open) => { if (!open) setUsageLogDetail(null); }}>
+      <Dialog
+        open={!!usageLogDetail}
+        onOpenChange={(open) => {
+          if (!open) setUsageLogDetail(null);
+        }}
+      >
         <DialogContent className="max-h-[min(90vh,40rem)] w-[calc(100vw-2rem)] max-w-2xl gap-4 overflow-hidden sm:max-w-2xl">
           <DialogHeader className="shrink-0 text-left">
             <DialogTitle>
@@ -770,12 +869,14 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
                 {usageLogDetail ? (
                   <>
                     <p>
-                      <span className="font-medium text-foreground">Status:</span> {usageLogDetail.statusCode}
+                      <span className="font-medium text-foreground">Status:</span>{" "}
+                      {usageLogDetail.statusCode}
                       {" · "}
                       <span className="font-medium text-foreground">Provider:</span>{" "}
                       {providerLabel(usageLogDetail.providerId ?? "—", providers)}
                       {" · "}
-                      <span className="font-medium text-foreground">Modelo:</span> {usageLogDetail.modelId ?? "—"}
+                      <span className="font-medium text-foreground">Modelo:</span>{" "}
+                      {usageLogDetail.modelId ?? "—"}
                     </p>
                     {usageLogDetail.endpoint ? (
                       <p className="font-mono text-xs break-all">{usageLogDetail.endpoint}</p>
@@ -801,11 +902,14 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
               className="shrink-0"
               onClick={() => {
                 const text = formatLogErrorBody(usageLogDetail.errorDetail);
-                void navigator.clipboard.writeText(text).then(() => {
-                  toast.success("Detalhes copiados.");
-                }).catch(() => {
-                  toast.error("Falha ao copiar.");
-                });
+                void navigator.clipboard
+                  .writeText(text)
+                  .then(() => {
+                    toast.success("Detalhes copiados.");
+                  })
+                  .catch(() => {
+                    toast.error("Falha ao copiar.");
+                  });
               }}
             >
               <CopyIcon className="mr-2 size-4" />
@@ -815,7 +919,12 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!pendingApiKeyRevoke} onOpenChange={(open) => { if (!open) setPendingApiKeyRevoke(null); }}>
+      <AlertDialog
+        open={!!pendingApiKeyRevoke}
+        onOpenChange={(open) => {
+          if (!open) setPendingApiKeyRevoke(null);
+        }}
+      >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Revogar API key?</AlertDialogTitle>
@@ -829,7 +938,9 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => pendingApiKeyRevoke ? void handleRevokeApiKey(pendingApiKeyRevoke.id) : undefined}
+              onClick={() =>
+                pendingApiKeyRevoke ? void handleRevokeApiKey(pendingApiKeyRevoke.id) : undefined
+              }
             >
               Revogar key
             </AlertDialogAction>
@@ -841,7 +952,9 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Nova API key</DialogTitle>
-            <DialogDescription>Opcionalmente defina um label para identificar a key depois.</DialogDescription>
+            <DialogDescription>
+              Opcionalmente defina um label para identificar a key depois.
+            </DialogDescription>
           </DialogHeader>
           <FieldGroup>
             <Field>
@@ -858,7 +971,6 @@ export function DashboardPage({ section = "overview" }: { section?: DashboardSec
           <Button onClick={() => void handleCreateApiKey()}>Criar key</Button>
         </DialogContent>
       </Dialog>
-
     </div>
   );
 }

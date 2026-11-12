@@ -13,4 +13,3 @@ export {
   handleAppRoute as POST,
   handleAppRoute as PUT,
 };
-

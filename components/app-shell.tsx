@@ -40,8 +40,6 @@ import {
 } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
 
-
-
 function LoadingShell() {
   return (
     <SidebarProvider>
@@ -86,7 +84,8 @@ function getPageCopy(pathname: string) {
 
   if (pathname.startsWith("/dashboard/credentials")) {
     return {
-      description: "Conecte provedores de IA, configure credenciais e escolha os modelos disponíveis.",
+      description:
+        "Conecte provedores de IA, configure credenciais e escolha os modelos disponíveis.",
       title: "Provedores",
     };
   }
@@ -176,7 +175,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
             <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
               <span className="truncate text-sm font-semibold">ModelHub</span>
-              <span className="truncate text-xs text-sidebar-foreground/70">Gateway unificado para IA</span>
+              <span className="truncate text-xs text-sidebar-foreground/70">
+                Gateway unificado para IA
+              </span>
             </div>
           </Link>
         </SidebarHeader>
@@ -225,9 +226,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     asChild
-                    isActive={
-                      pathname.startsWith("/dashboard/credentials")
-                    }
+                    isActive={pathname.startsWith("/dashboard/credentials")}
                     tooltip="Provedores"
                   >
                     <Link href="/dashboard/credentials">
@@ -237,7 +236,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={pathname.startsWith("/playground")} tooltip="Playground">
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith("/playground")}
+                    tooltip="Playground"
+                  >
                     <Link href="/playground">
                       <FlaskConicalIcon />
                       <span>Playground</span>
@@ -253,22 +256,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <SidebarGroupContent>
               <SidebarMenu>
                 <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip="Documentação"
-                  >
-                    <a href="https://github.com/actus7/modelhub#readme" target="_blank" rel="noreferrer">
+                  <SidebarMenuButton asChild tooltip="Documentação">
+                    <a
+                      href="https://github.com/actus7/modelhub#readme"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       <FileTextIcon />
                       <span>Docs</span>
                     </a>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
                 <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip="Suporte"
-                  >
-                    <a href="https://github.com/actus7/modelhub/issues" target="_blank" rel="noreferrer">
+                  <SidebarMenuButton asChild tooltip="Suporte">
+                    <a
+                      href="https://github.com/actus7/modelhub/issues"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       <CircleHelpIcon />
                       <span>Suporte</span>
                     </a>
@@ -314,7 +319,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <SidebarTrigger />
               <div className="min-w-0 flex flex-col">
                 <span className="truncate text-sm font-medium">{pageCopy.title}</span>
-                <span className="hidden truncate text-xs text-muted-foreground sm:block">{pageCopy.description}</span>
+                <span className="hidden truncate text-xs text-muted-foreground sm:block">
+                  {pageCopy.description}
+                </span>
               </div>
             </div>
             <div className="flex items-center gap-2">

@@ -1,349 +1,345 @@
-import { z } from "zod"
-import type { ProviderModelCapabilities } from "@/lib/chat-parts"
+import { z } from "zod";
+import type { ProviderModelCapabilities } from "@/lib/chat-parts";
 
 export type AuthUser = {
-  id: string
-  email: string
-  name: string | null
-  isActive?: boolean
-  isAdmin?: boolean
-  createdAt?: string | Date
+  id: string;
+  email: string;
+  name: string | null;
+  isActive?: boolean;
+  isAdmin?: boolean;
+  createdAt?: string | Date;
   counts?: {
-    activeApiKeys: number
-    providerCredentials: number
-    totalRequests: number
-  }
-}
+    activeApiKeys: number;
+    providerCredentials: number;
+    totalRequests: number;
+  };
+};
 
 type ProviderKeyField = {
-  envName: string
-  label: string
-  placeholder: string
-}
+  envName: string;
+  label: string;
+  placeholder: string;
+};
 
 export type UiProvider = {
-  id: string
-  label: string
-  base: string
-  hasModels: boolean
-  localModels?: ProviderModel[]
-  requiredEnv?: string
-  requiredKeys?: ProviderKeyField[]
-  signupUrl?: string
-  signupLabel?: string
-}
+  id: string;
+  label: string;
+  base: string;
+  hasModels: boolean;
+  localModels?: ProviderModel[];
+  requiredEnv?: string;
+  requiredKeys?: ProviderKeyField[];
+  signupUrl?: string;
+  signupLabel?: string;
+};
 
 type UsageProviderStat = {
-  provider: string
-  count: number
-  costUsd?: number
-}
+  provider: string;
+  count: number;
+  costUsd?: number;
+};
 
 type UsageModelStat = {
-  model: string | null
-  count: number
-  costUsd?: number
-  inputTokens?: number
-  outputTokens?: number
-}
+  model: string | null;
+  count: number;
+  costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+};
 
 type UsageStatusStat = {
-  status: number
-  count: number
-}
+  status: number;
+  count: number;
+};
 
 type UsageDailyStat = {
-  date: string
-  count: number
-  costUsd?: number
-}
+  date: string;
+  count: number;
+  costUsd?: number;
+};
 
 export type UsageSummary = {
   period: {
-    days: number
-    since: string
-  }
-  totalRequests: number
-  errorRate: number
-  byProvider: UsageProviderStat[]
-  byModel: UsageModelStat[]
-  byStatus: UsageStatusStat[]
-  daily: UsageDailyStat[]
-  totalCostUsd: number
-  avgDurationMs: number | null
-  tokenStats: { totalInput: number; totalOutput: number }
-}
+    days: number;
+    since: string;
+  };
+  totalRequests: number;
+  errorRate: number;
+  byProvider: UsageProviderStat[];
+  byModel: UsageModelStat[];
+  byStatus: UsageStatusStat[];
+  daily: UsageDailyStat[];
+  totalCostUsd: number;
+  avgDurationMs: number | null;
+  tokenStats: { totalInput: number; totalOutput: number };
+};
 
 export type RecentUsageLog = {
-  id: string
-  providerId: string | null
-  modelId: string | null
-  endpoint: string | null
-  statusCode: number
-  errorDetail: string | null
-  createdAt: string
-  inputTokens: number | null
-  outputTokens: number | null
-  costUsd: number | null
-  durationMs: number | null
-  routingTier: string | null
-  taskCategory: string | null
+  id: string;
+  providerId: string | null;
+  modelId: string | null;
+  endpoint: string | null;
+  statusCode: number;
+  errorDetail: string | null;
+  createdAt: string;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+  durationMs: number | null;
+  routingTier: string | null;
+  taskCategory: string | null;
   apiKey: {
-    prefix: string
-    label: string
-  } | null
-}
+    prefix: string;
+    label: string;
+  } | null;
+};
 
 export type TierAssignment = {
-  providerId: string
-  modelId: string
+  providerId: string;
+  modelId: string;
   fallbacks?: Array<{
-    providerId: string
-    modelId: string
-  }>
-}
+    providerId: string;
+    modelId: string;
+  }>;
+};
 
 /** Item do catálogo achatado servido por GET /user/routing-config/models. */
 export type RoutingModelOption = {
-  providerId: string
-  providerLabel: string
-  modelId: string
-  modelName: string
-  inputPer1M: number | null
-  outputPer1M: number | null
+  providerId: string;
+  providerLabel: string;
+  modelId: string;
+  modelName: string;
+  inputPer1M: number | null;
+  outputPer1M: number | null;
   /** Saúde observada no tráfego do usuário; null quando não há histórico. */
   health: {
-    total: number
-    errorRate: number
-    avgDurationMs: number | null
-  } | null
-}
+    total: number;
+    errorRate: number;
+    avgDurationMs: number | null;
+  } | null;
+};
 
 export type RoutingModelCatalog = {
-  models: RoutingModelOption[]
-  failedProviders: string[]
-}
+  models: RoutingModelOption[];
+  failedProviders: string[];
+};
 
 /** Modelo proposto por GET /user/routing-config/suggest, com o sinal que o rankeou. */
 export type RoutingSuggestedSlot = {
-  providerId: string
-  modelId: string
-  reason: string
-}
+  providerId: string;
+  modelId: string;
+  reason: string;
+};
 
 export type RoutingSuggestion = {
-  tiers: Record<string, RoutingSuggestedSlot[]>
-}
+  tiers: Record<string, RoutingSuggestedSlot[]>;
+};
 
 export type RoutingConfigSummary = {
-  complexityEnabled: boolean
-  taskRoutingEnabled: boolean
-  tiers: Record<string, TierAssignment>
-  taskOverrides: Record<string, TierAssignment>
-}
+  complexityEnabled: boolean;
+  taskRoutingEnabled: boolean;
+  tiers: Record<string, TierAssignment>;
+  taskOverrides: Record<string, TierAssignment>;
+};
 
 export type BudgetSummary = {
-  periodType: string
-  limitUsd: number | null
-  alertThreshold: number
-  blocksRequests: boolean
-  baselineModelId: string | null
-  currentSpend: number
-  baselineSpend: number | null
-  savings: number | null
-  savingsPct: number | null
-}
+  periodType: string;
+  limitUsd: number | null;
+  alertThreshold: number;
+  blocksRequests: boolean;
+  baselineModelId: string | null;
+  currentSpend: number;
+  baselineSpend: number | null;
+  savings: number | null;
+  savingsPct: number | null;
+};
 
 export type ProviderModel = {
-  capabilities: ProviderModelCapabilities
-  id: string
-  maxOutputTokens?: number
-  name: string
-}
+  capabilities: ProviderModelCapabilities;
+  id: string;
+  maxOutputTokens?: number;
+  name: string;
+};
 
 export type ProviderCatalogResponse = {
-  authRequired: boolean
-  providers: UiProvider[]
-}
+  authRequired: boolean;
+  providers: UiProvider[];
+};
 
 export type ApiKeySummary = {
-  id: string
-  prefix: string
-  label: string
-  createdAt: string
-  lastUsedAt: string | null
-  expiresAt?: string | null
-}
+  id: string;
+  prefix: string;
+  label: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt?: string | null;
+};
 
 export type ProviderCredentialSummary = {
-  id: string
-  providerId: string
-  credentialKey: string
-  createdAt?: string
-  updatedAt: string
-}
+  id: string;
+  providerId: string;
+  credentialKey: string;
+  createdAt?: string;
+  updatedAt: string;
+};
 
 export type ProviderQuotaProfile = {
-  providerId: string
-  label: string | null
-  isEnabled: boolean
-  windowHours: number
-  requestLimit: number | null
-  tokenLimit: number | null
-  costLimitUsd: number | null
-  updatedAt: string | null
-}
+  providerId: string;
+  label: string | null;
+  isEnabled: boolean;
+  windowHours: number;
+  requestLimit: number | null;
+  tokenLimit: number | null;
+  costLimitUsd: number | null;
+  updatedAt: string | null;
+};
 
 export type ProviderQuotaModelUsage = {
-  modelId: string
-  requests: number
-  tokens: number
-  costUsd: number
-  errors: number
-}
+  modelId: string;
+  requests: number;
+  tokens: number;
+  costUsd: number;
+  errors: number;
+};
 
 export type ProviderQuotaAccount = {
-  providerId: string
-  connectedAt: string | null
-  lastActivityAt: string | null
-  resetAt: string | null
-  requests: number
-  tokens: number
-  costUsd: number
-  errors: number
-  percentage: number | null
-  status: "available" | "warning" | "exhausted" | "monitoring" | "disabled"
-  profile: ProviderQuotaProfile
-  models: ProviderQuotaModelUsage[]
-}
+  providerId: string;
+  connectedAt: string | null;
+  lastActivityAt: string | null;
+  resetAt: string | null;
+  requests: number;
+  tokens: number;
+  costUsd: number;
+  errors: number;
+  percentage: number | null;
+  status: "available" | "warning" | "exhausted" | "monitoring" | "disabled";
+  profile: ProviderQuotaProfile;
+  models: ProviderQuotaModelUsage[];
+};
 
 export type ProviderQuotaResponse = {
-  accounts: ProviderQuotaAccount[]
-  generatedAt: string
-}
+  accounts: ProviderQuotaAccount[];
+  generatedAt: string;
+};
 
 type ToolStartEvent = {
-  type: "tool-start"
-  toolCallId: string
-  toolName: string
-  args: unknown
-}
+  type: "tool-start";
+  toolCallId: string;
+  toolName: string;
+  args: unknown;
+};
 
 type ToolResultEvent = {
-  type: "tool-result"
-  toolCallId: string
-  result: unknown
-}
+  type: "tool-result";
+  toolCallId: string;
+  result: unknown;
+};
 
 type TextDeltaEvent = {
-  type: "text-delta"
-  delta: string
-}
+  type: "text-delta";
+  delta: string;
+};
 
-export type StreamEvent = ToolStartEvent | ToolResultEvent | TextDeltaEvent
+export type StreamEvent = ToolStartEvent | ToolResultEvent | TextDeltaEvent;
 
 export const providerCredentialSchema = z.object({
   providerId: z.string().min(1).max(64),
   credentialKey: z.string().min(1).max(128),
   credentialValue: z.string().min(1).max(4096),
-})
+});
 
-const nullablePositiveInteger = z.number().int().positive().max(1_000_000_000).nullable().optional()
-const nullablePositiveAmount = z.number().positive().max(1_000_000).nullable().optional()
+const nullablePositiveInteger = z
+  .number()
+  .int()
+  .positive()
+  .max(1_000_000_000)
+  .nullable()
+  .optional();
+const nullablePositiveAmount = z.number().positive().max(1_000_000).nullable().optional();
 
 export const providerQuotaSchema = z.object({
   label: z.string().trim().max(100).nullable().optional(),
   isEnabled: z.boolean().optional(),
-  windowHours: z.union([
-    z.literal(1),
-    z.literal(6),
-    z.literal(24),
-    z.literal(168),
-    z.literal(720),
-  ]).optional(),
+  windowHours: z
+    .union([z.literal(1), z.literal(6), z.literal(24), z.literal(168), z.literal(720)])
+    .optional(),
   requestLimit: nullablePositiveInteger,
   tokenLimit: nullablePositiveInteger,
   costLimitUsd: nullablePositiveAmount,
-})
+});
 
 export const apiKeyLabelSchema = z.object({
   label: z.string().max(100).optional(),
-})
-
-
-
-
-
+});
 
 /** Projeto ativo enviado pelo chat para injeção de contexto (instruções + knowledge). */
-export const MODELHUB_PROJECT_HEADER = "x-modelhub-project-id" as const
+export const MODELHUB_PROJECT_HEADER = "x-modelhub-project-id" as const;
 
 /** Conversa que originou a requisição, para amarrar UsageLog aos bastidores exibidos no chat. */
-export const MODELHUB_CONVERSATION_HEADER =
-  "x-modelhub-conversation-id" as const
+export const MODELHUB_CONVERSATION_HEADER = "x-modelhub-conversation-id" as const;
 
 /** Mensagem do assistente que essa requisição está gerando; fallbacks podem gerar vários UsageLogs. */
-export const MODELHUB_MESSAGE_HEADER = "x-modelhub-message-id" as const
+export const MODELHUB_MESSAGE_HEADER = "x-modelhub-message-id" as const;
 
-export type CanvasKind = "markdown" | "code" | "html" | "react" | "mermaid"
+export type CanvasKind = "markdown" | "code" | "html" | "react" | "mermaid";
 
 export type CanvasSummary = {
-  id: string
-  conversationId: string
-  title: string
-  kind: CanvasKind
-  language: string | null
-  activeVersion: number
-  shareToken: string | null
-  createdAt: string
-  updatedAt: string
-}
+  id: string;
+  conversationId: string;
+  title: string;
+  kind: CanvasKind;
+  language: string | null;
+  activeVersion: number;
+  shareToken: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type CanvasDetail = CanvasSummary & {
-  content: string
+  content: string;
   versions: Array<{
-    version: number
-    kind: CanvasKind
-    language: string | null
-    createdAt: string
-  }>
-}
+    version: number;
+    kind: CanvasKind;
+    language: string | null;
+    createdAt: string;
+  }>;
+};
 
 export type ProjectSummary = {
-  id: string
-  name: string
-  description: string | null
-  counts: { conversations: number; files: number; artifacts: number }
-  createdAt: string
-  updatedAt: string
-}
+  id: string;
+  name: string;
+  description: string | null;
+  counts: { conversations: number; files: number; artifacts: number };
+  createdAt: string;
+  updatedAt: string;
+};
 
 export type ProjectDetail = ProjectSummary & {
-  instructions: string | null
-}
+  instructions: string | null;
+};
 
 export type ProjectFileSummary = {
-  id: string
-  fileName: string
-  mimeType: string
-  byteSize: number
-  createdAt: string
-}
+  id: string;
+  fileName: string;
+  mimeType: string;
+  byteSize: number;
+  createdAt: string;
+};
 
 export type ProjectArtifactSummary = {
-  id: string
-  projectId: string
-  title: string
-  kind: CanvasKind
-  language: string | null
-  currentVersion: number
-  sourceConversationId: string | null
-  sourceCanvasId: string | null
-  shareToken: string | null
-  updatedAt: string
-}
+  id: string;
+  projectId: string;
+  title: string;
+  kind: CanvasKind;
+  language: string | null;
+  currentVersion: number;
+  sourceConversationId: string | null;
+  sourceCanvasId: string | null;
+  shareToken: string | null;
+  updatedAt: string;
+};
 
 export type ProjectArtifactDetail = ProjectArtifactSummary & {
-  content: string
-  versions: Array<{ version: number; createdAt: string }>
-}
+  content: string;
+  versions: Array<{ version: number; createdAt: string }>;
+};

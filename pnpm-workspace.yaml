@@ -1,5 +1,5 @@
 # Pacotes cujos scripts de instalação não precisam rodar (Prisma 7 usa driver adapter, sem engine nativo).
 ignoredBuiltDependencies:
-  - '@prisma/engines'
+  - "@prisma/engines"
   - msw
   - prisma

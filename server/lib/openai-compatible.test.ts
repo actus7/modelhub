@@ -8,17 +8,25 @@ vi.mock("./db", () => ({
   },
 }));
 vi.mock("../env", () => ({}));
-vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
+vi.mock("@/lib/auth/server", () => ({
+  auth: { getSession: vi.fn().mockResolvedValue({ data: null }) },
+}));
 
-const { chatViaOpenAiCompatible, createOpenAiFetchModels, isChatModelId, testViaOpenAiModels } = await import(
-  "./openai-compatible"
-);
+const { chatViaOpenAiCompatible, createOpenAiFetchModels, isChatModelId, testViaOpenAiModels } =
+  await import("./openai-compatible");
 
-const provider = { label: "Example", baseUrl: "https://api.example.com/v1", apiKeyEnv: "EXAMPLE_API_KEY" };
+const provider = {
+  label: "Example",
+  baseUrl: "https://api.example.com/v1",
+  apiKeyEnv: "EXAMPLE_API_KEY",
+};
 const credentials = { EXAMPLE_API_KEY: "sk-test" };
 
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { headers: { "content-type": "application/json" }, status });
+  return new Response(JSON.stringify(body), {
+    headers: { "content-type": "application/json" },
+    status,
+  });
 }
 
 describe("OpenAI-compatible provider standard", () => {
@@ -33,7 +41,9 @@ describe("OpenAI-compatible provider standard", () => {
   });
 
   it("posts to baseUrl/chat/completions with Bearer auth and passthrough fields only", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ choices: [{ message: { content: "oi" } }] }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ choices: [{ message: { content: "oi" } }] }));
     globalThis.fetch = fetchMock;
 
     const response = await chatViaOpenAiCompatible(
@@ -57,7 +67,9 @@ describe("OpenAI-compatible provider standard", () => {
   });
 
   it("returns the upstream error without retrying another model", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ error: { message: "model_not_found" } }, 404));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ error: { message: "model_not_found" } }, 404));
     globalThis.fetch = fetchMock;
 
     const response = await chatViaOpenAiCompatible(

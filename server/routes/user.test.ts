@@ -1,7 +1,13 @@
 ﻿import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPrisma = {
-  apiKey: { findMany: vi.fn(), findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn() },
+  apiKey: {
+    findMany: vi.fn(),
+    findFirst: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    count: vi.fn(),
+  },
   providerCredential: { findMany: vi.fn(), findFirst: vi.fn(), upsert: vi.fn(), delete: vi.fn() },
   providerQuota: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
   usageLog: { count: vi.fn(), groupBy: vi.fn(), findMany: vi.fn() },
@@ -14,10 +20,16 @@ const mockPrisma = {
 
 vi.mock("../lib/db", () => ({ prisma: mockPrisma }));
 vi.mock("../env", () => ({}));
-vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
+vi.mock("@/lib/auth/server", () => ({
+  auth: { getSession: vi.fn().mockResolvedValue({ data: null }) },
+}));
 vi.mock("../lib/crypto", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../lib/crypto")>();
-  return { ...orig, hashApiKey: vi.fn().mockReturnValue("mocked-hash"), encryptCredential: vi.fn().mockReturnValue("iv:cipher:tag") };
+  return {
+    ...orig,
+    hashApiKey: vi.fn().mockReturnValue("mocked-hash"),
+    encryptCredential: vi.fn().mockReturnValue("iv:cipher:tag"),
+  };
 });
 
 import { Hono } from "hono";
@@ -40,7 +52,12 @@ beforeEach(() => {
 describe("GET /user/me", () => {
   it("returns user profile", async () => {
     mockPrisma.user.findUnique.mockResolvedValue({
-      id: UID, email: "a@b.com", name: "A", isActive: true, isAdmin: false, createdAt: new Date(),
+      id: UID,
+      email: "a@b.com",
+      name: "A",
+      isActive: true,
+      isAdmin: false,
+      createdAt: new Date(),
       _count: { apiKeys: 1, providerCredentials: 2, usageLogs: 10 },
     });
     const res = await mkApp().request("/user/me", { headers: AUTH });
@@ -57,7 +74,14 @@ describe("GET /user/me", () => {
 describe("GET /user/api-keys", () => {
   it("returns active keys", async () => {
     mockPrisma.apiKey.findMany.mockResolvedValue([
-      { id: "k1", prefix: "sk-abc", label: "default", createdAt: new Date(), lastUsedAt: null, expiresAt: null },
+      {
+        id: "k1",
+        prefix: "sk-abc",
+        label: "default",
+        createdAt: new Date(),
+        lastUsedAt: null,
+        expiresAt: null,
+      },
     ]);
     const res = await mkApp().request("/user/api-keys", { headers: AUTH });
     expect(res.status).toBe(200);
@@ -67,9 +91,15 @@ describe("GET /user/api-keys", () => {
 
 describe("POST /user/api-keys", () => {
   it("creates a new key", async () => {
-    mockPrisma.apiKey.create.mockResolvedValue({ id: "nk", label: "my-key", prefix: "sk-n", createdAt: new Date() });
+    mockPrisma.apiKey.create.mockResolvedValue({
+      id: "nk",
+      label: "my-key",
+      prefix: "sk-n",
+      createdAt: new Date(),
+    });
     const res = await mkApp().request("/user/api-keys", {
-      method: "POST", headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST",
+      headers: { ...AUTH, "Content-Type": "application/json" },
       body: JSON.stringify({ label: "my-key" }),
     });
     expect(res.status).toBe(201);
@@ -81,29 +111,43 @@ describe("POST /user/api-keys", () => {
 
 describe("DELETE /user/api-keys/:id", () => {
   it("revokes key when multiple exist", async () => {
-    mockPrisma.apiKey.findFirst.mockResolvedValueOnce({ id: "key-1", userId: UID, expiresAt: null })
+    mockPrisma.apiKey.findFirst
+      .mockResolvedValueOnce({ id: "key-1", userId: UID, expiresAt: null })
       .mockResolvedValueOnce({ id: "kd", userId: UID });
     mockPrisma.apiKey.count.mockResolvedValue(2);
     mockPrisma.apiKey.update.mockResolvedValue({});
-    expect((await mkApp().request("/user/api-keys/kd", { method: "DELETE", headers: AUTH })).status).toBe(200);
+    expect(
+      (await mkApp().request("/user/api-keys/kd", { method: "DELETE", headers: AUTH })).status,
+    ).toBe(200);
   });
 
   it("blocks revoking last key", async () => {
-    mockPrisma.apiKey.findFirst.mockResolvedValueOnce({ id: "key-1", userId: UID, expiresAt: null })
+    mockPrisma.apiKey.findFirst
+      .mockResolvedValueOnce({ id: "key-1", userId: UID, expiresAt: null })
       .mockResolvedValueOnce({ id: "ko", userId: UID });
     mockPrisma.apiKey.count.mockResolvedValue(1);
-    expect((await mkApp().request("/user/api-keys/ko", { method: "DELETE", headers: AUTH })).status).toBe(400);
+    expect(
+      (await mkApp().request("/user/api-keys/ko", { method: "DELETE", headers: AUTH })).status,
+    ).toBe(400);
   });
 });
 
 describe("POST /user/credentials", () => {
   it("creates a credential", async () => {
     mockPrisma.providerCredential.upsert.mockResolvedValue({
-      id: "c1", providerId: "openrouter", credentialKey: "API_KEY", updatedAt: new Date(),
+      id: "c1",
+      providerId: "openrouter",
+      credentialKey: "API_KEY",
+      updatedAt: new Date(),
     });
     const res = await mkApp().request("/user/credentials", {
-      method: "POST", headers: { ...AUTH, "Content-Type": "application/json" },
-      body: JSON.stringify({ providerId: "openrouter", credentialKey: "API_KEY", credentialValue: "secret" }),
+      method: "POST",
+      headers: { ...AUTH, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerId: "openrouter",
+        credentialKey: "API_KEY",
+        credentialValue: "secret",
+      }),
     });
     expect(res.status).toBe(201);
     expect((await res.json()).credential.providerId).toBe("openrouter");
@@ -111,7 +155,8 @@ describe("POST /user/credentials", () => {
 
   it("returns 400 for invalid input", async () => {
     const res = await mkApp().request("/user/credentials", {
-      method: "POST", headers: { ...AUTH, "Content-Type": "application/json" },
+      method: "POST",
+      headers: { ...AUTH, "Content-Type": "application/json" },
       body: JSON.stringify({ providerId: "" }),
     });
     expect(res.status).toBe(400);
@@ -120,23 +165,41 @@ describe("POST /user/credentials", () => {
 
 describe("DELETE /user/credentials/:id", () => {
   it("deletes credential", async () => {
-    mockPrisma.apiKey.findFirst.mockResolvedValueOnce({ id: "key-1", userId: UID, expiresAt: null });
+    mockPrisma.apiKey.findFirst.mockResolvedValueOnce({
+      id: "key-1",
+      userId: UID,
+      expiresAt: null,
+    });
     mockPrisma.providerCredential.findFirst.mockResolvedValue({ id: "c1", userId: UID });
     mockPrisma.providerCredential.delete.mockResolvedValue({});
-    expect((await mkApp().request("/user/credentials/c1", { method: "DELETE", headers: AUTH })).status).toBe(200);
+    expect(
+      (await mkApp().request("/user/credentials/c1", { method: "DELETE", headers: AUTH })).status,
+    ).toBe(200);
   });
 
   it("returns 404 for missing credential", async () => {
-    mockPrisma.apiKey.findFirst.mockResolvedValueOnce({ id: "key-1", userId: UID, expiresAt: null });
+    mockPrisma.apiKey.findFirst.mockResolvedValueOnce({
+      id: "key-1",
+      userId: UID,
+      expiresAt: null,
+    });
     mockPrisma.providerCredential.findFirst.mockResolvedValue(null);
-    expect((await mkApp().request("/user/credentials/x", { method: "DELETE", headers: AUTH })).status).toBe(404);
+    expect(
+      (await mkApp().request("/user/credentials/x", { method: "DELETE", headers: AUTH })).status,
+    ).toBe(404);
   });
 });
 
 describe("GET /user/credentials", () => {
   it("lists credentials without values", async () => {
     mockPrisma.providerCredential.findMany.mockResolvedValue([
-      { id: "c1", providerId: "openrouter", credentialKey: "API_KEY", createdAt: new Date(), updatedAt: new Date() },
+      {
+        id: "c1",
+        providerId: "openrouter",
+        credentialKey: "API_KEY",
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
     ]);
     const res = await mkApp().request("/user/credentials", { headers: AUTH });
     expect(res.status).toBe(200);
@@ -153,9 +216,11 @@ describe("GET /user/usage/recent", () => {
     const res = await mkApp().request("/user/usage/recent", { headers: AUTH });
 
     expect(res.status).toBe(200);
-    expect(mockPrisma.usageLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-    }));
+    expect(mockPrisma.usageLog.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      }),
+    );
   });
 });
 
@@ -265,7 +330,11 @@ describe("PATCH /user/budget", () => {
   it("accepts a valid budget and persists the parsed values", async () => {
     mockPrisma.userBudget.upsert.mockResolvedValue({ id: "b1" });
 
-    const res = await patchJson("/user/budget", { alertThreshold: 0.5, limitUsd: "25", periodType: "weekly" });
+    const res = await patchJson("/user/budget", {
+      alertThreshold: 0.5,
+      limitUsd: "25",
+      periodType: "weekly",
+    });
 
     expect(res.status).toBe(200);
     expect(mockPrisma.userBudget.upsert.mock.calls[0]?.[0].update).toMatchObject({
@@ -276,7 +345,12 @@ describe("PATCH /user/budget", () => {
   });
 
   it("rejects non-numeric limits, out-of-range thresholds and unknown periods", async () => {
-    for (const body of [{ limitUsd: "abc" }, { alertThreshold: 80 }, { periodType: "yearly" }, { limitUsd: -1 }]) {
+    for (const body of [
+      { limitUsd: "abc" },
+      { alertThreshold: 80 },
+      { periodType: "yearly" },
+      { limitUsd: -1 },
+    ]) {
       expect((await patchJson("/user/budget", body)).status).toBe(400);
     }
     expect(mockPrisma.userBudget.upsert).not.toHaveBeenCalled();
@@ -294,20 +368,28 @@ describe("PUT /user/routing-config", () => {
   it("stores a valid configuration", async () => {
     const tiers = { simple: { modelId: "m", providerId: "p" } };
     mockPrisma.routingConfig.upsert.mockResolvedValue({
-      complexityEnabled: true, taskRoutingEnabled: false, tiers, taskOverrides: {},
+      complexityEnabled: true,
+      taskRoutingEnabled: false,
+      tiers,
+      taskOverrides: {},
     });
 
     const res = await patchJson("/user/routing-config", { complexityEnabled: true, tiers }, "PUT");
 
     expect(res.status).toBe(200);
-    expect(mockPrisma.routingConfig.upsert.mock.calls[0]?.[0].update).toMatchObject({ complexityEnabled: true, tiers });
+    expect(mockPrisma.routingConfig.upsert.mock.calls[0]?.[0].update).toMatchObject({
+      complexityEnabled: true,
+      tiers,
+    });
   });
 });
 
 describe("POST /user/memories", () => {
   it("rejects blank or oversized content", async () => {
     expect((await patchJson("/user/memories", { content: "   " }, "POST")).status).toBe(400);
-    expect((await patchJson("/user/memories", { content: "x".repeat(4001) }, "POST")).status).toBe(400);
+    expect((await patchJson("/user/memories", { content: "x".repeat(4001) }, "POST")).status).toBe(
+      400,
+    );
     expect(mockPrisma.userMemory.create).not.toHaveBeenCalled();
   });
 });

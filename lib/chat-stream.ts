@@ -28,10 +28,7 @@ type LineProcessorState = {
   errorMessage?: string;
   finishReason?: string;
   fullText: string;
-  openAiToolCalls: Map<
-    number,
-    { arguments: string; emitted: boolean; id: string; name: string }
-  >;
+  openAiToolCalls: Map<number, { arguments: string; emitted: boolean; id: string; name: string }>;
 };
 
 function emitTextDelta(delta: string, handlers: ParseStreamHandlers, state: LineProcessorState) {
@@ -50,16 +47,16 @@ function emitToolStart(
   handlers.onToolStart?.({ args, status: "running", toolCallId, toolName });
 }
 
-function emitToolResult(
-  toolCallId: string,
-  result: unknown,
-  handlers: ParseStreamHandlers,
-) {
+function emitToolResult(toolCallId: string, result: unknown, handlers: ParseStreamHandlers) {
   handlers.onEvent?.({ result, toolCallId, type: "tool-result" });
   handlers.onToolResult?.(toolCallId, result);
 }
 
-function processVercelStreamLine(line: string, handlers: ParseStreamHandlers, state: LineProcessorState): boolean {
+function processVercelStreamLine(
+  line: string,
+  handlers: ParseStreamHandlers,
+  state: LineProcessorState,
+): boolean {
   if (line.startsWith("0:")) {
     emitTextDelta(JSON.parse(line.slice(2)) as string, handlers, state);
     return true;
@@ -130,35 +127,34 @@ function extractDeltaText(delta: Record<string, unknown>): string {
   return "";
 }
 
-function processInternalSsePayload(payload: SsePayload, handlers: ParseStreamHandlers, state: LineProcessorState): boolean {
+function processInternalSsePayload(
+  payload: SsePayload,
+  handlers: ParseStreamHandlers,
+  state: LineProcessorState,
+): boolean {
   if (payload.type === "text-delta" && payload.delta) {
     emitTextDelta(payload.delta, handlers, state);
     return true;
   }
 
   if (payload.type === "tool-call" && payload.toolCallId && payload.toolName) {
-    emitToolStart(
-      payload.toolCallId,
-      payload.toolName,
-      payload.args ?? {},
-      handlers,
-    );
+    emitToolStart(payload.toolCallId, payload.toolName, payload.args ?? {}, handlers);
     return true;
   }
 
   if (payload.type === "tool-result" && payload.toolCallId) {
-    emitToolResult(
-      payload.toolCallId,
-      payload.result ?? null,
-      handlers,
-    );
+    emitToolResult(payload.toolCallId, payload.result ?? null, handlers);
     return true;
   }
 
   return false;
 }
 
-function processRawOpenAiChoices(payload: SsePayload, handlers: ParseStreamHandlers, state: LineProcessorState) {
+function processRawOpenAiChoices(
+  payload: SsePayload,
+  handlers: ParseStreamHandlers,
+  state: LineProcessorState,
+) {
   if (!Array.isArray(payload.choices)) return;
 
   const choice = payload.choices[0];
@@ -172,9 +168,7 @@ function processRawOpenAiChoices(payload: SsePayload, handlers: ParseStreamHandl
   if (Array.isArray(delta.tool_calls)) {
     for (const rawToolCall of delta.tool_calls) {
       const index =
-        typeof rawToolCall?.index === "number"
-          ? rawToolCall.index
-          : state.openAiToolCalls.size;
+        typeof rawToolCall?.index === "number" ? rawToolCall.index : state.openAiToolCalls.size;
       const current = state.openAiToolCalls.get(index) ?? {
         arguments: "",
         emitted: false,
@@ -201,12 +195,7 @@ function processRawOpenAiChoices(payload: SsePayload, handlers: ParseStreamHandl
       } catch {
         args = { _raw: toolCall.arguments };
       }
-      emitToolStart(
-        toolCall.id || `tool_${index}`,
-        toolCall.name,
-        args,
-        handlers,
-      );
+      emitToolStart(toolCall.id || `tool_${index}`, toolCall.name, args, handlers);
       toolCall.emitted = true;
     }
   }
@@ -215,7 +204,11 @@ function processRawOpenAiChoices(payload: SsePayload, handlers: ParseStreamHandl
   if (text) emitTextDelta(text, handlers, state);
 }
 
-function processOpenAiSseLine(payload: SsePayload, handlers: ParseStreamHandlers, state: LineProcessorState) {
+function processOpenAiSseLine(
+  payload: SsePayload,
+  handlers: ParseStreamHandlers,
+  state: LineProcessorState,
+) {
   if (!processInternalSsePayload(payload, handlers, state)) {
     processRawOpenAiChoices(payload, handlers, state);
   }
@@ -230,7 +223,7 @@ function processLine(line: string, handlers: ParseStreamHandlers, state: LinePro
     const dataContent = line.slice(6).trim();
     if (dataContent === "[DONE]") return;
 
-        processOpenAiSseLine(JSON.parse(dataContent) as SsePayload, handlers, state);
+    processOpenAiSseLine(JSON.parse(dataContent) as SsePayload, handlers, state);
   }
 }
 

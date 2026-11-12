@@ -4,7 +4,9 @@ const queryRaw = vi.fn();
 
 vi.mock("./lib/db", () => ({ prisma: { $queryRaw: queryRaw } }));
 vi.mock("./env", () => ({}));
-vi.mock("@/lib/auth/server", () => ({ auth: { getSession: vi.fn().mockResolvedValue({ data: null }) } }));
+vi.mock("@/lib/auth/server", () => ({
+  auth: { getSession: vi.fn().mockResolvedValue({ data: null }) },
+}));
 
 const { default: app } = await import("./app");
 const { resetReadinessCacheForTests } = await import("./lib/health");
@@ -40,7 +42,10 @@ describe("GET /health/ready", () => {
     const res = await app.request("/health/ready");
 
     expect(res.status).toBe(503);
-    expect(await res.json()).toMatchObject({ checks: { database: "unavailable" }, status: "unavailable" });
+    expect(await res.json()).toMatchObject({
+      checks: { database: "unavailable" },
+      status: "unavailable",
+    });
   });
 
   it("reuses the last result instead of querying the database on every call", async () => {
@@ -61,7 +66,9 @@ describe("request id", () => {
   });
 
   it("replaces a malformed x-request-id with a generated one", async () => {
-    const res = await app.request("/health", { headers: { "x-request-id": "bad id\twith spaces" } });
+    const res = await app.request("/health", {
+      headers: { "x-request-id": "bad id\twith spaces" },
+    });
 
     expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
   });

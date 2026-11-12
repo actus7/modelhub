@@ -6,13 +6,13 @@
  */
 
 export function parseCsv(value: string | undefined): string[] {
-  return (value ?? '')
-    .split(',')
+  return (value ?? "")
+    .split(",")
     .map((item) => item.trim())
-    .filter(Boolean)
+    .filter(Boolean);
 }
 
 /** Variante normalizada para identificadores case-insensitive (ex.: provider IDs). */
 export function parseCsvSet(value: string | undefined): Set<string> {
-  return new Set(parseCsv(value).map((item) => item.toLowerCase()))
+  return new Set(parseCsv(value).map((item) => item.toLowerCase()));
 }

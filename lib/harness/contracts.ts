@@ -1,12 +1,5 @@
-
 export type HarnessRunStatus =
-  | "queued"
-  | "running"
-  | "waiting_approval"
-  | "yielded"
-  | "completed"
-  | "failed"
-  | "cancelled"
+  "queued" | "running" | "waiting_approval" | "yielded" | "completed" | "failed" | "cancelled";
 
 export type HarnessEventType =
   | "turn/start"
@@ -27,70 +20,70 @@ export type HarnessEventType =
   | "todo/change"
   | "compaction/summary"
   | "subagent/start"
-  | "subagent/end"
+  | "subagent/end";
 
 export type HarnessEvent<TPayload = Record<string, unknown>> = {
-  conversationId: string
-  createdAt: string
-  eventId: string
-  payload: TPayload
-  runId: string | null
-  seq: string
-  stepId: string | null
-  turnId: string | null
-  type: HarnessEventType | (string & {})
-}
+  conversationId: string;
+  createdAt: string;
+  eventId: string;
+  payload: TPayload;
+  runId: string | null;
+  seq: string;
+  stepId: string | null;
+  turnId: string | null;
+  type: HarnessEventType | (string & {});
+};
 
-export type HarnessToolRisk = "read" | "reversible-write" | "external-write" | "destructive"
-export type HarnessToolExecutionMode = "sequential" | "parallel-safe"
+export type HarnessToolRisk = "read" | "reversible-write" | "external-write" | "destructive";
+export type HarnessToolExecutionMode = "sequential" | "parallel-safe";
 
 export type JsonSchema = {
-  additionalProperties?: boolean
-  description?: string
-  enum?: unknown[]
-  items?: JsonSchema
-  properties?: Record<string, JsonSchema>
-  required?: string[]
-  type?: "array" | "boolean" | "integer" | "number" | "object" | "string"
-}
+  additionalProperties?: boolean;
+  description?: string;
+  enum?: unknown[];
+  items?: JsonSchema;
+  properties?: Record<string, JsonSchema>;
+  required?: string[];
+  type?: "array" | "boolean" | "integer" | "number" | "object" | "string";
+};
 
 export type HarnessToolSchema = {
-  description: string
-  inputSchema: JsonSchema
-  name: string
-}
+  description: string;
+  inputSchema: JsonSchema;
+  name: string;
+};
 
 export type HarnessToolCall = {
-  args: Record<string, unknown>
-  toolCallId: string
-  toolName: string
-}
+  args: Record<string, unknown>;
+  toolCallId: string;
+  toolName: string;
+};
 
 export type HarnessTurnRequest = {
-  enteredMessages?: HarnessTurnRequest["messages"]
-  idempotencyKey: string
-  maxSteps?: number
+  enteredMessages?: HarnessTurnRequest["messages"];
+  idempotencyKey: string;
+  maxSteps?: number;
   messages: Array<{
-    content?: unknown
-    parts?: unknown
-    role: "assistant" | "system" | "tool" | "user"
-    tool_call_id?: string
-    tool_calls?: unknown
-  }>
-  model: string
-  projectId?: string
-}
+    content?: unknown;
+    parts?: unknown;
+    role: "assistant" | "system" | "tool" | "user";
+    tool_call_id?: string;
+    tool_calls?: unknown;
+  }>;
+  model: string;
+  projectId?: string;
+};
 
 export type HarnessCapability = {
-  available: boolean
-  description: string
-  id: string
-  reason?: string
-}
+  available: boolean;
+  description: string;
+  id: string;
+  reason?: string;
+};
 
 export type HarnessPluginManifest = {
-  capabilities: string[]
-  description: string
-  id: string
-  version: string
-}
+  capabilities: string[];
+  description: string;
+  id: string;
+  version: string;
+};

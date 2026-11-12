@@ -3,10 +3,7 @@ import { prisma } from "@/server/lib/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ token: string }> },
-) {
+export async function GET(_request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
 
   const conversation = await prisma.conversation.findFirst({

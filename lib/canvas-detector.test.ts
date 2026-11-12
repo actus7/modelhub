@@ -78,13 +78,13 @@ describe("detectCanvas", () => {
   });
 
   it("aceita fence menor quando o usuário pediu canvas explicitamente", () => {
-    const text = fence("html", '<main><h1>Clone do jogo</h1><button>Jogar</button></main>');
+    const text = fence("html", "<main><h1>Clone do jogo</h1><button>Jogar</button></main>");
     const suggestion = detectCanvas(text, { explicitIntent: true });
     expect(suggestion).toMatchObject({ kind: "html", language: "html" });
   });
 
   it("limiares normais seguem valendo sem intenção explícita", () => {
-    const text = fence("html", '<main><h1>Clone do jogo</h1><button>Jogar</button></main>');
+    const text = fence("html", "<main><h1>Clone do jogo</h1><button>Jogar</button></main>");
     expect(detectCanvas(text)).toBeNull();
   });
 
@@ -133,14 +133,12 @@ describe("shouldRequestCanvasGuidance", () => {
     expect(shouldRequestCanvasGuidance(text)).toBe(true);
   });
 
-  it.each([
-    "oi",
-    "Explique o que é Python",
-    "Resuma esse texto",
-    "Qual a previsão do tempo?",
-  ])("não ativa para conversa comum: %s", (text) => {
-    expect(shouldRequestCanvasGuidance(text)).toBe(false);
-  });
+  it.each(["oi", "Explique o que é Python", "Resuma esse texto", "Qual a previsão do tempo?"])(
+    "não ativa para conversa comum: %s",
+    (text) => {
+      expect(shouldRequestCanvasGuidance(text)).toBe(false);
+    },
+  );
 });
 
 describe("buildDisplayText", () => {

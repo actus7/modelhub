@@ -9,7 +9,9 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AccentProvider } from "./accent-provider";
 
-const uiAuthClient = authClient as unknown as ComponentProps<typeof NeonAuthUIProvider>["authClient"];
+const uiAuthClient = authClient as unknown as ComponentProps<
+  typeof NeonAuthUIProvider
+>["authClient"];
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (

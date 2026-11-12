@@ -32,16 +32,21 @@ export const CANVAS_ASSISTANT_GUIDANCE = [
   "Não explique como acessar ferramentas externas. Entregue o artefato pronto para o painel Canvas.",
 ].join("\n");
 
-const CANVAS_INTENT_RE = /\b(?:canvas|canva|quadro|artefato|preview|visualiza(?:r|ção)|abr(?:ir|a)|mostrar|ver)\b/i;
-const CREATION_INTENT_RE = /\b(?:cri(?:ar|e)|faz(?:er|a)|mont(?:ar|e)|ger(?:ar|e)|constru(?:ir|a)|clone|prototip(?:ar|e))\b/i;
-const VISUAL_ARTIFACT_RE = /\b(?:site|página|pagina|landing|interface|componente|app|aplicativo|jogo|game|diagrama|fluxograma|dashboard|layout|html|react|mermaid)\b/i;
+const CANVAS_INTENT_RE =
+  /\b(?:canvas|canva|quadro|artefato|preview|visualiza(?:r|ção)|abr(?:ir|a)|mostrar|ver)\b/i;
+const CREATION_INTENT_RE =
+  /\b(?:cri(?:ar|e)|faz(?:er|a)|mont(?:ar|e)|ger(?:ar|e)|constru(?:ir|a)|clone|prototip(?:ar|e))\b/i;
+const VISUAL_ARTIFACT_RE =
+  /\b(?:site|página|pagina|landing|interface|componente|app|aplicativo|jogo|game|diagrama|fluxograma|dashboard|layout|html|react|mermaid)\b/i;
 
 export function shouldRequestCanvasGuidance(userText: string): boolean {
   const normalized = userText.trim();
   if (!normalized) return false;
-  return CANVAS_INTENT_RE.test(normalized) ||
-    (CREATION_INTENT_RE.test(normalized) && VISUAL_ARTIFACT_RE.test(normalized));
-} 
+  return (
+    CANVAS_INTENT_RE.test(normalized) ||
+    (CREATION_INTENT_RE.test(normalized) && VISUAL_ARTIFACT_RE.test(normalized))
+  );
+}
 
 const MERMAID_MIN_CHARS = 40;
 const FENCED_MIN_LINES = 20;
@@ -61,11 +66,11 @@ type FencedBlock = {
 function extractFencedBlocks(text: string): FencedBlock[] {
   const blocks: FencedBlock[] = [];
   /**
- * Fences no padrão CommonMark: até 3 espaços de indentação na abertura e no
- * fechamento, espaço opcional antes da linguagem ("``` html") e sufixos de
- * info-string tolerados. O range retornado inclui a indentação.
- */
-const fenceRegex = /^ {0,3}```[ \t]*([\w-]*)[^\n]*\n([\s\S]*?)\n?^ {0,3}```[ \t]*$/gm;
+   * Fences no padrão CommonMark: até 3 espaços de indentação na abertura e no
+   * fechamento, espaço opcional antes da linguagem ("``` html") e sufixos de
+   * info-string tolerados. O range retornado inclui a indentação.
+   */
+  const fenceRegex = /^ {0,3}```[ \t]*([\w-]*)[^\n]*\n([\s\S]*?)\n?^ {0,3}```[ \t]*$/gm;
   let match: RegExpExecArray | null;
   while ((match = fenceRegex.exec(text)) !== null) {
     blocks.push({
@@ -137,7 +142,9 @@ export function detectCanvas(
 
   const blocks = extractFencedBlocks(fullText);
   const eligibleFence = (content: string) =>
-    options?.explicitIntent ? content.trim().length >= MERMAID_MIN_CHARS : meetsSizeThreshold(content);
+    options?.explicitIntent
+      ? content.trim().length >= MERMAID_MIN_CHARS
+      : meetsSizeThreshold(content);
 
   const mermaid = blocks.find(
     (block) => block.language === "mermaid" && block.content.trim().length >= MERMAID_MIN_CHARS,
@@ -149,9 +156,7 @@ export function detectCanvas(
   );
   if (react) return fencedSuggestion(react, "react", react.language);
 
-  const html = blocks.find(
-    (block) => block.language === "html" && eligibleFence(block.content),
-  );
+  const html = blocks.find((block) => block.language === "html" && eligibleFence(block.content));
   if (html) return fencedSuggestion(html, "html", "html");
 
   const code = blocks.find(
@@ -189,9 +194,7 @@ export function buildDisplayText(fullText: string, suggestion: CanvasSuggestion)
   }
   if (suggestion.sourceRange) {
     const [start, end] = suggestion.sourceRange;
-    return `${fullText.slice(0, start)}${fullText.slice(end)}`
-      .replace(/\n{3,}/g, "\n\n")
-      .trim();
+    return `${fullText.slice(0, start)}${fullText.slice(end)}`.replace(/\n{3,}/g, "\n\n").trim();
   }
   return fullText;
 }

@@ -11,12 +11,7 @@ import {
 
 import { logger } from "./logger";
 
-const IMAGE_ATTACHMENT_MIME_TYPES = new Set([
-  "image/gif",
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
+const IMAGE_ATTACHMENT_MIME_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
 
 const DOCUMENT_ATTACHMENT_MIME_TYPES = new Set([
   "application/pdf",
@@ -34,7 +29,7 @@ const XML_ENTITY_MAP: Record<string, string> = {
   apos: "'",
   gt: ">",
   lt: "<",
-  quot: "\"",
+  quot: '"',
 };
 
 type StoredAttachmentRecord = {
@@ -81,7 +76,11 @@ export function getAttachmentValidationError(file: File): string | null {
 }
 
 function sanitizeExtractedText(text: string): string {
-  return text.replace(/\u0000/g, "").replace(/\r\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+  return text
+    .replace(/\u0000/g, "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function decodeXmlEntities(value: string): string {
@@ -156,7 +155,10 @@ async function extractDocxText(buffer: Uint8Array): Promise<string> {
 
 async function extractPptxText(buffer: Uint8Array): Promise<string> {
   const zip = await JSZip.loadAsync(buffer);
-  const slides = zip.file(/ppt\/slides\/slide\d+\.xml$/).map((file) => file.name).sort();
+  const slides = zip
+    .file(/ppt\/slides\/slide\d+\.xml$/)
+    .map((file) => file.name)
+    .sort();
   const deckText: string[] = [];
 
   for (const slideName of slides) {
@@ -177,7 +179,7 @@ async function extractPptxText(buffer: Uint8Array): Promise<string> {
 function columnLabelToIndex(label: string): number {
   let value = 0;
   for (const char of label.toUpperCase()) {
-    value = (value * 26) + (char.charCodeAt(0) - 64);
+    value = value * 26 + (char.charCodeAt(0) - 64);
   }
   return value - 1;
 }
@@ -238,7 +240,10 @@ async function extractXlsxText(buffer: Uint8Array): Promise<string> {
   const zip = await JSZip.loadAsync(buffer);
   const sharedStringsXml = await zip.file("xl/sharedStrings.xml")?.async("text");
   const sharedStrings = sharedStringsXml ? extractTaggedText(sharedStringsXml, "t") : [];
-  const worksheetFiles = zip.file(/xl\/worksheets\/sheet\d+\.xml$/).map((file) => file.name).sort();
+  const worksheetFiles = zip
+    .file(/xl\/worksheets\/sheet\d+\.xml$/)
+    .map((file) => file.name)
+    .sort();
   const sheets: string[] = [];
 
   for (const worksheetName of worksheetFiles) {
@@ -318,7 +323,9 @@ function toAttachmentDescriptor(
  * the text nor attachment shape. Shared by stored-part parsing and incoming
  * client-payload normalization so the validation rules stay in one place.
  */
-export function parseSingleMessagePart(rawPart: Record<string, unknown>): ConversationMessagePart | null {
+export function parseSingleMessagePart(
+  rawPart: Record<string, unknown>,
+): ConversationMessagePart | null {
   if (rawPart.type === "text" && typeof rawPart.text === "string") {
     return { text: rawPart.text, type: "text" };
   }
@@ -339,10 +346,7 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
     };
   }
 
-  if (
-    rawPart.type === "meta" &&
-    typeof rawPart.modelLabel === "string"
-  ) {
+  if (rawPart.type === "meta" && typeof rawPart.modelLabel === "string") {
     return { modelLabel: rawPart.modelLabel, type: "meta" };
   }
 
@@ -353,9 +357,7 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
       return (
         typeof record.toolCallId === "string" &&
         typeof record.toolName === "string" &&
-        ["completed", "pending-approval", "running"].includes(
-          String(record.status),
-        )
+        ["completed", "pending-approval", "running"].includes(String(record.status))
       );
     });
     return {
@@ -376,11 +378,12 @@ export function parseSingleMessagePart(rawPart: Record<string, unknown>): Conver
   return null;
 }
 
-function parseStoredMessageParts(value: Prisma.JsonValue | null, fallbackContent: string): ConversationMessagePart[] {
+function parseStoredMessageParts(
+  value: Prisma.JsonValue | null,
+  fallbackContent: string,
+): ConversationMessagePart[] {
   if (!Array.isArray(value)) {
-    return fallbackContent
-      ? [{ text: fallbackContent, type: "text" }]
-      : [];
+    return fallbackContent ? [{ text: fallbackContent, type: "text" }] : [];
   }
 
   const parts: ConversationMessagePart[] = [];

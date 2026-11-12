@@ -1,49 +1,49 @@
-import { prisma } from "../lib/db"
-import { listAllHarnessEvents } from "./events"
-import type { HarnessRegistry } from "./registry"
+import { prisma } from "../lib/db";
+import { listAllHarnessEvents } from "./events";
+import type { HarnessRegistry } from "./registry";
 
 export const HARNESS_TOOL_USE_GUIDANCE =
-  "Do not call goal_write, plan_write, todo_write, or subagent merely to restate, track, or role-play an ordinary user task. These tools pause for approval. Complete requested creator/critic or multi-role refinement directly unless the user explicitly asks to persist tracking state or delegate a separate task."
+  "Do not call goal_write, plan_write, todo_write, or subagent merely to restate, track, or role-play an ordinary user task. These tools pause for approval. Complete requested creator/critic or multi-role refinement directly unless the user explicitly asks to persist tracking state or delegate a separate task.";
 
 export const HARNESS_COMPLETION_GUIDANCE =
-  "Before ending, verify that every explicitly requested numbered round, section, and deliverable is present. If the latest assistant content is visibly truncated or the requested format is incomplete, continue exactly where it stopped without repeating completed content."
+  "Before ending, verify that every explicitly requested numbered round, section, and deliverable is present. If the latest assistant content is visibly truncated or the requested format is incomplete, continue exactly where it stopped without repeating completed content.";
 
 export const HARNESS_NO_PROJECT_GUIDANCE =
-  "No active project is attached. Do not call project_context, project_file_read, or project_file_write. Deliver requested code and artifacts directly in the response."
+  "No active project is attached. Do not call project_context, project_file_read, or project_file_write. Deliver requested code and artifacts directly in the response.";
 
 export const HARNESS_ITERATIVE_DELIVERY_GUIDANCE =
-  "For multi-round refinement, keep non-final artifact deliveries concise: state concrete changes and show only the changed excerpts or patch. Reserve the full self-contained artifact for the final round unless the user explicitly requires the complete artifact in every round."
+  "For multi-round refinement, keep non-final artifact deliveries concise: state concrete changes and show only the changed excerpts or patch. Reserve the full self-contained artifact for the final round unless the user explicitly requires the complete artifact in every round.";
 
 export type ModelMessage = {
-  content: string | unknown[]
-  name?: string
-  role: "assistant" | "system" | "tool" | "user"
-  tool_call_id?: string
+  content: string | unknown[];
+  name?: string;
+  role: "assistant" | "system" | "tool" | "user";
+  tool_call_id?: string;
   tool_calls?: Array<{
-    function: { arguments: string; name: string }
-    id: string
-    type: "function"
-  }>
-}
+    function: { arguments: string; name: string };
+    id: string;
+    type: "function";
+  }>;
+};
 
 function contentFromUnknown(value: unknown): string {
-  if (typeof value === "string") return value
-  if (!Array.isArray(value)) return ""
+  if (typeof value === "string") return value;
+  if (!Array.isArray(value)) return "";
   return value
     .map((part) => {
-      if (!part || typeof part !== "object") return ""
-      const record = part as Record<string, unknown>
-      return typeof record.text === "string" ? record.text : ""
+      if (!part || typeof part !== "object") return "";
+      const record = part as Record<string, unknown>;
+      return typeof record.text === "string" ? record.text : "";
     })
     .filter(Boolean)
-    .join("\n")
+    .join("\n");
 }
 
 export function normalizeRequestMessages(messages: Array<Record<string, unknown>>): ModelMessage[] {
   return messages
     .map((message): ModelMessage | null => {
-      const role = message.role
-      if (!['assistant', 'system', 'tool', 'user'].includes(String(role))) return null
+      const role = message.role;
+      if (!["assistant", "system", "tool", "user"].includes(String(role))) return null;
       const normalized: ModelMessage = {
         content: Array.isArray(message.parts)
           ? message.parts
@@ -51,13 +51,14 @@ export function normalizeRequestMessages(messages: Array<Record<string, unknown>
             ? message.content
             : contentFromUnknown(message.content),
         role: role as ModelMessage["role"],
-      }
-      if (typeof message.name === "string") normalized.name = message.name
-      if (typeof message.tool_call_id === "string") normalized.tool_call_id = message.tool_call_id
-      if (Array.isArray(message.tool_calls)) normalized.tool_calls = message.tool_calls as ModelMessage["tool_calls"]
-      return normalized
+      };
+      if (typeof message.name === "string") normalized.name = message.name;
+      if (typeof message.tool_call_id === "string") normalized.tool_call_id = message.tool_call_id;
+      if (Array.isArray(message.tool_calls))
+        normalized.tool_calls = message.tool_calls as ModelMessage["tool_calls"];
+      return normalized;
     })
-    .filter((message): message is ModelMessage => message !== null)
+    .filter((message): message is ModelMessage => message !== null);
 }
 
 function normalizedFormatMarker(value: string): string {
@@ -65,33 +66,27 @@ function normalizedFormatMarker(value: string): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
-    .replace(/\s+/g, "")
+    .replace(/\s+/g, "");
 }
 
 export function missingExplicitIterativeSections(
   messages: ModelMessage[],
   latestAssistantContent: string,
 ): string[] {
-  const latestUserIndex = messages.findLastIndex(
-    (message) => message.role === "user",
-  )
-  if (latestUserIndex < 0) return []
+  const latestUserIndex = messages.findLastIndex((message) => message.role === "user");
+  if (latestUserIndex < 0) return [];
 
-  const userText = contentFromUnknown(messages[latestUserIndex]!.content)
-  const roundMatch = userText.match(/\b(\d{1,2})\s+(?:rodadas?|rounds?)\b/i)
-  const roundCount = Number(roundMatch?.[1] ?? 0)
+  const userText = contentFromUnknown(messages[latestUserIndex]!.content);
+  const roundMatch = userText.match(/\b(\d{1,2})\s+(?:rodadas?|rounds?)\b/i);
+  const roundCount = Number(roundMatch?.[1] ?? 0);
   if (!Number.isInteger(roundCount) || roundCount < 1 || roundCount > 10) {
-    return []
+    return [];
   }
 
-  const labels = [
-    ...userText.matchAll(
-      /\[\s*(?:rodada|round)\s+x\s*-\s*([^\]]+?)\s*\]/gi,
-    ),
-  ]
+  const labels = [...userText.matchAll(/\[\s*(?:rodada|round)\s+x\s*-\s*([^\]]+?)\s*\]/gi)]
     .map((match) => match[1]?.trim() ?? "")
-    .filter((label, index, all) => label && all.indexOf(label) === index)
-  if (labels.length === 0) return []
+    .filter((label, index, all) => label && all.indexOf(label) === index);
+  if (labels.length === 0) return [];
 
   const deliveredText = [
     ...messages
@@ -99,46 +94,48 @@ export function missingExplicitIterativeSections(
       .filter((message) => message.role === "assistant")
       .map((message) => contentFromUnknown(message.content)),
     latestAssistantContent,
-  ].join("\n")
-  const deliveredMarkers = [...deliveredText.matchAll(/\[[^\]\r\n]{1,120}\]/g)]
-    .map((match) => normalizedFormatMarker(match[0]))
+  ].join("\n");
+  const deliveredMarkers = [...deliveredText.matchAll(/\[[^\]\r\n]{1,120}\]/g)].map((match) =>
+    normalizedFormatMarker(match[0]),
+  );
 
-  const missing: string[] = []
+  const missing: string[] = [];
   for (let round = 1; round <= roundCount; round += 1) {
     for (const label of labels) {
-      const marker = `[Rodada ${round} - ${label}]`
-      const normalizedMarker = normalizedFormatMarker(marker)
-      const markerStem = normalizedMarker.slice(0, -1)
+      const marker = `[Rodada ${round} - ${label}]`;
+      const normalizedMarker = normalizedFormatMarker(marker);
+      const markerStem = normalizedMarker.slice(0, -1);
       if (!deliveredMarkers.some((delivered) => delivered.startsWith(markerStem))) {
-        missing.push(marker)
+        missing.push(marker);
       }
     }
   }
-  return missing
+  return missing;
 }
 
 export async function deriveMessagesFromEvents(conversationId: string): Promise<ModelMessage[]> {
-  const events = await listAllHarnessEvents(conversationId)
-  const messages: ModelMessage[] = []
-  const latestSummaryIndex = events.findLastIndex((event) => event.type === "compaction/summary")
+  const events = await listAllHarnessEvents(conversationId);
+  const messages: ModelMessage[] = [];
+  const latestSummaryIndex = events.findLastIndex((event) => event.type === "compaction/summary");
   if (latestSummaryIndex >= 0) {
-    const summary = events[latestSummaryIndex]!.payload.summary
-    messages.push({ content: `Compacted earlier context:\n${String(summary ?? "")}`, role: "system" })
+    const summary = events[latestSummaryIndex]!.payload.summary;
+    messages.push({
+      content: `Compacted earlier context:\n${String(summary ?? "")}`,
+      role: "system",
+    });
   }
   for (const event of events.slice(latestSummaryIndex + 1)) {
-    const payload = event.payload as Record<string, unknown>
+    const payload = event.payload as Record<string, unknown>;
     if (event.type === "user/message") {
       messages.push({
-        content: Array.isArray(payload.parts)
-          ? payload.parts
-          : contentFromUnknown(payload.content),
+        content: Array.isArray(payload.parts) ? payload.parts : contentFromUnknown(payload.content),
         role: "user",
-      })
+      });
     } else if (event.type === "assistant/message") {
-      const message: ModelMessage = { content: String(payload.content ?? ""), role: "assistant" }
+      const message: ModelMessage = { content: String(payload.content ?? ""), role: "assistant" };
       if (Array.isArray(payload.toolCalls)) {
         message.tool_calls = payload.toolCalls.map((call) => {
-          const record = call as Record<string, unknown>
+          const record = call as Record<string, unknown>;
           return {
             function: {
               arguments: JSON.stringify(record.args ?? {}),
@@ -146,25 +143,28 @@ export async function deriveMessagesFromEvents(conversationId: string): Promise<
             },
             id: String(record.toolCallId ?? crypto.randomUUID()),
             type: "function" as const,
-          }
-        })
+          };
+        });
       }
-      messages.push(message)
+      messages.push(message);
     } else if (event.type === "tool/result") {
       messages.push({
         content: JSON.stringify(payload.result ?? payload.error ?? null),
         role: "tool",
         tool_call_id: String(payload.toolCallId ?? "unknown"),
-      })
+      });
     }
   }
-  return messages
+  return messages;
 }
 
-export function compactModelMessages(messages: ModelMessage[], maxCharacters = 90_000): {
-  compacted: boolean
-  messages: ModelMessage[]
-  summary?: string
+export function compactModelMessages(
+  messages: ModelMessage[],
+  maxCharacters = 90_000,
+): {
+  compacted: boolean;
+  messages: ModelMessage[];
+  summary?: string;
 } {
   const size = messages.reduce(
     (total, message) =>
@@ -174,38 +174,40 @@ export function compactModelMessages(messages: ModelMessage[], maxCharacters = 9
         : JSON.stringify(message.content).length) +
       JSON.stringify(message.tool_calls ?? []).length,
     0,
-  )
-  if (size <= maxCharacters || messages.length <= 8) return { compacted: false, messages }
+  );
+  if (size <= maxCharacters || messages.length <= 8) return { compacted: false, messages };
 
-  let boundary = Math.max(0, messages.length - 8)
-  while (boundary > 0 && messages[boundary]?.role === "tool") boundary -= 1
-  const retained = messages.slice(boundary)
-  const removed = messages.slice(0, boundary)
+  let boundary = Math.max(0, messages.length - 8);
+  while (boundary > 0 && messages[boundary]?.role === "tool") boundary -= 1;
+  const retained = messages.slice(boundary);
+  const removed = messages.slice(0, boundary);
   const summary = removed
     .map((message) => {
       const content =
-        typeof message.content === "string"
-          ? message.content
-          : contentFromUnknown(message.content)
-      return `${message.role}: ${content.slice(0, 500)}`
+        typeof message.content === "string" ? message.content : contentFromUnknown(message.content);
+      return `${message.role}: ${content.slice(0, 500)}`;
     })
     .join("\n")
-    .slice(-20_000)
+    .slice(-20_000);
   return {
     compacted: true,
     messages: [{ content: `Compacted earlier context:\n${summary}`, role: "system" }, ...retained],
     summary,
-  }
+  };
 }
 
 export async function buildHarnessSystemPrompt(input: {
-  projectId: string | null
-  registry: HarnessRegistry
-  userId: string
+  projectId: string | null;
+  registry: HarnessRegistry;
+  userId: string;
 }): Promise<string> {
   const [settings, memories, skills, project] = await Promise.all([
     prisma.userSettings.findUnique({ where: { userId: input.userId } }),
-    prisma.userMemory.findMany({ where: { userId: input.userId }, orderBy: { updatedAt: "desc" }, take: 20 }),
+    prisma.userMemory.findMany({
+      where: { userId: input.userId },
+      orderBy: { updatedAt: "desc" },
+      take: 20,
+    }),
     prisma.harnessSkill.findMany({
       where: {
         enabled: true,
@@ -216,12 +218,19 @@ export async function buildHarnessSystemPrompt(input: {
       take: 20,
     }),
     input.projectId
-      ? prisma.project.findFirst({ where: { id: input.projectId, userId: input.userId }, select: { instructions: true, name: true } })
+      ? prisma.project.findFirst({
+          where: { id: input.projectId, userId: input.userId },
+          select: { instructions: true, name: true },
+        })
       : null,
-  ])
+  ]);
 
-  const availableCapabilities = input.registry.listCapabilities().filter((capability) => capability.available)
-  const unavailableCapabilities = input.registry.listCapabilities().filter((capability) => !capability.available)
+  const availableCapabilities = input.registry
+    .listCapabilities()
+    .filter((capability) => capability.available);
+  const unavailableCapabilities = input.registry
+    .listCapabilities()
+    .filter((capability) => !capability.available);
   return [
     "You are ModelHub's agent runtime. Work in explicit, bounded steps and use tools when they materially improve the answer.",
     "Never claim that a tool ran unless a tool result is present. Respect approval denials and capability limits.",
@@ -229,8 +238,12 @@ export async function buildHarnessSystemPrompt(input: {
     HARNESS_COMPLETION_GUIDANCE,
     HARNESS_ITERATIVE_DELIVERY_GUIDANCE,
     settings?.customInstructionsAbout ? `User context:\n${settings.customInstructionsAbout}` : "",
-    settings?.customInstructionsStyle ? `Response preferences:\n${settings.customInstructionsStyle}` : "",
-    memories.length ? `Saved memories:\n${memories.map((memory) => `- ${memory.content}`).join("\n")}` : "",
+    settings?.customInstructionsStyle
+      ? `Response preferences:\n${settings.customInstructionsStyle}`
+      : "",
+    memories.length
+      ? `Saved memories:\n${memories.map((memory) => `- ${memory.content}`).join("\n")}`
+      : "",
     project
       ? `Active project: ${project.name}\n${project.instructions ?? ""}`
       : HARNESS_NO_PROJECT_GUIDANCE,
@@ -243,5 +256,5 @@ export async function buildHarnessSystemPrompt(input: {
       : "",
   ]
     .filter(Boolean)
-    .join("\n\n")
+    .join("\n\n");
 }

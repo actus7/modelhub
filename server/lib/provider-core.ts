@@ -1,148 +1,145 @@
-import { createHash } from "node:crypto"
+import { createHash } from "node:crypto";
 
-import { Hono } from "hono"
-import { z } from "zod"
+import { Hono } from "hono";
+import { z } from "zod";
 
 import {
   MODELHUB_CONVERSATION_HEADER,
   MODELHUB_MESSAGE_HEADER,
   MODELHUB_PROJECT_HEADER,
-} from "@/lib/contracts"
-import type { ProviderModelCapabilities } from "@/lib/chat-parts"
-import type { ProviderModel } from "@/lib/contracts"
-import { prisma } from "./db"
-import { decryptCredential } from "./crypto"
-import { DEFAULT_MODELS_CACHE_TTL_MS, getCachedModels } from "./model-cache"
-import {
-  MAX_DOCUMENT_CONTEXT_CHARS,
-  buildDocumentContextBlock,
-} from "./conversation-attachments"
-import { handleApiError, jsonErrorResponse } from "./http"
-import { ensureProtectedAccess, protectedCors, securityHeaders } from "./security"
-import { checkBudget } from "./budget"
-import { logger } from "./logger"
-import { scrubSecrets } from "./secret-scrub"
+} from "@/lib/contracts";
+import type { ProviderModelCapabilities } from "@/lib/chat-parts";
+import type { ProviderModel } from "@/lib/contracts";
+import { prisma } from "./db";
+import { decryptCredential } from "./crypto";
+import { DEFAULT_MODELS_CACHE_TTL_MS, getCachedModels } from "./model-cache";
+import { MAX_DOCUMENT_CONTEXT_CHARS, buildDocumentContextBlock } from "./conversation-attachments";
+import { handleApiError, jsonErrorResponse } from "./http";
+import { ensureProtectedAccess, protectedCors, securityHeaders } from "./security";
+import { checkBudget } from "./budget";
+import { logger } from "./logger";
+import { scrubSecrets } from "./secret-scrub";
 
 type ChatMessageToolCall = {
-  id: string
-  type: "function"
-  function: { name: string; arguments: string }
-}
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
 
 export type ChatMessage = {
-  role: "user" | "assistant" | "system" | "tool"
-  content: string | ChatMessageContentPart[]
-  tool_calls?: ChatMessageToolCall[]
-  tool_call_id?: string
-  name?: string
-}
+  role: "user" | "assistant" | "system" | "tool";
+  content: string | ChatMessageContentPart[];
+  tool_calls?: ChatMessageToolCall[];
+  tool_call_id?: string;
+  name?: string;
+};
 
 type ChatMessageContentPart =
   | { type: "text"; text: string }
-  | { type: "image_url"; image_url: { url: string; detail?: string } }
+  | { type: "image_url"; image_url: { url: string; detail?: string } };
 
 type ChatInputAttachmentPart = {
-  attachmentId: string
-  fileName: string
-  kind: "document" | "image"
-  mimeType: string
-  type: "attachment"
-}
+  attachmentId: string;
+  fileName: string;
+  kind: "document" | "image";
+  mimeType: string;
+  type: "attachment";
+};
 
-type ChatInputContentPart = ChatMessageContentPart | ChatInputAttachmentPart
+type ChatInputContentPart = ChatMessageContentPart | ChatInputAttachmentPart;
 
 type ChatInputMessage = {
-  role: "user" | "assistant" | "system" | "tool"
-  content: string | ChatInputContentPart[]
-  tool_calls?: ChatMessageToolCall[]
-  tool_call_id?: string
-  name?: string
-}
+  role: "user" | "assistant" | "system" | "tool";
+  content: string | ChatInputContentPart[];
+  tool_calls?: ChatMessageToolCall[];
+  tool_call_id?: string;
+  name?: string;
+};
 
-export type { ProviderModel }
+export type { ProviderModel };
 
 type RawMessagePart = {
-  attachmentId?: string
-  fileName?: string
-  kind?: string
-  mimeType?: string
-  type?: string
-  text?: string
-  image_url?: { url?: string; detail?: string }
-}
+  attachmentId?: string;
+  fileName?: string;
+  kind?: string;
+  mimeType?: string;
+  type?: string;
+  text?: string;
+  image_url?: { url?: string; detail?: string };
+};
 
 /** Entrada bruta OpenAI-compatible: tool_calls podem vir sem id ou com arguments como objeto. */
 type RawIncomingToolCall = {
-  id?: string
-  type?: "function"
+  id?: string;
+  type?: "function";
   function?: {
-    name?: string
-    arguments?: string | Record<string, unknown> | unknown[]
-  }
-}
+    name?: string;
+    arguments?: string | Record<string, unknown> | unknown[];
+  };
+};
 
 type RawChatMessage = {
   /** Qualquer string compatível com OpenAI/Claude; normalizamos em normalizeMessages. */
-  role?: string
-  content?: string | RawMessagePart[] | null
-  parts?: RawMessagePart[]
-  tool_calls?: RawIncomingToolCall[]
-  tool_call_id?: string
-  name?: string
-}
+  role?: string;
+  content?: string | RawMessagePart[] | null;
+  parts?: RawMessagePart[];
+  tool_calls?: RawIncomingToolCall[];
+  tool_call_id?: string;
+  name?: string;
+};
 
 type OpenAiSseContentPart = {
-  text?: string
-}
+  text?: string;
+};
 
 type OpenAiSseToolCallDelta = {
-  index: number
-  id?: string
-  type?: string
-  function?: { name?: string; arguments?: string }
-}
+  index: number;
+  id?: string;
+  type?: string;
+  function?: { name?: string; arguments?: string };
+};
 
 type OpenAiSseChunk = {
   choices?: Array<{
     delta?: {
-      content?: string | OpenAiSseContentPart[]
-      tool_calls?: OpenAiSseToolCallDelta[]
-    }
-    finish_reason?: string | null
-  }>
-}
+      content?: string | OpenAiSseContentPart[];
+      tool_calls?: OpenAiSseToolCallDelta[];
+    };
+    finish_reason?: string | null;
+  }>;
+};
 
 type AccumulatedToolCall = {
-  id: string
-  type: "function"
-  function: { name: string; arguments: string }
-}
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
 
 type UserSettingsRecord = {
-  customInstructionsAbout: string | null
-  customInstructionsStyle: string | null
-}
+  customInstructionsAbout: string | null;
+  customInstructionsStyle: string | null;
+};
 
 type UserMemoryRecord = {
-  content: string
-}
+  content: string;
+};
 
 /** Agentes podem enviar histórico longo com várias tool rounds — 50 era pouco. */
-const MAX_MESSAGES = 256
-const MAX_PARTS_PER_MESSAGE = 64
+const MAX_MESSAGES = 256;
+const MAX_PARTS_PER_MESSAGE = 64;
 /**
  * Agent runtimes can prepend a very large system prompt containing the active
  * tool inventory and safety/runtime instructions. Keep this comfortably above
  * that prompt size while still bounded below the total request-body cap.
  */
-const MAX_MESSAGE_TEXT_LENGTH = 256_000
-export const MAX_PROVIDER_REQUEST_BODY_BYTES = 4 * 1024 * 1024
-const MAX_PROVIDER_IMAGE_URL_LENGTH = 4 * 1024 * 1024
+const MAX_MESSAGE_TEXT_LENGTH = 256_000;
+export const MAX_PROVIDER_REQUEST_BODY_BYTES = 4 * 1024 * 1024;
+const MAX_PROVIDER_IMAGE_URL_LENGTH = 4 * 1024 * 1024;
 
 /** Caps de injeção de contexto de projeto — mesmos valores do GET /projects/:id/context. */
-const PROJECT_INSTRUCTIONS_CHAR_CAP = 20_000
-const PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP = 20_000
-const PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP = 60_000
+const PROJECT_INSTRUCTIONS_CHAR_CAP = 20_000;
+const PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP = 20_000;
+const PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP = 60_000;
 
 const rawMessagePartSchema = z
   .object({
@@ -169,7 +166,7 @@ const rawMessagePartSchema = z
       .passthrough()
       .optional(),
   })
-  .passthrough()
+  .passthrough();
 
 /** Clientes OpenAI-compatible podem enviar arguments como string JSON ou objeto. */
 const toolCallFunctionSchema = z.object({
@@ -182,7 +179,7 @@ const toolCallFunctionSchema = z.object({
     ])
     .transform((v) => (typeof v === "string" ? v : JSON.stringify(v)))
     .pipe(z.string().max(MAX_MESSAGE_TEXT_LENGTH * 2)),
-})
+});
 
 const toolCallSchema = z
   .object({
@@ -191,7 +188,7 @@ const toolCallSchema = z
     type: z.literal("function").optional(),
     function: toolCallFunctionSchema,
   })
-  .passthrough()
+  .passthrough();
 
 const rawChatMessageSchema = z
   .object({
@@ -208,54 +205,49 @@ const rawChatMessageSchema = z
     tool_call_id: z.string().max(256).optional(),
     name: z.string().max(256).optional(),
   })
-  .passthrough()
+  .passthrough();
 
 const providerChatBodySchema = z
   .object({
     modelId: z.string().trim().min(1).max(200).optional(),
     messages: z.array(rawChatMessageSchema).min(1).max(MAX_MESSAGES),
   })
-  .passthrough()
+  .passthrough();
 
 type ProviderConfig = {
-  providerId: string
-  basePath: string
-  models: ProviderModel[]
-  defaultModel: string
+  providerId: string;
+  basePath: string;
+  models: ProviderModel[];
+  defaultModel: string;
   /** TTL for dynamic model lists (`GET …/api/models`). Default 1h. */
-  modelsCacheTtlMs?: number
+  modelsCacheTtlMs?: number;
   chat: (
     messages: ChatMessage[],
     modelId: string,
     rawBody: Record<string, unknown>,
     credentials: Record<string, string>,
     userId?: string,
-  ) => Promise<Response>
+  ) => Promise<Response>;
   /** Optional function to test credentials against the upstream provider. */
   testCredentials?: (
     credentials: Record<string, string>,
-  ) => Promise<{ ok: boolean; error?: string }>
+  ) => Promise<{ ok: boolean; error?: string }>;
   /** Optional function to fetch models dynamically from upstream. Results are cached with TTL. */
-  fetchModels?: (
-    credentials?: Record<string, string>,
-  ) => Promise<ProviderModel[]>
-}
+  fetchModels?: (credentials?: Record<string, string>) => Promise<ProviderModel[]>;
+};
 
 function buildProviderModelsCacheKeySuffix(
   userId: string | undefined,
   credentials: Record<string, string>,
 ): string {
-  const uid = userId ?? "anon"
-  const keys = Object.keys(credentials).sort()
+  const uid = userId ?? "anon";
+  const keys = Object.keys(credentials).sort();
   if (keys.length === 0) {
-    return `${uid}:env`
+    return `${uid}:env`;
   }
-  const payload = keys.map((k) => `${k}=${credentials[k] ?? ""}`).join("\n")
-  const hash = createHash("sha256")
-    .update(payload)
-    .digest("base64url")
-    .slice(0, 32)
-  return `${uid}:${hash}`
+  const payload = keys.map((k) => `${k}=${credentials[k] ?? ""}`).join("\n");
+  const hash = createHash("sha256").update(payload).digest("base64url").slice(0, 32);
+  return `${uid}:${hash}`;
 }
 
 function fetchCachedProviderModels(
@@ -272,21 +264,19 @@ function fetchCachedProviderModels(
       cacheKeySuffix: buildProviderModelsCacheKeySuffix(userId, credentials),
       staleWhileRevalidate: false,
     },
-  )
+  );
 }
 
-function normalizeContentParts(
-  parts: RawMessagePart[],
-): ChatInputContentPart[] {
-  const out: ChatInputContentPart[] = []
+function normalizeContentParts(parts: RawMessagePart[]): ChatInputContentPart[] {
+  const out: ChatInputContentPart[] = [];
   for (const part of parts) {
     if (part.type === "text" && typeof part.text === "string") {
-      out.push({ type: "text", text: part.text })
+      out.push({ type: "text", text: part.text });
     } else if (part.type === "image_url" && part.image_url?.url) {
       out.push({
         type: "image_url",
         image_url: { url: part.image_url.url, detail: part.image_url.detail },
-      })
+      });
     } else if (
       part.type === "attachment" &&
       typeof part.attachmentId === "string" &&
@@ -300,10 +290,10 @@ function normalizeContentParts(
         kind: part.kind,
         mimeType: part.mimeType,
         type: "attachment",
-      })
+      });
     }
   }
-  return out
+  return out;
 }
 
 const ROLE_ALIASES: Record<string, ChatInputMessage["role"]> = {
@@ -312,77 +302,73 @@ const ROLE_ALIASES: Record<string, ChatInputMessage["role"]> = {
   function: "tool",
   system: "system",
   tool: "tool",
-}
+};
 
 function mapRole(raw: string | undefined): ChatInputMessage["role"] {
-  if (!raw) return "user"
-  return ROLE_ALIASES[raw] ?? "user"
+  if (!raw) return "user";
+  return ROLE_ALIASES[raw] ?? "user";
 }
 
-function normalizeContent(
-  item: RawChatMessage,
-): string | ChatInputContentPart[] {
-  if (typeof item.content === "string") return item.content
+function normalizeContent(item: RawChatMessage): string | ChatInputContentPart[] {
+  if (typeof item.content === "string") return item.content;
   if (Array.isArray(item.content)) {
-    const parts = normalizeContentParts(item.content)
-    if (parts.length > 0) return parts
+    const parts = normalizeContentParts(item.content);
+    if (parts.length > 0) return parts;
   }
 
   if (Array.isArray(item.parts)) {
-    const parts = normalizeContentParts(item.parts)
-    if (parts.length > 0) return parts
+    const parts = normalizeContentParts(item.parts);
+    if (parts.length > 0) return parts;
   }
 
-  return ""
+  return "";
 }
 
 function normalizeToolCalls(
   toolCalls: RawChatMessage["tool_calls"],
 ): ChatMessageToolCall[] | undefined {
-  if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0)
-    return undefined
+  if (!toolCalls || !Array.isArray(toolCalls) || toolCalls.length === 0) return undefined;
 
   return toolCalls.map((tc, i) => {
-    const id =
-      typeof tc.id === "string" && tc.id.length > 0 ? tc.id : `tool_${i}`
-    const name = typeof tc.function?.name === "string" ? tc.function.name : ""
-    const args = tc.function?.arguments
-    let argumentsStr = "{}"
-    if (typeof args === "string") argumentsStr = args
-    else if (args !== undefined) argumentsStr = JSON.stringify(args)
+    const id = typeof tc.id === "string" && tc.id.length > 0 ? tc.id : `tool_${i}`;
+    const name = typeof tc.function?.name === "string" ? tc.function.name : "";
+    const args = tc.function?.arguments;
+    let argumentsStr = "{}";
+    if (typeof args === "string") argumentsStr = args;
+    else if (args !== undefined) argumentsStr = JSON.stringify(args);
     return {
       id,
       type: "function" as const,
       function: { name, arguments: argumentsStr },
-    }
-  })
+    };
+  });
 }
 
 function normalizeMessages(input: RawChatMessage[]): ChatInputMessage[] {
-  if (!Array.isArray(input)) return []
+  if (!Array.isArray(input)) return [];
 
   return input.map((item) => {
     const msg: ChatInputMessage = {
       role: mapRole(item.role),
       content: normalizeContent(item),
-    }
+    };
 
-    const toolCalls = normalizeToolCalls(item.tool_calls)
-    if (toolCalls) msg.tool_calls = toolCalls
+    const toolCalls = normalizeToolCalls(item.tool_calls);
+    if (toolCalls) msg.tool_calls = toolCalls;
     if (typeof item.tool_call_id === "string" && item.tool_call_id)
-      msg.tool_call_id = item.tool_call_id
-    if (typeof item.name === "string" && item.name) msg.name = item.name
+      msg.tool_call_id = item.tool_call_id;
+    if (typeof item.name === "string" && item.name) msg.name = item.name;
 
-    return msg
-  })
+    return msg;
+  });
 }
 
 class AttachmentCapabilityError extends Error {
-  status = 400
+  status = 400;
 }
 
 function toDataUrl(mimeType: string, blob: Uint8Array): string {
-  return `data:${mimeType};base64,${Buffer.from(blob).toString("base64")}`
+  return `data:${mimeType};base64,${Buffer.from(blob).toString("base64")}`;
 }
 
 async function getModelCapabilities(
@@ -391,70 +377,64 @@ async function getModelCapabilities(
   credentials: Record<string, string>,
   userId: string | undefined,
 ): Promise<ProviderModelCapabilities> {
-  const staticMatch = config.models.find((model) => model.id === modelId)
+  const staticMatch = config.models.find((model) => model.id === modelId);
   if (staticMatch) {
-    return staticMatch.capabilities
+    return staticMatch.capabilities;
   }
 
   if (config.fetchModels) {
-    const fetchedModels = await fetchCachedProviderModels(
-      config,
-      credentials,
-      userId,
-    )
-    const dynamicMatch = fetchedModels.find((model) => model.id === modelId)
+    const fetchedModels = await fetchCachedProviderModels(config, credentials, userId);
+    const dynamicMatch = fetchedModels.find((model) => model.id === modelId);
     if (dynamicMatch) {
-      return dynamicMatch.capabilities
+      return dynamicMatch.capabilities;
     }
   }
 
-  return { documents: true, images: false }
+  return { documents: true, images: false };
 }
 
 function requestUsesTools(rawBody: Record<string, unknown>): boolean {
-  const tools = rawBody.tools
+  const tools = rawBody.tools;
   if (Array.isArray(tools) && tools.length > 0) {
-    return true
+    return true;
   }
 
-  const toolChoice = rawBody.tool_choice
+  const toolChoice = rawBody.tool_choice;
   return Boolean(
     toolChoice &&
     toolChoice !== "none" &&
     (typeof toolChoice === "object" || toolChoice === "required"),
-  )
+  );
 }
 
 type ResolvedAttachment = {
-  blob: Uint8Array
-  extractedText: string | null
-  extractionStatus: "completed" | "failed" | "processing" | "unsupported_scan"
-  fileName: string
-  id: string
-  kind: "document" | "image"
-  mimeType: string
-}
+  blob: Uint8Array;
+  extractedText: string | null;
+  extractionStatus: "completed" | "failed" | "processing" | "unsupported_scan";
+  fileName: string;
+  id: string;
+  kind: "document" | "image";
+  mimeType: string;
+};
 
 function collectAttachmentIds(messages: ChatInputMessage[]): Set<string> {
-  const ids = new Set<string>()
+  const ids = new Set<string>();
   for (const message of messages) {
-    if (!Array.isArray(message.content)) continue
+    if (!Array.isArray(message.content)) continue;
     for (const part of message.content) {
-      if (part.type === "attachment") ids.add(part.attachmentId)
+      if (part.type === "attachment") ids.add(part.attachmentId);
     }
   }
-  return ids
+  return ids;
 }
 
 async function loadAttachments(
   attachmentIds: Set<string>,
   userId: string | undefined,
 ): Promise<Map<string, ResolvedAttachment>> {
-  if (attachmentIds.size === 0) return new Map()
+  if (attachmentIds.size === 0) return new Map();
   if (!userId)
-    throw new AttachmentCapabilityError(
-      "Authenticated user context is required for attachments",
-    )
+    throw new AttachmentCapabilityError("Authenticated user context is required for attachments");
 
   const rows = await prisma.conversationAttachment.findMany({
     where: { conversation: { userId }, id: { in: [...attachmentIds] } },
@@ -467,7 +447,7 @@ async function loadAttachments(
       kind: true,
       mimeType: true,
     },
-  })
+  });
 
   return new Map(
     rows.map((row) => [
@@ -475,15 +455,14 @@ async function loadAttachments(
       {
         blob: row.blob,
         extractedText: row.extractedText,
-        extractionStatus:
-          row.extractionStatus as ResolvedAttachment["extractionStatus"],
+        extractionStatus: row.extractionStatus as ResolvedAttachment["extractionStatus"],
         fileName: row.fileName,
         id: row.id,
         kind: row.kind as ResolvedAttachment["kind"],
         mimeType: row.mimeType,
       },
     ]),
-  )
+  );
 }
 
 /**
@@ -495,65 +474,56 @@ async function buildProjectContextSection(
   projectId: string,
   userId: string,
 ): Promise<string | null> {
-  const findProject = prisma.project?.findFirst?.bind?.(prisma.project)
-  if (!findProject) return null
+  const findProject = prisma.project?.findFirst?.bind?.(prisma.project);
+  if (!findProject) return null;
 
-  const project = await findProject({ where: { id: projectId, userId } })
-  if (!project) return null
+  const project = await findProject({ where: { id: projectId, userId } });
+  if (!project) return null;
 
-  const sectionParts: string[] = []
-  const instructions = project.instructions?.slice(
-    0,
-    PROJECT_INSTRUCTIONS_CHAR_CAP,
-  )
+  const sectionParts: string[] = [];
+  const instructions = project.instructions?.slice(0, PROJECT_INSTRUCTIONS_CHAR_CAP);
   if (instructions) {
-    sectionParts.push(`Project instructions:\n${instructions}`)
+    sectionParts.push(`Project instructions:\n${instructions}`);
   }
 
-  const findProjectFiles = prisma.projectFile?.findMany?.bind?.(
-    prisma.projectFile,
-  )
+  const findProjectFiles = prisma.projectFile?.findMany?.bind?.(prisma.projectFile);
   if (findProjectFiles) {
     const files = await findProjectFiles({
       where: { projectId: project.id, extractedText: { not: null } },
       select: { extractedText: true, fileName: true },
       orderBy: { createdAt: "asc" },
-    })
+    });
 
-    let remaining = PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP
-    const knowledgeBlocks: string[] = []
+    let remaining = PROJECT_KNOWLEDGE_TOTAL_CHAR_CAP;
+    const knowledgeBlocks: string[] = [];
     for (const file of files) {
-      if (remaining <= 0) break
+      if (remaining <= 0) break;
       const text = (file.extractedText ?? "").slice(
         0,
         Math.min(PROJECT_KNOWLEDGE_PER_FILE_CHAR_CAP, remaining),
-      )
-      if (!text) continue
-      knowledgeBlocks.push(`[${file.fileName}]\n${text}`)
-      remaining -= text.length
+      );
+      if (!text) continue;
+      knowledgeBlocks.push(`[${file.fileName}]\n${text}`);
+      remaining -= text.length;
     }
     if (knowledgeBlocks.length > 0) {
-      sectionParts.push(`Project knowledge:\n${knowledgeBlocks.join("\n\n")}`)
+      sectionParts.push(`Project knowledge:\n${knowledgeBlocks.join("\n\n")}`);
     }
   }
 
-  if (sectionParts.length === 0) return null
-  return sectionParts.join("\n\n")
+  if (sectionParts.length === 0) return null;
+  return sectionParts.join("\n\n");
 }
 
 async function buildUserContextMessage(
   userId: string,
   projectId?: string,
 ): Promise<ChatMessage | null> {
-  const findUserSettings = prisma.userSettings?.findUnique?.bind?.(
-    prisma.userSettings,
-  )
-  const findUserMemories = prisma.userMemory?.findMany?.bind?.(
-    prisma.userMemory,
-  )
+  const findUserSettings = prisma.userSettings?.findUnique?.bind?.(prisma.userSettings);
+  const findUserMemories = prisma.userMemory?.findMany?.bind?.(prisma.userMemory);
   const projectContextPromise = projectId
     ? buildProjectContextSection(projectId, userId)
-    : Promise.resolve<string | null>(null)
+    : Promise.resolve<string | null>(null);
 
   const [userSettings, userMemories, projectContext] = await Promise.all([
     findUserSettings
@@ -568,26 +538,24 @@ async function buildUserContextMessage(
         })
       : Promise.resolve<UserMemoryRecord[]>([]),
     projectContextPromise,
-  ])
+  ]);
 
-  const systemParts: string[] = []
+  const systemParts: string[] = [];
   if (userSettings?.customInstructionsAbout) {
-    systemParts.push(`About the user: ${userSettings.customInstructionsAbout}`)
+    systemParts.push(`About the user: ${userSettings.customInstructionsAbout}`);
   }
   if (userSettings?.customInstructionsStyle) {
-    systemParts.push(`Response style: ${userSettings.customInstructionsStyle}`)
+    systemParts.push(`Response style: ${userSettings.customInstructionsStyle}`);
   }
   if (userMemories.length > 0) {
-    systemParts.push(
-      `User memories:\n${userMemories.map((m) => `- ${m.content}`).join("\n")}`,
-    )
+    systemParts.push(`User memories:\n${userMemories.map((m) => `- ${m.content}`).join("\n")}`);
   }
   if (projectContext) {
-    systemParts.push(projectContext)
+    systemParts.push(projectContext);
   }
 
-  if (systemParts.length === 0) return null
-  return { role: "system", content: systemParts.join("\n\n") }
+  if (systemParts.length === 0) return null;
+  return { role: "system", content: systemParts.join("\n\n") };
 }
 
 function resolveAttachmentPart(
@@ -597,17 +565,13 @@ function resolveAttachmentPart(
   modelId: string,
   remainingDocumentChars: number,
 ): { contentPart: ChatMessageContentPart | null; consumedChars: number } {
-  const attachment = attachmentsById.get(part.attachmentId)
+  const attachment = attachmentsById.get(part.attachmentId);
   if (!attachment)
-    throw new AttachmentCapabilityError(
-      `Attachment "${part.fileName}" was not found`,
-    )
+    throw new AttachmentCapabilityError(`Attachment "${part.fileName}" was not found`);
 
   if (attachment.kind === "image") {
     if (!modelCapabilities.images) {
-      throw new AttachmentCapabilityError(
-        `Modelo "${modelId}" nao suporta anexos de imagem`,
-      )
+      throw new AttachmentCapabilityError(`Modelo "${modelId}" nao suporta anexos de imagem`);
     }
     return {
       contentPart: {
@@ -615,7 +579,7 @@ function resolveAttachmentPart(
         image_url: { url: toDataUrl(attachment.mimeType, attachment.blob) },
       },
       consumedChars: 0,
-    }
+    };
   }
 
   const block = buildDocumentContextBlock({
@@ -624,11 +588,11 @@ function resolveAttachmentPart(
     mimeType: attachment.mimeType,
     remainingChars: remainingDocumentChars,
     status: attachment.extractionStatus,
-  })
+  });
   return {
     contentPart: block.text ? { type: "text", text: block.text } : null,
     consumedChars: block.consumedChars,
-  }
+  };
 }
 
 function resolveMessageContent(
@@ -638,15 +602,15 @@ function resolveMessageContent(
   modelId: string,
 ): ChatMessage {
   if (typeof message.content === "string") {
-    return { ...message, content: message.content }
+    return { ...message, content: message.content };
   }
 
-  let remainingDocumentChars = MAX_DOCUMENT_CONTEXT_CHARS
-  const contentParts: ChatMessageContentPart[] = []
+  let remainingDocumentChars = MAX_DOCUMENT_CONTEXT_CHARS;
+  const contentParts: ChatMessageContentPart[] = [];
   for (const part of message.content) {
     if (part.type === "text" || part.type === "image_url") {
-      contentParts.push(part)
-      continue
+      contentParts.push(part);
+      continue;
     }
 
     const { contentPart, consumedChars } = resolveAttachmentPart(
@@ -655,70 +619,58 @@ function resolveMessageContent(
       modelCapabilities,
       modelId,
       remainingDocumentChars,
-    )
-    if (contentPart) contentParts.push(contentPart)
-    remainingDocumentChars = Math.max(0, remainingDocumentChars - consumedChars)
+    );
+    if (contentPart) contentParts.push(contentPart);
+    remainingDocumentChars = Math.max(0, remainingDocumentChars - consumedChars);
   }
 
-  return { ...message, content: contentParts.length > 0 ? contentParts : "" }
+  return { ...message, content: contentParts.length > 0 ? contentParts : "" };
 }
 
 export async function resolveMessagesForProvider(input: {
-  config: ProviderConfig
-  credentials: Record<string, string>
-  messages: ChatInputMessage[]
-  modelId: string
-  modelCapabilities?: ProviderModelCapabilities
-  userId?: string
-  projectId?: string
+  config: ProviderConfig;
+  credentials: Record<string, string>;
+  messages: ChatInputMessage[];
+  modelId: string;
+  modelCapabilities?: ProviderModelCapabilities;
+  userId?: string;
+  projectId?: string;
 }): Promise<ChatMessage[]> {
   const modelCapabilities =
     input.modelCapabilities ??
-    (await getModelCapabilities(
-      input.config,
-      input.modelId,
-      input.credentials,
-      input.userId,
-    ))
+    (await getModelCapabilities(input.config, input.modelId, input.credentials, input.userId));
 
-  const attachmentIds = collectAttachmentIds(input.messages)
-  const attachmentsById = await loadAttachments(attachmentIds, input.userId)
+  const attachmentIds = collectAttachmentIds(input.messages);
+  const attachmentsById = await loadAttachments(attachmentIds, input.userId);
 
-  const resolvedMessages: ChatMessage[] = []
+  const resolvedMessages: ChatMessage[] = [];
   if (input.userId) {
-    const ctx = await buildUserContextMessage(input.userId, input.projectId)
-    if (ctx) resolvedMessages.push(ctx)
+    const ctx = await buildUserContextMessage(input.userId, input.projectId);
+    if (ctx) resolvedMessages.push(ctx);
   }
 
   for (const message of input.messages) {
     resolvedMessages.push(
-      resolveMessageContent(
-        message,
-        attachmentsById,
-        modelCapabilities,
-        input.modelId,
-      ),
-    )
+      resolveMessageContent(message, attachmentsById, modelCapabilities, input.modelId),
+    );
   }
 
-  return resolvedMessages
+  return resolvedMessages;
 }
 
 function extractSseTextDelta(parsed: OpenAiSseChunk | null): string {
-  const delta = parsed?.choices?.[0]?.delta
-  if (!delta) return ""
+  const delta = parsed?.choices?.[0]?.delta;
+  if (!delta) return "";
 
   if (typeof delta.content === "string") {
-    return delta.content
+    return delta.content;
   }
 
   if (Array.isArray(delta.content)) {
-    return delta.content
-      .map((part) => (typeof part.text === "string" ? part.text : ""))
-      .join("")
+    return delta.content.map((part) => (typeof part.text === "string" ? part.text : "")).join("");
   }
 
-  return ""
+  return "";
 }
 
 async function writeFinish(
@@ -726,16 +678,16 @@ async function writeFinish(
   reason = "stop",
   usage?: { promptTokens: number; completionTokens: number },
 ): Promise<void> {
-  const encoder = new TextEncoder()
-  const payload: Record<string, unknown> = { finishReason: reason }
+  const encoder = new TextEncoder();
+  const payload: Record<string, unknown> = { finishReason: reason };
   if (usage) {
-    payload.usage = usage
+    payload.usage = usage;
   }
-  await writer.write(encoder.encode(`d:${JSON.stringify(payload)}\n`))
+  await writer.write(encoder.encode(`d:${JSON.stringify(payload)}\n`));
 }
 
 function logParsingIssue(context: string, error: unknown): void {
-  logger.debug("provider.parsing_issue", { context, error })
+  logger.debug("provider.parsing_issue", { context, error });
 }
 
 function accumulateToolCallDeltas(
@@ -743,10 +695,10 @@ function accumulateToolCallDeltas(
   accumulated: Map<number, AccumulatedToolCall>,
 ): void {
   for (const tc of deltas) {
-    const existing = accumulated.get(tc.index)
+    const existing = accumulated.get(tc.index);
     if (existing) {
       if (tc.function?.arguments) {
-        existing.function.arguments += tc.function.arguments
+        existing.function.arguments += tc.function.arguments;
       }
     } else {
       accumulated.set(tc.index, {
@@ -756,7 +708,7 @@ function accumulateToolCallDeltas(
           name: tc.function?.name || "",
           arguments: tc.function?.arguments || "",
         },
-      })
+      });
     }
   }
 }
@@ -765,20 +717,20 @@ async function flushAccumulatedToolCalls(
   accumulated: Map<number, AccumulatedToolCall>,
   writer: WritableStreamDefaultWriter<Uint8Array>,
 ): Promise<void> {
-  const encoder = new TextEncoder()
+  const encoder = new TextEncoder();
   for (const [, tc] of accumulated) {
-    if (!tc.id || !tc.function.name) continue
-    let args: Record<string, unknown> = {}
+    if (!tc.id || !tc.function.name) continue;
+    let args: Record<string, unknown> = {};
     try {
-      args = JSON.parse(tc.function.arguments) as Record<string, unknown>
+      args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
     } catch {
       // arguments may be empty or invalid — send as-is string wrapped
-      args = { _raw: tc.function.arguments }
+      args = { _raw: tc.function.arguments };
     }
-    const payload = { toolCallId: tc.id, toolName: tc.function.name, args }
-    await writer.write(encoder.encode(`9:${JSON.stringify(payload)}\n`))
+    const payload = { toolCallId: tc.id, toolName: tc.function.name, args };
+    await writer.write(encoder.encode(`9:${JSON.stringify(payload)}\n`));
   }
-  accumulated.clear()
+  accumulated.clear();
 }
 
 async function processSseLine(
@@ -786,116 +738,111 @@ async function processSseLine(
   writer: WritableStreamDefaultWriter<Uint8Array>,
   toolCallAccumulator: Map<number, AccumulatedToolCall>,
   usageAccumulator: {
-    value: { promptTokens: number; completionTokens: number } | null
+    value: { promptTokens: number; completionTokens: number } | null;
   },
 ): Promise<boolean> {
-  const encoder = new TextEncoder()
-  const line = lineRaw.trim()
-  if (!line.startsWith("data:")) return false
+  const encoder = new TextEncoder();
+  const line = lineRaw.trim();
+  if (!line.startsWith("data:")) return false;
 
-  const data = line.slice(5).trim()
-  if (!data) return false
+  const data = line.slice(5).trim();
+  if (!data) return false;
 
   if (data === "[DONE]") {
-    await flushAccumulatedToolCalls(toolCallAccumulator, writer)
-    await writeFinish(writer, "stop", usageAccumulator.value ?? undefined)
-    return true
+    await flushAccumulatedToolCalls(toolCallAccumulator, writer);
+    await writeFinish(writer, "stop", usageAccumulator.value ?? undefined);
+    return true;
   }
 
   try {
-    const parsed = JSON.parse(data) as OpenAiSseChunk
-    const token = extractSseTextDelta(parsed)
+    const parsed = JSON.parse(data) as OpenAiSseChunk;
+    const token = extractSseTextDelta(parsed);
     if (token) {
-      await writer.write(encoder.encode(`0:${JSON.stringify(token)}\n`))
+      await writer.write(encoder.encode(`0:${JSON.stringify(token)}\n`));
     }
 
-    const toolCallDeltas = parsed.choices?.[0]?.delta?.tool_calls
+    const toolCallDeltas = parsed.choices?.[0]?.delta?.tool_calls;
     if (toolCallDeltas && Array.isArray(toolCallDeltas)) {
-      accumulateToolCallDeltas(toolCallDeltas, toolCallAccumulator)
+      accumulateToolCallDeltas(toolCallDeltas, toolCallAccumulator);
     }
 
     // Capture usage from chunks that carry it (sent when stream_options.include_usage=true)
     const usageRaw = (parsed as Record<string, unknown>).usage as
-      Record<string, unknown> | undefined
+      Record<string, unknown> | undefined;
     if (usageRaw && typeof usageRaw.prompt_tokens === "number") {
       usageAccumulator.value = {
         promptTokens: usageRaw.prompt_tokens as number,
-        completionTokens:
-          (usageRaw.completion_tokens as number | undefined) ?? 0,
-      }
+        completionTokens: (usageRaw.completion_tokens as number | undefined) ?? 0,
+      };
     }
 
-    const finishReason = parsed.choices?.[0]?.finish_reason
+    const finishReason = parsed.choices?.[0]?.finish_reason;
     if (finishReason && finishReason !== "null") {
-      await flushAccumulatedToolCalls(toolCallAccumulator, writer)
+      await flushAccumulatedToolCalls(toolCallAccumulator, writer);
       await writeFinish(
         writer,
         finishReason === "tool_calls" ? "tool-calls" : finishReason,
         usageAccumulator.value ?? undefined,
-      )
-      return true
+      );
+      return true;
     }
   } catch (error) {
-    logParsingIssue("Ignoring malformed upstream SSE chunk.", error)
+    logParsingIssue("Ignoring malformed upstream SSE chunk.", error);
   }
 
-  return false
+  return false;
 }
 
 export function toVercelStreamFromOpenAiSse(
   upstream: Response,
   onUsage?: (usage: { promptTokens: number; completionTokens: number }) => void,
 ): Response {
-  const decoder = new TextDecoder()
-  const { readable, writable } = new TransformStream()
-  const writer = writable.getWriter()
-  const toolCallAccumulator = new Map<number, AccumulatedToolCall>()
+  const decoder = new TextDecoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const toolCallAccumulator = new Map<number, AccumulatedToolCall>();
   const usageAccumulator: {
-    value: { promptTokens: number; completionTokens: number } | null
-  } = { value: null }
+    value: { promptTokens: number; completionTokens: number } | null;
+  } = { value: null };
 
-  ;(async () => {
-    let didFinish = false
+  (async () => {
+    let didFinish = false;
     try {
-      const reader = upstream.body?.getReader()
-      if (!reader) throw new Error("Upstream response has no body stream")
+      const reader = upstream.body?.getReader();
+      if (!reader) throw new Error("Upstream response has no body stream");
 
-      let buffer = ""
+      let buffer = "";
       while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() || ""
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
         for (const lineRaw of lines) {
           didFinish =
-            (await processSseLine(
-              lineRaw,
-              writer,
-              toolCallAccumulator,
-              usageAccumulator,
-            )) || didFinish
+            (await processSseLine(lineRaw, writer, toolCallAccumulator, usageAccumulator)) ||
+            didFinish;
         }
       }
 
       if (!didFinish) {
-        await flushAccumulatedToolCalls(toolCallAccumulator, writer)
-        await writeFinish(writer, "stop", usageAccumulator.value ?? undefined)
+        await flushAccumulatedToolCalls(toolCallAccumulator, writer);
+        await writeFinish(writer, "stop", usageAccumulator.value ?? undefined);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      const encoder = new TextEncoder()
-      await writer.write(encoder.encode(`3:${JSON.stringify(message)}\n`))
-      await writeFinish(writer, "error")
+      const message = error instanceof Error ? error.message : String(error);
+      const encoder = new TextEncoder();
+      await writer.write(encoder.encode(`3:${JSON.stringify(message)}\n`));
+      await writeFinish(writer, "error");
     } finally {
       if (usageAccumulator.value && onUsage) {
-        onUsage(usageAccumulator.value)
+        onUsage(usageAccumulator.value);
       }
-      await writer.close()
+      await writer.close();
     }
-  })()
+  })();
 
   return new Response(readable, {
     headers: {
@@ -903,47 +850,47 @@ export function toVercelStreamFromOpenAiSse(
       "Cache-Control": "no-cache",
       "Transfer-Encoding": "chunked",
     },
-  })
+  });
 }
 
 export function toVercelSingleTextResponse(text: string): Response {
-  const payload = `0:${JSON.stringify(text)}\nd:{"finishReason":"stop"}\n`
+  const payload = `0:${JSON.stringify(text)}\nd:{"finishReason":"stop"}\n`;
   return new Response(payload, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache",
     },
-  })
+  });
 }
 
 export function toVercelToolCallsResponse(
   toolCalls: Array<{
-    id: string
-    type: "function"
-    function: { name: string; arguments: string }
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
   }>,
   textContent?: string,
 ): Response {
-  let payload = ""
+  let payload = "";
   if (textContent) {
-    payload += `0:${JSON.stringify(textContent)}\n`
+    payload += `0:${JSON.stringify(textContent)}\n`;
   }
   for (const tc of toolCalls) {
-    let args: Record<string, unknown> = {}
+    let args: Record<string, unknown> = {};
     try {
-      args = JSON.parse(tc.function.arguments) as Record<string, unknown>
+      args = JSON.parse(tc.function.arguments) as Record<string, unknown>;
     } catch {
-      args = { _raw: tc.function.arguments }
+      args = { _raw: tc.function.arguments };
     }
-    payload += `9:${JSON.stringify({ toolCallId: tc.id, toolName: tc.function.name, args })}\n`
+    payload += `9:${JSON.stringify({ toolCallId: tc.id, toolName: tc.function.name, args })}\n`;
   }
-  payload += `d:{"finishReason":"tool-calls"}\n`
+  payload += `d:{"finishReason":"tool-calls"}\n`;
   return new Response(payload, {
     headers: {
       "Content-Type": "text/plain; charset=utf-8",
       "Cache-Control": "no-cache",
     },
-  })
+  });
 }
 
 /**
@@ -951,58 +898,55 @@ export function toVercelToolCallsResponse(
  * Vercel format: `0:"text"\n`, `9:{toolCall}\n`, `d:{"finishReason":"stop"}\n`
  * OpenAI format: `data: {"choices":[{"delta":{"content":"text"}}]}\n\n`
  */
-export function vercelStreamToOpenAiSse(
-  vercelResponse: Response,
-  model: string,
-): Response {
+export function vercelStreamToOpenAiSse(vercelResponse: Response, model: string): Response {
   // Pass through non-2xx responses as OpenAI-compatible error JSON
   if (!vercelResponse.ok) {
-    return vercelResponse
+    return vercelResponse;
   }
 
-  const chatId = `chatcmpl-${Date.now()}`
-  const created = Math.floor(Date.now() / 1000)
+  const chatId = `chatcmpl-${Date.now()}`;
+  const created = Math.floor(Date.now() / 1000);
 
   // Non-streaming: collect full body and return as single JSON
   if (!vercelResponse.body) {
-    return toOpenAiNonStreamingResponse(vercelResponse, model, chatId, created)
+    return toOpenAiNonStreamingResponse(vercelResponse, model, chatId, created);
   }
 
-  const decoder = new TextDecoder()
-  const encoder = new TextEncoder()
-  const { readable, writable } = new TransformStream()
-  const writer = writable.getWriter()
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
 
-  ;(async () => {
+  (async () => {
     try {
-      const reader = vercelResponse.body!.getReader()
-      let buffer = ""
+      const reader = vercelResponse.body!.getReader();
+      let buffer = "";
       const toolCalls: Array<{
-        id: string
-        type: "function"
-        function: { name: string; arguments: string }
-      }> = []
+        id: string;
+        type: "function";
+        function: { name: string; arguments: string };
+      }> = [];
 
       while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
+        const { done, value } = await reader.read();
+        if (done) break;
 
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() || ""
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
-          if (!line) continue
-          const colonIdx = line.indexOf(":")
-          if (colonIdx < 0) continue
+          if (!line) continue;
+          const colonIdx = line.indexOf(":");
+          if (colonIdx < 0) continue;
 
-          const prefix = line.substring(0, colonIdx)
-          const payload = line.substring(colonIdx + 1)
+          const prefix = line.substring(0, colonIdx);
+          const payload = line.substring(colonIdx + 1);
 
           if (prefix === "0") {
             // Text chunk
-            const text = JSON.parse(payload) as string
-            if (!text) continue
+            const text = JSON.parse(payload) as string;
+            if (!text) continue;
             const chunk = {
               id: chatId,
               object: "chat.completion.chunk",
@@ -1015,17 +959,15 @@ export function vercelStreamToOpenAiSse(
                   finish_reason: null,
                 },
               ],
-            }
-            await writer.write(
-              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
-            )
+            };
+            await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
           } else if (prefix === "9") {
             // Tool call
             const tc = JSON.parse(payload) as {
-              toolCallId: string
-              toolName: string
-              args: unknown
-            }
+              toolCallId: string;
+              toolName: string;
+              args: unknown;
+            };
             toolCalls.push({
               id: tc.toolCallId,
               type: "function",
@@ -1033,20 +975,18 @@ export function vercelStreamToOpenAiSse(
                 name: tc.toolName,
                 arguments: JSON.stringify(tc.args),
               },
-            })
+            });
           } else if (prefix === "d") {
             // Finish
             const data = JSON.parse(payload) as {
-              finishReason: string
-              usage?: { promptTokens: number; completionTokens: number }
-            }
+              finishReason: string;
+              usage?: { promptTokens: number; completionTokens: number };
+            };
             const finishReason =
-              data.finishReason === "tool-calls"
-                ? "tool_calls"
-                : data.finishReason
-            const delta: Record<string, unknown> = {}
+              data.finishReason === "tool-calls" ? "tool_calls" : data.finishReason;
+            const delta: Record<string, unknown> = {};
             if (toolCalls.length > 0) {
-              delta.tool_calls = toolCalls.map((tc, i) => ({ index: i, ...tc }))
+              delta.tool_calls = toolCalls.map((tc, i) => ({ index: i, ...tc }));
             }
             const chunk = {
               id: chatId,
@@ -1054,10 +994,8 @@ export function vercelStreamToOpenAiSse(
               created,
               model,
               choices: [{ index: 0, delta, finish_reason: finishReason }],
-            }
-            await writer.write(
-              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
-            )
+            };
+            await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
             // Emit usage chunk if available (OpenAI stream_options.include_usage format)
             if (data.usage) {
               const usageChunk = {
@@ -1069,18 +1007,15 @@ export function vercelStreamToOpenAiSse(
                 usage: {
                   prompt_tokens: data.usage.promptTokens,
                   completion_tokens: data.usage.completionTokens,
-                  total_tokens:
-                    data.usage.promptTokens + data.usage.completionTokens,
+                  total_tokens: data.usage.promptTokens + data.usage.completionTokens,
                 },
-              }
-              await writer.write(
-                encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`),
-              )
+              };
+              await writer.write(encoder.encode(`data: ${JSON.stringify(usageChunk)}\n\n`));
             }
-            await writer.write(encoder.encode("data: [DONE]\n\n"))
+            await writer.write(encoder.encode("data: [DONE]\n\n"));
           } else if (prefix === "3") {
             // Error
-            const errMsg = JSON.parse(payload) as string
+            const errMsg = JSON.parse(payload) as string;
             const chunk = {
               id: chatId,
               object: "chat.completion.chunk",
@@ -1093,20 +1028,18 @@ export function vercelStreamToOpenAiSse(
                   finish_reason: null,
                 },
               ],
-            }
-            await writer.write(
-              encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`),
-            )
+            };
+            await writer.write(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
           }
         }
       }
     } catch {
       // Stream ended unexpectedly — send DONE to close cleanly
-      await writer.write(encoder.encode("data: [DONE]\n\n"))
+      await writer.write(encoder.encode("data: [DONE]\n\n"));
     } finally {
-      await writer.close()
+      await writer.close();
     }
-  })()
+  })();
 
   return new Response(readable, {
     status: vercelResponse.status,
@@ -1115,7 +1048,7 @@ export function vercelStreamToOpenAiSse(
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
     },
-  })
+  });
 }
 
 function toOpenAiNonStreamingResponse(
@@ -1136,65 +1069,58 @@ function toOpenAiNonStreamingResponse(
         finish_reason: "stop",
       },
     ],
-  }
+  };
   return new Response(JSON.stringify(body), {
     status: vercelResponse.status,
     headers: { "Content-Type": "application/json" },
-  })
+  });
 }
 
 function requireEnv(name: string): string {
-  const value = process.env[name]
+  const value = process.env[name];
   if (!value) {
-    throw new Error(`CONFIG_ERROR:${name}`)
+    throw new Error(`CONFIG_ERROR:${name}`);
   }
 
-  return value
+  return value;
 }
 
-export function resolveEnv(
-  name: string,
-  credentials?: Record<string, string>,
-): string {
-  const fromCredentials = credentials?.[name]
+export function resolveEnv(name: string, credentials?: Record<string, string>): string {
+  const fromCredentials = credentials?.[name];
   if (fromCredentials) {
-    return fromCredentials
+    return fromCredentials;
   }
 
-  return requireEnv(name)
+  return requireEnv(name);
 }
 
 function getUtf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).length
+  return new TextEncoder().encode(value).length;
 }
 
 function parseCredentialsHeader(request: {
-  header: (name: string) => string | undefined
+  header: (name: string) => string | undefined;
 }): Record<string, string> {
-  const raw = request.header("x-provider-credentials")
-  if (!raw) return {}
+  const raw = request.header("x-provider-credentials");
+  if (!raw) return {};
 
   try {
-    const decoded = atob(raw)
-    const parsed: unknown = JSON.parse(decoded)
-    if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
-    ) {
-      const result: Record<string, string> = {}
+    const decoded = atob(raw);
+    const parsed: unknown = JSON.parse(decoded);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      const result: Record<string, string> = {};
       for (const [key, value] of Object.entries(parsed)) {
         if (typeof value === "string" && value.length > 0) {
-          result[key] = value
+          result[key] = value;
         }
       }
-      return result
+      return result;
     }
   } catch {
     // Invalid header, ignore
   }
 
-  return {}
+  return {};
 }
 
 /**
@@ -1206,70 +1132,70 @@ async function getUserProviderCredentials(
   userId: string | undefined,
   providerId: string,
 ): Promise<Record<string, string>> {
-  if (!userId) return {}
+  if (!userId) return {};
 
   try {
     const rows = await prisma.providerCredential.findMany({
       where: { userId, providerId },
       select: { credentialKey: true, credentialValue: true },
-    })
+    });
 
-    const result: Record<string, string> = {}
+    const result: Record<string, string> = {};
     for (const row of rows) {
       try {
-        result[row.credentialKey] = decryptCredential(row.credentialValue)
+        result[row.credentialKey] = decryptCredential(row.credentialValue);
       } catch {
         logger.error("credentials.decrypt_failed", {
           credentialKey: row.credentialKey,
           providerId,
           userId,
-        })
+        });
       }
     }
-    return result
+    return result;
   } catch (error) {
-    logger.error("credentials.load_failed", { error, providerId })
-    return {}
+    logger.error("credentials.load_failed", { error, providerId });
+    return {};
   }
 }
 
 function logProviderError(providerId: string, error: unknown): void {
-  logger.error("provider.request_failed", { error, providerId })
+  logger.error("provider.request_failed", { error, providerId });
 }
 
 /**
  * Registra uso no banco de dados em background (fire-and-forget).
  * Nunca lança erro — falhas são logadas silenciosamente.
  */
-const MAX_USAGE_LOG_ERROR_CHARS = 8000
+const MAX_USAGE_LOG_ERROR_CHARS = 8000;
 
 function logUsage(data: {
-  userId: string | undefined
-  apiKeyId: string | undefined
-  providerId: string
-  modelId: string | undefined
-  endpoint: string | undefined
-  statusCode: number
-  errorDetail?: string | null
-  inputTokens?: number | null
-  outputTokens?: number | null
-  costUsd?: number | null
-  durationMs?: number | null
-  routingTier?: string | null
-  routingReason?: string | null
-  taskCategory?: string | null
-  baselineModelId?: string | null
-  baselineCostUsd?: number | null
-  conversationId?: string | null
-  messageId?: string | null
-  ttftMs?: number | null
+  userId: string | undefined;
+  apiKeyId: string | undefined;
+  providerId: string;
+  modelId: string | undefined;
+  endpoint: string | undefined;
+  statusCode: number;
+  errorDetail?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  costUsd?: number | null;
+  durationMs?: number | null;
+  routingTier?: string | null;
+  routingReason?: string | null;
+  taskCategory?: string | null;
+  baselineModelId?: string | null;
+  baselineCostUsd?: number | null;
+  conversationId?: string | null;
+  messageId?: string | null;
+  ttftMs?: number | null;
 }): Promise<string | null> {
-  if (!data.userId) return Promise.resolve(null)
+  if (!data.userId) return Promise.resolve(null);
 
   const errorDetail =
     data.errorDetail && data.errorDetail.length > 0
       ? data.errorDetail.slice(0, MAX_USAGE_LOG_ERROR_CHARS)
-      : null
+      : null;
 
   return prisma.usageLog
     .create({
@@ -1298,23 +1224,23 @@ function logUsage(data: {
     })
     .then((log) => log.id)
     .catch((err: unknown) => {
-      logger.error("usage_log.record_failed", { error: err })
-      return null
-    })
+      logger.error("usage_log.record_failed", { error: err });
+      return null;
+    });
 }
 
-const MAX_USAGE_CORRELATION_ID_LENGTH = 64
+const MAX_USAGE_CORRELATION_ID_LENGTH = 64;
 
 function sanitizeUsageCorrelationId(value: string | undefined): string | null {
-  const normalized = value?.trim()
+  const normalized = value?.trim();
   if (
     !normalized ||
     normalized.length > MAX_USAGE_CORRELATION_ID_LENGTH ||
     !/^[A-Za-z0-9_-]+$/.test(normalized)
   ) {
-    return null
+    return null;
   }
-  return normalized
+  return normalized;
 }
 
 async function resolveUsageCorrelation(
@@ -1322,52 +1248,44 @@ async function resolveUsageCorrelation(
   conversationHeader: string | undefined,
   messageHeader: string | undefined,
 ): Promise<{ conversationId: string | null; messageId: string | null }> {
-  if (!userId) return { conversationId: null, messageId: null }
+  if (!userId) return { conversationId: null, messageId: null };
 
-  const conversationId = sanitizeUsageCorrelationId(conversationHeader)
-  const messageId = sanitizeUsageCorrelationId(messageHeader)
-  if (!conversationId) return { conversationId: null, messageId: null }
+  const conversationId = sanitizeUsageCorrelationId(conversationHeader);
+  const messageId = sanitizeUsageCorrelationId(messageHeader);
+  if (!conversationId) return { conversationId: null, messageId: null };
 
   try {
     const conversation = await prisma.conversation.findFirst({
       where: { id: conversationId, userId },
       select: { id: true },
-    })
-    return conversation
-      ? { conversationId, messageId }
-      : { conversationId: null, messageId: null }
+    });
+    return conversation ? { conversationId, messageId } : { conversationId: null, messageId: null };
   } catch (error) {
-    logger.warn("usage_log.correlation_failed", { error })
-    return { conversationId: null, messageId: null }
+    logger.warn("usage_log.correlation_failed", { error });
+    return { conversationId: null, messageId: null };
   }
 }
 
-async function updateUsageLogTiming(
-  logId: string,
-  ttftMs: number,
-): Promise<void> {
+async function updateUsageLogTiming(logId: string, ttftMs: number): Promise<void> {
   await prisma.usageLog
     .update({
       where: { id: logId },
       data: { ttftMs },
     })
     .catch((err: unknown) => {
-      logger.error("usage_log.ttft_update_failed", { error: err })
-    })
+      logger.error("usage_log.ttft_update_failed", { error: err });
+    });
 }
 
-async function updateUsageLogDuration(
-  logId: string,
-  durationMs: number,
-): Promise<void> {
+async function updateUsageLogDuration(logId: string, durationMs: number): Promise<void> {
   await prisma.usageLog
     .update({
       where: { id: logId },
       data: { durationMs },
     })
     .catch((err: unknown) => {
-      logger.error("usage_log.duration_update_failed", { error: err })
-    })
+      logger.error("usage_log.duration_update_failed", { error: err });
+    });
 }
 
 async function updateUsageLogTokens(
@@ -1376,20 +1294,15 @@ async function updateUsageLogTokens(
   providerId: string,
   modelId: string | undefined,
 ): Promise<void> {
-  const { calculateCostUsd } = await import("./model-pricing")
+  const { calculateCostUsd } = await import("./model-pricing");
   // Garante que o cache de preços esteja carregado antes de calcular o custo.
   // updateUsageLogTokens já roda em background, então o await é seguro e evita
   // que a primeira chamada de um modelo dinâmico calcule custo como null.
-  const { ensureOpenRouterPricingFresh } = await import("./openrouter-pricing")
-  await ensureOpenRouterPricingFresh().catch(() => {})
+  const { ensureOpenRouterPricingFresh } = await import("./openrouter-pricing");
+  await ensureOpenRouterPricingFresh().catch(() => {});
   const costUsd = modelId
-    ? calculateCostUsd(
-        providerId,
-        modelId,
-        tokens.inputTokens,
-        tokens.completionTokens,
-      )
-    : null
+    ? calculateCostUsd(providerId, modelId, tokens.inputTokens, tokens.completionTokens)
+    : null;
 
   await prisma.usageLog
     .update({
@@ -1401,8 +1314,8 @@ async function updateUsageLogTokens(
       },
     })
     .catch((err: unknown) => {
-      logger.error("usage_log.tokens_update_failed", { error: err })
-    })
+      logger.error("usage_log.tokens_update_failed", { error: err });
+    });
 }
 
 export function upstreamErrorResponse(
@@ -1413,52 +1326,45 @@ export function upstreamErrorResponse(
 ): Response {
   // Provedores podem ecoar a credencial no corpo do erro (ex.: 401 da Anthropic);
   // redige antes de logar/persistir/devolver ao cliente.
-  const detailsForLog =
-    detailsForLogRaw === undefined ? undefined : scrubSecrets(detailsForLogRaw)
+  const detailsForLog = detailsForLogRaw === undefined ? undefined : scrubSecrets(detailsForLogRaw);
   logger.error("provider.upstream_error", {
     details: detailsForLog?.slice(0, 500),
     provider: providerName,
     status,
-  })
+  });
 
-  const upstreamSnippet = detailsForLog?.slice(0, 4000)
-  const fromUpstream = upstreamSnippet ? { upstream: upstreamSnippet } : {}
+  const upstreamSnippet = detailsForLog?.slice(0, 4000);
+  const fromUpstream = upstreamSnippet ? { upstream: upstreamSnippet } : {};
   const details =
-    Object.keys(fromUpstream).length > 0 ||
-    (extraFields && Object.keys(extraFields).length > 0)
+    Object.keys(fromUpstream).length > 0 || (extraFields && Object.keys(extraFields).length > 0)
       ? { ...fromUpstream, ...extraFields }
-      : undefined
-  const upstreamMessage = extractUpstreamErrorMessage(detailsForLog)
+      : undefined;
+  const upstreamMessage = extractUpstreamErrorMessage(detailsForLog);
   const message = upstreamMessage
     ? `${providerName} upstream error: ${upstreamMessage}`
-    : `${providerName} upstream error`
-  return jsonErrorResponse(status, message, details)
+    : `${providerName} upstream error`;
+  return jsonErrorResponse(status, message, details);
 }
 
-function extractUpstreamErrorMessage(
-  detailsForLog: string | undefined,
-): string {
-  if (!detailsForLog) return ""
+function extractUpstreamErrorMessage(detailsForLog: string | undefined): string {
+  if (!detailsForLog) return "";
 
   try {
-    const parsed: unknown = JSON.parse(detailsForLog)
+    const parsed: unknown = JSON.parse(detailsForLog);
     if (typeof parsed === "object" && parsed !== null) {
-      const record = parsed as Record<string, unknown>
+      const record = parsed as Record<string, unknown>;
       if (typeof record.message === "string" && record.message.trim()) {
-        return record.message.trim().slice(0, 500)
+        return record.message.trim().slice(0, 500);
       }
 
       if (typeof record.error === "string" && record.error.trim()) {
-        return record.error.trim().slice(0, 500)
+        return record.error.trim().slice(0, 500);
       }
 
       if (typeof record.error === "object" && record.error !== null) {
-        const errorRecord = record.error as Record<string, unknown>
-        if (
-          typeof errorRecord.message === "string" &&
-          errorRecord.message.trim()
-        ) {
-          return errorRecord.message.trim().slice(0, 500)
+        const errorRecord = record.error as Record<string, unknown>;
+        if (typeof errorRecord.message === "string" && errorRecord.message.trim()) {
+          return errorRecord.message.trim().slice(0, 500);
         }
       }
     }
@@ -1466,189 +1372,158 @@ function extractUpstreamErrorMessage(
     // Fall through to plain-text extraction.
   }
 
-  const plain = detailsForLog.trim()
-  return plain.startsWith("{") ? "" : plain.slice(0, 500)
+  const plain = detailsForLog.trim();
+  return plain.startsWith("{") ? "" : plain.slice(0, 500);
 }
 
 function formatProviderErrorDetail(error: unknown): string {
   if (error instanceof Error) {
-    let s = error.message
+    let s = error.message;
     if (error.cause !== undefined) {
-      const c =
-        error.cause instanceof Error ? error.cause.message : String(error.cause)
-      s = `${s} (${c})`
+      const c = error.cause instanceof Error ? error.cause.message : String(error.cause);
+      s = `${s} (${c})`;
     }
-    return s
+    return s;
   }
-  return String(error)
+  return String(error);
 }
 
-export function internalProviderErrorResponse(
-  providerName: string,
-  error: unknown,
-): Response {
-  logger.error("provider.internal_error", { error, provider: providerName })
-  const detail = formatProviderErrorDetail(error)
-  const max = 2000
-  const truncated = detail.length > max ? `${detail.slice(0, max)}…` : detail
-  return jsonErrorResponse(500, `${providerName} request failed: ${truncated}`)
+export function internalProviderErrorResponse(providerName: string, error: unknown): Response {
+  logger.error("provider.internal_error", { error, provider: providerName });
+  const detail = formatProviderErrorDetail(error);
+  const max = 2000;
+  const truncated = detail.length > max ? `${detail.slice(0, max)}…` : detail;
+  return jsonErrorResponse(500, `${providerName} request failed: ${truncated}`);
 }
 
 type AppEnv = {
   Variables: {
-    userId: string
-    apiKeyId: string
-  }
-}
+    userId: string;
+    apiKeyId: string;
+  };
+};
 
 export function createProviderApp(config: ProviderConfig) {
-  const app = new Hono<AppEnv>().basePath(config.basePath)
-  app.onError(handleApiError)
+  const app = new Hono<AppEnv>().basePath(config.basePath);
+  app.onError(handleApiError);
 
-  app.use("*", securityHeaders)
-  app.use("*", protectedCors)
+  app.use("*", securityHeaders);
+  app.use("*", protectedCors);
   app.use("*", async (c, next) => {
     const accessError = await ensureProtectedAccess(c, {
       providerId: config.providerId,
-    })
+    });
     if (accessError) {
-      return accessError
+      return accessError;
     }
 
-    return next()
-  })
+    return next();
+  });
 
   app.get("/api/models", async (c) => {
-    const userId = c.get("userId") as string | undefined
-    const dbCredentials = await getUserProviderCredentials(
-      userId,
-      config.providerId,
-    )
-    const headerCredentials = parseCredentialsHeader(c.req)
-    const credentials = { ...dbCredentials, ...headerCredentials }
+    const userId = c.get("userId") as string | undefined;
+    const dbCredentials = await getUserProviderCredentials(userId, config.providerId);
+    const headerCredentials = parseCredentialsHeader(c.req);
+    const credentials = { ...dbCredentials, ...headerCredentials };
 
     if (config.fetchModels) {
-      const models = await fetchCachedProviderModels(
-        config,
-        credentials,
-        userId,
-      )
-      return c.json({ models })
+      const models = await fetchCachedProviderModels(config, credentials, userId);
+      return c.json({ models });
     }
-    return c.json({ models: config.models })
-  })
+    return c.json({ models: config.models });
+  });
 
   app.post("/api/test", async (c) => {
     try {
       // Merge: header > db > env (mesma lógica do /api/chat)
-      const userId = c.get("userId") as string | undefined
-      const dbCredentials = await getUserProviderCredentials(
-        userId,
-        config.providerId,
-      )
-      const headerCredentials = parseCredentialsHeader(c.req)
-      const credentials = { ...dbCredentials, ...headerCredentials }
+      const userId = c.get("userId") as string | undefined;
+      const dbCredentials = await getUserProviderCredentials(userId, config.providerId);
+      const headerCredentials = parseCredentialsHeader(c.req);
+      const credentials = { ...dbCredentials, ...headerCredentials };
 
       if (Object.keys(credentials).length === 0) {
-        return c.json(
-          { ok: false, error: "Nenhuma credencial fornecida para teste." },
-          400,
-        )
+        return c.json({ ok: false, error: "Nenhuma credencial fornecida para teste." }, 400);
       }
 
       if (!config.testCredentials) {
         // Provider does not support credential testing — accept gracefully
-        return c.json({ ok: true, skipped: true })
+        return c.json({ ok: true, skipped: true });
       }
 
-      const result = await config.testCredentials(credentials)
-      return c.json(result, result.ok ? 200 : 401)
+      const result = await config.testCredentials(credentials);
+      return c.json(result, result.ok ? 200 : 401);
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Erro desconhecido ao testar credenciais."
-      return c.json({ ok: false, error: message }, 500)
+        error instanceof Error ? error.message : "Erro desconhecido ao testar credenciais.";
+      return c.json({ ok: false, error: message }, 500);
     }
-  })
+  });
 
   app.post("/api/chat", async (c) => {
     try {
-      const contentLengthHeader = c.req.header("content-length")
+      const contentLengthHeader = c.req.header("content-length");
       if (contentLengthHeader) {
-        const contentLength = Number(contentLengthHeader)
-        if (
-          Number.isFinite(contentLength) &&
-          contentLength > MAX_PROVIDER_REQUEST_BODY_BYTES
-        ) {
-          return jsonErrorResponse(413, "Request body too large")
+        const contentLength = Number(contentLengthHeader);
+        if (Number.isFinite(contentLength) && contentLength > MAX_PROVIDER_REQUEST_BODY_BYTES) {
+          return jsonErrorResponse(413, "Request body too large");
         }
       }
 
-      const rawRequestBody = await c.req.text()
+      const rawRequestBody = await c.req.text();
       if (getUtf8ByteLength(rawRequestBody) > MAX_PROVIDER_REQUEST_BODY_BYTES) {
-        return jsonErrorResponse(413, "Request body too large")
+        return jsonErrorResponse(413, "Request body too large");
       }
 
-      let rawJson: unknown
+      let rawJson: unknown;
       try {
-        rawJson = JSON.parse(rawRequestBody) as unknown
+        rawJson = JSON.parse(rawRequestBody) as unknown;
       } catch {
-        return jsonErrorResponse(400, "Invalid JSON request body")
+        return jsonErrorResponse(400, "Invalid JSON request body");
       }
 
-      const parsedBody = providerChatBodySchema.safeParse(rawJson)
+      const parsedBody = providerChatBodySchema.safeParse(rawJson);
       if (!parsedBody.success) {
-        const zodIssues = parsedBody.error.issues
+        const zodIssues = parsedBody.error.issues;
         // Alguns clientes só mostram error.message; o Zod guarda a causa em issues.
         logger.warn("provider.invalid_chat_body", {
           providerId: config.providerId,
           issueCount: zodIssues.length,
           issues: zodIssues.slice(0, 32),
-        })
+        });
         const issues = zodIssues.slice(0, 12).map((i) => ({
           path: i.path.map(String).join(".") || "(root)",
           message: i.message,
           code: i.code,
-        }))
+        }));
         return jsonErrorResponse(400, "Invalid chat request payload", {
           issues,
-        })
+        });
       }
 
-      const rawBody = parsedBody.data as Record<string, unknown>
-      const modelId = parsedBody.data.modelId || config.defaultModel
-      const messages = normalizeMessages(parsedBody.data.messages)
+      const rawBody = parsedBody.data as Record<string, unknown>;
+      const modelId = parsedBody.data.modelId || config.defaultModel;
+      const messages = normalizeMessages(parsedBody.data.messages);
 
       if (!messages.length) {
-        return jsonErrorResponse(400, "messages must be a non-empty array")
+        return jsonErrorResponse(400, "messages must be a non-empty array");
       }
 
       // 1. Credenciais do banco (menor prioridade)
-      const userId = c.get("userId") as string | undefined
-      const apiKeyId = c.get("apiKeyId") as string | undefined
-      const projectId =
-        c.req.header(MODELHUB_PROJECT_HEADER)?.trim() || undefined
-      const dbCredentials = await getUserProviderCredentials(
-        userId,
-        config.providerId,
-      )
+      const userId = c.get("userId") as string | undefined;
+      const apiKeyId = c.get("apiKeyId") as string | undefined;
+      const projectId = c.req.header(MODELHUB_PROJECT_HEADER)?.trim() || undefined;
+      const dbCredentials = await getUserProviderCredentials(userId, config.providerId);
 
       // 2. Credenciais do header (maior prioridade — sobrescrevem as do banco)
-      const headerCredentials = parseCredentialsHeader(c.req)
+      const headerCredentials = parseCredentialsHeader(c.req);
 
       // Merge: header > db > env (env é resolvido em resolveEnv)
-      const credentials = { ...dbCredentials, ...headerCredentials }
+      const credentials = { ...dbCredentials, ...headerCredentials };
 
-      const modelCapabilities = await getModelCapabilities(
-        config,
-        modelId,
-        credentials,
-        userId,
-      )
+      const modelCapabilities = await getModelCapabilities(config, modelId, credentials, userId);
 
       if (requestUsesTools(rawBody) && modelCapabilities.tools === false) {
-        return jsonErrorResponse(400, `Modelo "${modelId}" nao suporta tools`)
+        return jsonErrorResponse(400, `Modelo "${modelId}" nao suporta tools`);
       }
 
       const resolvedMessages = await resolveMessagesForProvider({
@@ -1659,11 +1534,11 @@ export function createProviderApp(config: ProviderConfig) {
         modelCapabilities,
         userId,
         projectId,
-      })
+      });
 
       // Verificar orçamento antes de processar
       if (userId) {
-        const budgetCheck = await checkBudget(userId)
+        const budgetCheck = await checkBudget(userId);
         if (!budgetCheck.allowed) {
           logUsage({
             userId,
@@ -1673,11 +1548,11 @@ export function createProviderApp(config: ProviderConfig) {
             endpoint: c.req.path,
             statusCode: 429,
             errorDetail: `budget_exceeded: ${budgetCheck.periodSpendUsd.toFixed(6)}/${budgetCheck.limitUsd} USD`,
-          })
+          });
           return jsonErrorResponse(
             429,
             `Limite de orçamento atingido: $${budgetCheck.periodSpendUsd.toFixed(4)} de $${budgetCheck.limitUsd?.toFixed(2)} USD no período`,
-          )
+          );
         }
       }
 
@@ -1685,30 +1560,21 @@ export function createProviderApp(config: ProviderConfig) {
         userId,
         c.req.header(MODELHUB_CONVERSATION_HEADER),
         c.req.header(MODELHUB_MESSAGE_HEADER),
-      )
-      const startedAt = Date.now()
-      const routingTier = c.req.header("x-modelhub-routing-tier") ?? null
-      const routingReason = c.req.header("x-modelhub-routing-reason") ?? null
-      const taskCategory = c.req.header("x-modelhub-task-category") ?? null
-      const response = await config.chat(
-        resolvedMessages,
-        modelId,
-        rawBody,
-        credentials,
-        userId,
-      )
+      );
+      const startedAt = Date.now();
+      const routingTier = c.req.header("x-modelhub-routing-tier") ?? null;
+      const routingReason = c.req.header("x-modelhub-routing-reason") ?? null;
+      const taskCategory = c.req.header("x-modelhub-task-category") ?? null;
+      const response = await config.chat(resolvedMessages, modelId, rawBody, credentials, userId);
 
-      const durationMs = Date.now() - startedAt
+      const durationMs = Date.now() - startedAt;
 
-      let errorDetail: string | null = null
+      let errorDetail: string | null = null;
       if (response.status >= 400) {
         try {
-          errorDetail = (await response.clone().text()).slice(
-            0,
-            MAX_USAGE_LOG_ERROR_CHARS,
-          )
+          errorDetail = (await response.clone().text()).slice(0, MAX_USAGE_LOG_ERROR_CHARS);
         } catch {
-          errorDetail = null
+          errorDetail = null;
         }
       }
 
@@ -1726,39 +1592,39 @@ export function createProviderApp(config: ProviderConfig) {
         taskCategory,
         conversationId,
         messageId,
-      })
+      });
 
       // Tap streaming response to extract token usage e TTFT (primeiro chunk) asynchronously
       if (response.ok && response.body) {
-        const [streamForCaller, streamForMonitor] = response.body.tee()
+        const [streamForCaller, streamForMonitor] = response.body.tee();
 
-        ;(async () => {
+        (async () => {
           try {
-            const logId = await logPromise
-            if (!logId) return
+            const logId = await logPromise;
+            if (!logId) return;
 
-            let firstChunkAt: number | null = null
-            const reader = streamForMonitor.getReader()
-            const decoder = new TextDecoder()
-            let buffer = ""
+            let firstChunkAt: number | null = null;
+            const reader = streamForMonitor.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
             try {
               while (true) {
-                const { done, value } = await reader.read()
-                if (done) break
+                const { done, value } = await reader.read();
+                if (done) break;
                 if (firstChunkAt === null) {
-                  firstChunkAt = Date.now()
-                  void updateUsageLogTiming(logId, firstChunkAt - startedAt)
+                  firstChunkAt = Date.now();
+                  void updateUsageLogTiming(logId, firstChunkAt - startedAt);
                 }
-                buffer += decoder.decode(value, { stream: true })
-                const lines = buffer.split("\n")
-                buffer = lines.pop() || ""
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
                 for (const line of lines) {
-                  if (!line.startsWith("d:")) continue
+                  if (!line.startsWith("d:")) continue;
                   try {
                     const data = JSON.parse(line.slice(2)) as {
-                      finishReason?: string
-                      usage?: { promptTokens: number; completionTokens: number }
-                    }
+                      finishReason?: string;
+                      usage?: { promptTokens: number; completionTokens: number };
+                    };
                     if (data.usage) {
                       await updateUsageLogTokens(
                         logId,
@@ -1768,8 +1634,8 @@ export function createProviderApp(config: ProviderConfig) {
                         },
                         config.providerId,
                         modelId,
-                      )
-                      return
+                      );
+                      return;
                     }
                   } catch {
                     /* ignore parse errors */
@@ -1777,33 +1643,33 @@ export function createProviderApp(config: ProviderConfig) {
                 }
               }
             } finally {
-              await updateUsageLogDuration(logId, Date.now() - startedAt)
+              await updateUsageLogDuration(logId, Date.now() - startedAt);
             }
           } catch {
             /* ignore monitor errors */
           }
-        })()
+        })();
 
         return new Response(streamForCaller, {
           status: response.status,
           headers: response.headers,
-        })
+        });
       }
 
-      return response
+      return response;
     } catch (error) {
       if (error instanceof AttachmentCapabilityError) {
-        return jsonErrorResponse(error.status, error.message)
+        return jsonErrorResponse(error.status, error.message);
       }
 
       if (error instanceof Error && error.message.startsWith("CONFIG_ERROR:")) {
-        return jsonErrorResponse(503, "Provider is not configured")
+        return jsonErrorResponse(503, "Provider is not configured");
       }
 
-      logProviderError(config.providerId, error)
+      logProviderError(config.providerId, error);
 
       // Log falhas também
-      const errMsg = error instanceof Error ? error.message : String(error)
+      const errMsg = error instanceof Error ? error.message : String(error);
       logUsage({
         userId: c.get("userId") as string | undefined,
         apiKeyId: c.get("apiKeyId") as string | undefined,
@@ -1812,13 +1678,13 @@ export function createProviderApp(config: ProviderConfig) {
         endpoint: c.req.path,
         statusCode: 500,
         errorDetail: errMsg.slice(0, MAX_USAGE_LOG_ERROR_CHARS),
-      })
+      });
 
-      return jsonErrorResponse(500, "Unable to process provider request")
+      return jsonErrorResponse(500, "Unable to process provider request");
     }
-  })
+  });
 
-  return app
+  return app;
 }
 
 export async function fetchWithTimeout(
@@ -1826,29 +1692,29 @@ export async function fetchWithTimeout(
   opts: RequestInit,
   timeoutMs = 45000,
 ): Promise<Response> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...opts, signal: controller.signal })
+    return await fetch(url, { ...opts, signal: controller.signal });
   } finally {
-    clearTimeout(timer)
+    clearTimeout(timer);
   }
 }
 
 export async function postJsonWithTimeout(
   url: string,
   init: {
-    headers?: Record<string, string>
-    body: unknown
-    timeoutMs?: number
+    headers?: Record<string, string>;
+    body: unknown;
+    timeoutMs?: number;
   },
 ): Promise<Response> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-  }
+  };
 
   if (init.headers) {
-    Object.assign(headers, init.headers)
+    Object.assign(headers, init.headers);
   }
 
   return fetchWithTimeout(
@@ -1859,5 +1725,5 @@ export async function postJsonWithTimeout(
       body: JSON.stringify(init.body),
     },
     init.timeoutMs ?? 45000,
-  )
+  );
 }

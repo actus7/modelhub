@@ -29,7 +29,10 @@ async function resolveCanvasDetail(canvasId: string) {
   const canvas = await prisma.canvas.findUnique({
     where: { id: canvasId },
     include: {
-      versions: { orderBy: { version: "desc" }, select: { createdAt: true, kind: true, language: true, version: true } },
+      versions: {
+        orderBy: { version: "desc" },
+        select: { createdAt: true, kind: true, language: true, version: true },
+      },
     },
   });
   if (!canvas) return null;

@@ -8,18 +8,15 @@
  * evita estender o rate limit e devolve feedback instantâneo ao usuário.
  */
 
-const DEFAULT_COOLDOWN_MS = 60_000
-const MAX_COOLDOWN_MS = 5 * 60_000
-const MAX_ENTRIES = 2_000
+const DEFAULT_COOLDOWN_MS = 60_000;
+const MAX_COOLDOWN_MS = 5 * 60_000;
+const MAX_ENTRIES = 2_000;
 
 /** key → epoch ms até quando o cooldown vale */
-const cooldowns = new Map<string, number>()
+const cooldowns = new Map<string, number>();
 
-export function rateLimitCooldownKey(
-  providerName: string,
-  modelId: string,
-): string {
-  return `${providerName}:${modelId}`
+export function rateLimitCooldownKey(providerName: string, modelId: string): string {
+  return `${providerName}:${modelId}`;
 }
 
 /**
@@ -30,20 +27,20 @@ export function parseRetryAfterMs(
   header: string | null | undefined,
   now = Date.now(),
 ): number | null {
-  if (!header) return null
+  if (!header) return null;
 
-  const seconds = Number(header)
+  const seconds = Number(header);
   if (Number.isFinite(seconds)) {
     // Valores numéricos negativos são inválidos (e Date.parse os leria como ano).
-    return seconds >= 0 ? seconds * 1000 : null
+    return seconds >= 0 ? seconds * 1000 : null;
   }
 
-  const date = Date.parse(header)
+  const date = Date.parse(header);
   if (!Number.isNaN(date)) {
-    return Math.max(0, date - now)
+    return Math.max(0, date - now);
   }
 
-  return null
+  return null;
 }
 
 /**
@@ -54,16 +51,16 @@ function setCooldown(key: string, durationMs: number, now: number): number {
   if (cooldowns.size >= MAX_ENTRIES && !cooldowns.has(key)) {
     // Abre espaço removendo entradas expiradas; se nada expirou, descarta a mais antiga.
     for (const [k, until] of cooldowns) {
-      if (until <= now) cooldowns.delete(k)
+      if (until <= now) cooldowns.delete(k);
     }
     if (cooldowns.size >= MAX_ENTRIES) {
-      const oldest = cooldowns.keys().next().value
-      if (oldest !== undefined) cooldowns.delete(oldest)
+      const oldest = cooldowns.keys().next().value;
+      if (oldest !== undefined) cooldowns.delete(oldest);
     }
   }
 
-  cooldowns.set(key, now + durationMs)
-  return durationMs
+  cooldowns.set(key, now + durationMs);
+  return durationMs;
 }
 
 export function recordRateLimit(
@@ -71,12 +68,9 @@ export function recordRateLimit(
   retryAfterHeader?: string | null,
   now = Date.now(),
 ): number {
-  const fromHeader = parseRetryAfterMs(retryAfterHeader, now)
-  const durationMs = Math.min(
-    fromHeader ?? DEFAULT_COOLDOWN_MS,
-    MAX_COOLDOWN_MS,
-  )
-  return setCooldown(key, durationMs, now)
+  const fromHeader = parseRetryAfterMs(retryAfterHeader, now);
+  const durationMs = Math.min(fromHeader ?? DEFAULT_COOLDOWN_MS, MAX_COOLDOWN_MS);
+  return setCooldown(key, durationMs, now);
 }
 
 /**
@@ -85,24 +79,24 @@ export function recordRateLimit(
  * para orientar a espera. Antes disso só 429 marcava cooldown, então um
  * provedor em queda seguia sendo eleito primário a cada request.
  */
-const TRANSIENT_COOLDOWN_MS = 20_000
+const TRANSIENT_COOLDOWN_MS = 20_000;
 
 export function recordUpstreamFailure(key: string, now = Date.now()): number {
-  return setCooldown(key, TRANSIENT_COOLDOWN_MS, now)
+  return setCooldown(key, TRANSIENT_COOLDOWN_MS, now);
 }
 
 /** Tempo restante de cooldown em ms (0 quando não há cooldown ativo). */
 export function getCooldownRemainingMs(key: string, now = Date.now()): number {
-  const until = cooldowns.get(key)
-  if (until === undefined) return 0
+  const until = cooldowns.get(key);
+  if (until === undefined) return 0;
   if (until <= now) {
-    cooldowns.delete(key)
-    return 0
+    cooldowns.delete(key);
+    return 0;
   }
-  return until - now
+  return until - now;
 }
 
 /** Limpa todos os cooldowns — apenas para testes. */
 export function clearRateLimitCooldowns(): void {
-  cooldowns.clear()
+  cooldowns.clear();
 }

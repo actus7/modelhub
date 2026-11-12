@@ -1,23 +1,19 @@
-import type { Context } from "hono"
-import { z } from "zod"
-import {
-  apiKeyLabelSchema,
-  providerCredentialSchema,
-  providerQuotaSchema,
-} from "@/lib/contracts"
-import { isValidAccentColor } from "@/lib/accent-colors"
-import { buildProviderQuotaAccounts } from "@/lib/provider-quota"
+import type { Context } from "hono";
+import { z } from "zod";
+import { apiKeyLabelSchema, providerCredentialSchema, providerQuotaSchema } from "@/lib/contracts";
+import { isValidAccentColor } from "@/lib/accent-colors";
+import { buildProviderQuotaAccounts } from "@/lib/provider-quota";
 
-import { encryptCredential, generateApiKey } from "../lib/crypto"
-import { prisma } from "../lib/db"
-import { jsonErrorResponse } from "../lib/http"
-import { createAuthenticatedRouter, requireAuth } from "./route-helpers"
+import { encryptCredential, generateApiKey } from "../lib/crypto";
+import { prisma } from "../lib/db";
+import { jsonErrorResponse } from "../lib/http";
+import { createAuthenticatedRouter, requireAuth } from "./route-helpers";
 
-const app = createAuthenticatedRouter("/user")
+const app = createAuthenticatedRouter("/user");
 
 app.get("/api-keys", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
   const keys = await prisma.apiKey.findMany({
     where: { isActive: true, userId },
@@ -30,20 +26,20 @@ app.get("/api-keys", async (c) => {
       prefix: true,
     },
     orderBy: { createdAt: "desc" },
-  })
+  });
 
-  return c.json({ keys })
-})
+  return c.json({ keys });
+});
 
 app.post("/api-keys", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const body = await c.req.json().catch(() => ({}))
-  const parsed = apiKeyLabelSchema.safeParse(body)
-  const label = parsed.success ? (parsed.data.label ?? "default") : "default"
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = apiKeyLabelSchema.safeParse(body);
+  const label = parsed.success ? (parsed.data.label ?? "default") : "default";
 
-  const { hash, prefix, raw } = generateApiKey()
+  const { hash, prefix, raw } = generateApiKey();
   const created = await prisma.apiKey.create({
     data: {
       key: hash,
@@ -57,37 +53,37 @@ app.post("/api-keys", async (c) => {
       label: true,
       prefix: true,
     },
-  })
+  });
 
-  return c.json({ ...created, apiKey: raw }, 201)
-})
+  return c.json({ ...created, apiKey: raw }, 201);
+});
 
 app.delete("/api-keys/:id", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const keyId = c.req.param("id")
-  const key = await prisma.apiKey.findFirst({ where: { id: keyId, userId } })
-  if (!key) return jsonErrorResponse(404, "API key not found")
+  const keyId = c.req.param("id");
+  const key = await prisma.apiKey.findFirst({ where: { id: keyId, userId } });
+  if (!key) return jsonErrorResponse(404, "API key not found");
 
   const activeCount = await prisma.apiKey.count({
     where: { isActive: true, userId },
-  })
+  });
   if (activeCount <= 1) {
-    return jsonErrorResponse(400, "Cannot revoke your only active API key")
+    return jsonErrorResponse(400, "Cannot revoke your only active API key");
   }
 
   await prisma.apiKey.update({
     where: { id: keyId },
     data: { isActive: false },
-  })
+  });
 
-  return c.json({ success: true })
-})
+  return c.json({ success: true });
+});
 
 app.get("/credentials", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
   const credentials = await prisma.providerCredential.findMany({
     where: { userId },
@@ -99,25 +95,25 @@ app.get("/credentials", async (c) => {
       updatedAt: true,
     },
     orderBy: [{ providerId: "asc" }, { credentialKey: "asc" }],
-  })
+  });
 
-  return c.json({ credentials })
-})
+  return c.json({ credentials });
+});
 
 app.post("/credentials", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const body = await c.req.json().catch(() => null)
-  const parsed = providerCredentialSchema.safeParse(body)
+  const body = await c.req.json().catch(() => null);
+  const parsed = providerCredentialSchema.safeParse(body);
   if (!parsed.success) {
     return jsonErrorResponse(400, "Invalid input", {
       details: z.flattenError(parsed.error).fieldErrors,
-    })
+    });
   }
 
-  const { credentialKey, credentialValue, providerId } = parsed.data
-  const encrypted = encryptCredential(credentialValue)
+  const { credentialKey, credentialValue, providerId } = parsed.data;
+  const encrypted = encryptCredential(credentialValue);
   const credential = await prisma.providerCredential.upsert({
     where: {
       userId_providerId_credentialKey: {
@@ -141,108 +137,103 @@ app.post("/credentials", async (c) => {
       providerId: true,
       updatedAt: true,
     },
-  })
+  });
 
-  const { invalidateRoutingCache } =
-    await import("../lib/routing/routing-resolver")
-  invalidateRoutingCache(userId)
+  const { invalidateRoutingCache } = await import("../lib/routing/routing-resolver");
+  invalidateRoutingCache(userId);
 
-  return c.json({ credential }, 201)
-})
+  return c.json({ credential }, 201);
+});
 
 app.delete("/credentials/:id", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const credentialId = c.req.param("id")
+  const credentialId = c.req.param("id");
   const credential = await prisma.providerCredential.findFirst({
     where: { id: credentialId, userId },
-  })
-  if (!credential) return jsonErrorResponse(404, "Credential not found")
+  });
+  if (!credential) return jsonErrorResponse(404, "Credential not found");
 
-  await prisma.providerCredential.delete({ where: { id: credentialId } })
-  const { invalidateRoutingCache } =
-    await import("../lib/routing/routing-resolver")
-  invalidateRoutingCache(userId)
-  return c.json({ success: true })
-})
+  await prisma.providerCredential.delete({ where: { id: credentialId } });
+  const { invalidateRoutingCache } = await import("../lib/routing/routing-resolver");
+  invalidateRoutingCache(userId);
+  return c.json({ success: true });
+});
 
 app.get("/usage", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const daysParam = Number(c.req.query("days") ?? "30")
-  const days =
-    Number.isFinite(daysParam) && daysParam > 0 ? Math.min(daysParam, 365) : 30
-  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+  const daysParam = Number(c.req.query("days") ?? "30");
+  const days = Number.isFinite(daysParam) && daysParam > 0 ? Math.min(daysParam, 365) : 30;
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-  const [totalRequests, byProvider, byModel, byStatus, aggregates, dailyLogs] =
-    await Promise.all([
-      prisma.usageLog.count({ where: { createdAt: { gte: since }, userId } }),
-      prisma.usageLog.groupBy({
-        by: ["providerId"],
-        where: { createdAt: { gte: since }, userId },
-        _count: { id: true },
-        _sum: { costUsd: true },
-        orderBy: { _count: { id: "desc" } },
-      }),
-      prisma.usageLog.groupBy({
-        by: ["modelId"],
-        where: { createdAt: { gte: since }, modelId: { not: null }, userId },
-        _count: { id: true },
-        _sum: { costUsd: true, inputTokens: true, outputTokens: true },
-        orderBy: { _count: { id: "desc" } },
-        take: 10,
-      }),
-      prisma.usageLog.groupBy({
-        by: ["statusCode"],
-        where: { createdAt: { gte: since }, userId },
-        _count: { id: true },
-        orderBy: { statusCode: "asc" },
-      }),
-      prisma.usageLog.aggregate({
-        where: { createdAt: { gte: since }, userId },
-        _sum: { costUsd: true, inputTokens: true, outputTokens: true },
-        _avg: { durationMs: true },
-      }),
-      prisma.usageLog.findMany({
-        where: { createdAt: { gte: since }, userId },
-        select: { createdAt: true, costUsd: true },
-        orderBy: { createdAt: "asc" },
-      }),
-    ])
+  const [totalRequests, byProvider, byModel, byStatus, aggregates, dailyLogs] = await Promise.all([
+    prisma.usageLog.count({ where: { createdAt: { gte: since }, userId } }),
+    prisma.usageLog.groupBy({
+      by: ["providerId"],
+      where: { createdAt: { gte: since }, userId },
+      _count: { id: true },
+      _sum: { costUsd: true },
+      orderBy: { _count: { id: "desc" } },
+    }),
+    prisma.usageLog.groupBy({
+      by: ["modelId"],
+      where: { createdAt: { gte: since }, modelId: { not: null }, userId },
+      _count: { id: true },
+      _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+      orderBy: { _count: { id: "desc" } },
+      take: 10,
+    }),
+    prisma.usageLog.groupBy({
+      by: ["statusCode"],
+      where: { createdAt: { gte: since }, userId },
+      _count: { id: true },
+      orderBy: { statusCode: "asc" },
+    }),
+    prisma.usageLog.aggregate({
+      where: { createdAt: { gte: since }, userId },
+      _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+      _avg: { durationMs: true },
+    }),
+    prisma.usageLog.findMany({
+      where: { createdAt: { gte: since }, userId },
+      select: { createdAt: true, costUsd: true },
+      orderBy: { createdAt: "asc" },
+    }),
+  ]);
 
-  const dailyMap = new Map<string, { count: number; costUsd: number }>()
+  const dailyMap = new Map<string, { count: number; costUsd: number }>();
   for (const log of dailyLogs) {
-    const day = log.createdAt.toISOString().slice(0, 10)
-    const prev = dailyMap.get(day) ?? { count: 0, costUsd: 0 }
+    const day = log.createdAt.toISOString().slice(0, 10);
+    const prev = dailyMap.get(day) ?? { count: 0, costUsd: 0 };
     dailyMap.set(day, {
       count: prev.count + 1,
       costUsd: prev.costUsd + (log.costUsd ?? 0),
-    })
+    });
   }
 
-  type StatusRow = { statusCode: number; _count: { id: number } }
+  type StatusRow = { statusCode: number; _count: { id: number } };
   type ModelRow = {
-    modelId: string | null
-    _count: { id: number }
+    modelId: string | null;
+    _count: { id: number };
     _sum: {
-      costUsd: number | null
-      inputTokens: number | null
-      outputTokens: number | null
-    }
-  }
+      costUsd: number | null;
+      inputTokens: number | null;
+      outputTokens: number | null;
+    };
+  };
   type ProviderRow = {
-    providerId: string
-    _count: { id: number }
-    _sum: { costUsd: number | null }
-  }
+    providerId: string;
+    _count: { id: number };
+    _sum: { costUsd: number | null };
+  };
 
   const errorCount = (byStatus as StatusRow[])
     .filter((s) => s.statusCode >= 400)
-    .reduce((sum, s) => sum + s._count.id, 0)
-  const errorRate =
-    totalRequests > 0 ? +((errorCount / totalRequests) * 100).toFixed(2) : 0
+    .reduce((sum, s) => sum + s._count.id, 0);
+  const errorRate = totalRequests > 0 ? +((errorCount / totalRequests) * 100).toFixed(2) : 0;
 
   return c.json({
     byModel: (byModel as ModelRow[]).map((e) => ({
@@ -275,18 +266,15 @@ app.get("/usage", async (c) => {
       totalInput: aggregates._sum.inputTokens ?? 0,
       totalOutput: aggregates._sum.outputTokens ?? 0,
     },
-  })
-})
+  });
+});
 
 app.get("/usage/recent", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const limitParam = Number(c.req.query("limit") ?? "50")
-  const limit =
-    Number.isFinite(limitParam) && limitParam > 0
-      ? Math.min(limitParam, 200)
-      : 50
+  const limitParam = Number(c.req.query("limit") ?? "50");
+  const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 200) : 50;
 
   const logs = await prisma.usageLog.findMany({
     where: { userId },
@@ -308,55 +296,56 @@ app.get("/usage/recent", async (c) => {
     },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     take: limit,
-  })
+  });
 
-  return c.json({ logs })
-})
+  return c.json({ logs });
+});
 
 app.get("/quotas", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
   const profiles = await prisma.providerQuota.findMany({
     where: { userId },
     orderBy: { providerId: "asc" },
-  })
-  const windowHours = Array.from(new Set([
-    24,
-    ...profiles.map((profile) => Math.min(profile.windowHours, 720)),
-  ]))
-  const generatedAt = new Date()
+  });
+  const windowHours = Array.from(
+    new Set([24, ...profiles.map((profile) => Math.min(profile.windowHours, 720))]),
+  );
+  const generatedAt = new Date();
   const [credentials, groupedUsage] = await Promise.all([
     prisma.providerCredential.findMany({
       where: { userId },
       select: { providerId: true, updatedAt: true },
     }),
-    Promise.all(windowHours.map(async (hours) => {
-      const rows = await prisma.usageLog.groupBy({
-        by: ["providerId", "modelId", "statusCode"],
-        where: {
-          createdAt: { gte: new Date(generatedAt.getTime() - hours * 60 * 60 * 1000) },
-          userId,
-        },
-        _count: { id: true },
-        _sum: { costUsd: true, inputTokens: true, outputTokens: true },
-        _min: { createdAt: true },
-        _max: { createdAt: true },
-      })
-      return rows.map((row) => ({
-        providerId: row.providerId,
-        modelId: row.modelId,
-        statusCode: row.statusCode,
-        requests: row._count.id,
-        tokens: (row._sum.inputTokens ?? 0) + (row._sum.outputTokens ?? 0),
-        costUsd: row._sum.costUsd ?? 0,
-        oldestAt: row._min.createdAt,
-        lastAt: row._max.createdAt,
-        windowHours: hours,
-      }))
-    })),
-  ])
-  const logs = groupedUsage.flat()
+    Promise.all(
+      windowHours.map(async (hours) => {
+        const rows = await prisma.usageLog.groupBy({
+          by: ["providerId", "modelId", "statusCode"],
+          where: {
+            createdAt: { gte: new Date(generatedAt.getTime() - hours * 60 * 60 * 1000) },
+            userId,
+          },
+          _count: { id: true },
+          _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+          _min: { createdAt: true },
+          _max: { createdAt: true },
+        });
+        return rows.map((row) => ({
+          providerId: row.providerId,
+          modelId: row.modelId,
+          statusCode: row.statusCode,
+          requests: row._count.id,
+          tokens: (row._sum.inputTokens ?? 0) + (row._sum.outputTokens ?? 0),
+          costUsd: row._sum.costUsd ?? 0,
+          oldestAt: row._min.createdAt,
+          lastAt: row._max.createdAt,
+          windowHours: hours,
+        }));
+      }),
+    ),
+  ]);
+  const logs = groupedUsage.flat();
 
   return c.json({
     accounts: buildProviderQuotaAccounts({
@@ -365,26 +354,26 @@ app.get("/quotas", async (c) => {
       profiles,
     }),
     generatedAt: generatedAt.toISOString(),
-  })
-})
+  });
+});
 
 app.patch("/quotas/:providerId", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const providerId = c.req.param("providerId").trim()
+  const providerId = c.req.param("providerId").trim();
   if (!/^[a-zA-Z0-9._-]{1,64}$/.test(providerId)) {
-    return jsonErrorResponse(400, "Invalid provider id")
+    return jsonErrorResponse(400, "Invalid provider id");
   }
-  const body = await c.req.json().catch(() => ({}))
-  const parsed = providerQuotaSchema.safeParse(body)
-  if (!parsed.success) return jsonErrorResponse(400, "Invalid quota profile")
+  const body = await c.req.json().catch(() => ({}));
+  const parsed = providerQuotaSchema.safeParse(body);
+  if (!parsed.success) return jsonErrorResponse(400, "Invalid quota profile");
 
   const profile = await prisma.providerQuota.upsert({
     where: { userId_providerId: { providerId, userId } },
     create: { ...parsed.data, providerId, userId },
     update: parsed.data,
-  })
+  });
 
   return c.json({
     profile: {
@@ -392,83 +381,80 @@ app.patch("/quotas/:providerId", async (c) => {
       createdAt: profile.createdAt.toISOString(),
       updatedAt: profile.updatedAt.toISOString(),
     },
-  })
-})
+  });
+});
 
 app.delete("/quotas/:providerId", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const providerId = c.req.param("providerId").trim()
-  await prisma.providerQuota.deleteMany({ where: { providerId, userId } })
-  return c.json({ success: true })
-})
+  const providerId = c.req.param("providerId").trim();
+  await prisma.providerQuota.deleteMany({ where: { providerId, userId } });
+  return c.json({ success: true });
+});
 
 // GET /user/routing-config
 app.get("/routing-config", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const { getRoutingConfig } = await import("../lib/routing/routing-resolver")
-  const config = await getRoutingConfig(userId)
+  const { getRoutingConfig } = await import("../lib/routing/routing-resolver");
+  const config = await getRoutingConfig(userId);
   if (!config) {
     return c.json({
       complexityEnabled: false,
       taskRoutingEnabled: false,
       tiers: {},
       taskOverrides: {},
-    })
+    });
   }
 
-  return c.json(config)
-})
+  return c.json(config);
+});
 
 // GET /user/routing-config/providers — providers prontos para roteamento /v1 auto
 app.get("/routing-config/providers", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const { getConfiguredRoutingProviders } =
-    await import("../lib/routing/provider-readiness")
-  const providers = await getConfiguredRoutingProviders(userId)
-  return c.json({ providers })
-})
+  const { getConfiguredRoutingProviders } = await import("../lib/routing/provider-readiness");
+  const providers = await getConfiguredRoutingProviders(userId);
+  return c.json({ providers });
+});
 
 // GET /user/routing-config/models — catálogo achatado de todos os modelos prontos
 // para roteamento, com preço. Uma chamada só: a UI antiga fazia um GET por slot
 // de tier/fallback (dezenas de requests duplicadas para o mesmo provider).
 app.get("/routing-config/models", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const { getConfiguredRoutingProviderSources } =
-    await import("../lib/routing/provider-readiness")
-  const { getProviderModels } = await import("../providers/registry")
-  const { getModelPrice } = await import("../lib/model-pricing")
-  const { ensureOpenRouterPricingFresh } =
-    await import("../lib/openrouter-pricing")
-  const { PROVIDER_CATALOG } = await import("../lib/catalog")
+  const { getConfiguredRoutingProviderSources } = await import("../lib/routing/provider-readiness");
+  const { getProviderModels } = await import("../providers/registry");
+  const { getModelPrice } = await import("../lib/model-pricing");
+  const { ensureOpenRouterPricingFresh } = await import("../lib/openrouter-pricing");
+  const { PROVIDER_CATALOG } = await import("../lib/catalog");
 
-  await ensureOpenRouterPricingFresh()
+  await ensureOpenRouterPricingFresh();
 
-  const { getModelHealth, healthKey } = await import("../lib/routing/model-health")
+  const { getModelHealth, healthKey } = await import("../lib/routing/model-health");
   // Saúde nunca bloqueia o catálogo: sem ela a UI só perde os selos.
-  const health = await getModelHealth(userId).catch(() => null)
+  const health = await getModelHealth(userId).catch(() => null);
 
   const labelByProvider = new Map(
     PROVIDER_CATALOG.map((provider) => [provider.id, provider.label]),
-  )
-  const sources = await getConfiguredRoutingProviderSources(userId)
+  );
+  const sources = await getConfiguredRoutingProviderSources(userId);
 
   const results = await Promise.allSettled(
     sources.map(async ({ cacheKeySuffix, credentials, providerId }) => {
       const models = await getProviderModels(providerId, {
         cacheKeySuffix,
         credentials,
-      })
+      });
       return models.map((model) => {
-        const price = getModelPrice(providerId, model.id)
-        const stats = health?.get(healthKey(providerId, model.id))
+        const price = getModelPrice(providerId, model.id);
+        const stats = health?.get(healthKey(providerId, model.id));
         return {
           providerId,
           providerLabel: labelByProvider.get(providerId) ?? providerId,
@@ -483,61 +469,56 @@ app.get("/routing-config/models", async (c) => {
                 avgDurationMs: stats.avgDurationMs,
               }
             : null,
-        }
-      })
+        };
+      });
     }),
-  )
+  );
 
-  const models = results.flatMap((result) =>
-    result.status === "fulfilled" ? result.value : [],
-  )
+  const models = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
   const failedProviders = sources
     .filter((_, index) => results[index]?.status === "rejected")
-    .map((source) => source.providerId)
+    .map((source) => source.providerId);
 
-  return c.json({ models, failedProviders })
-})
+  return c.json({ models, failedProviders });
+});
 
 // GET /user/routing-config/suggest — sugere modelos por tier (qualidade/preço)
 app.get("/routing-config/suggest", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const { getConfiguredRoutingProviderSources } =
-    await import("../lib/routing/provider-readiness")
-  const { suggestTierAssignments } = await import("../lib/routing/tier-suggest")
-  const { getModelHealth } = await import("../lib/routing/model-health")
-  const sources = await getConfiguredRoutingProviderSources(userId)
+  const { getConfiguredRoutingProviderSources } = await import("../lib/routing/provider-readiness");
+  const { suggestTierAssignments } = await import("../lib/routing/tier-suggest");
+  const { getModelHealth } = await import("../lib/routing/model-health");
+  const sources = await getConfiguredRoutingProviderSources(userId);
   // Saúde observada entra no ranking; se a agregação falhar, a sugestão
   // continua saindo apenas com a heurística de capacidade.
-  const health = await getModelHealth(userId).catch(() => undefined)
-  const tiers = await suggestTierAssignments({ sources, health })
-  return c.json({ tiers })
-})
+  const health = await getModelHealth(userId).catch(() => undefined);
+  const tiers = await suggestTierAssignments({ sources, health });
+  return c.json({ tiers });
+});
 
 // O conteúdo de cada slot é saneado na leitura (sanitizeRoutingMap); aqui
 // garantimos a forma: flags booleanas e mapas de objetos JSON.
-const routingMapSchema = z.record(z.string(), z.record(z.string(), z.json()))
+const routingMapSchema = z.record(z.string(), z.record(z.string(), z.json()));
 const routingConfigUpdateSchema = z.object({
   complexityEnabled: z.boolean().optional(),
   taskRoutingEnabled: z.boolean().optional(),
   tiers: routingMapSchema.optional(),
   taskOverrides: routingMapSchema.optional(),
-})
+});
 
 // PUT/PATCH /user/routing-config
 const routingConfigUpdateHandler = async (c: Context) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const parsed = routingConfigUpdateSchema.safeParse(
-    await c.req.json().catch(() => null),
-  )
+  const parsed = routingConfigUpdateSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
-    return jsonErrorResponse(400, "Invalid routing config payload")
+    return jsonErrorResponse(400, "Invalid routing config payload");
   }
 
-  const data = parsed.data
+  const data = parsed.data;
   const config = await prisma.routingConfig.upsert({
     where: { userId },
     create: {
@@ -553,52 +534,50 @@ const routingConfigUpdateHandler = async (c: Context) => {
       tiers: data.tiers,
       taskOverrides: data.taskOverrides,
     },
-  })
+  });
 
   // Invalidar cache de roteamento
-  const { invalidateRoutingCache } =
-    await import("../lib/routing/routing-resolver")
-  invalidateRoutingCache(userId)
+  const { invalidateRoutingCache } = await import("../lib/routing/routing-resolver");
+  invalidateRoutingCache(userId);
 
   return c.json({
     complexityEnabled: config.complexityEnabled,
     taskRoutingEnabled: config.taskRoutingEnabled,
     tiers: config.tiers,
     taskOverrides: config.taskOverrides,
-  })
-}
+  });
+};
 
-app.put("/routing-config", routingConfigUpdateHandler)
-app.patch("/routing-config", routingConfigUpdateHandler)
+app.put("/routing-config", routingConfigUpdateHandler);
+app.patch("/routing-config", routingConfigUpdateHandler);
 
 // GET /user/budget
 app.get("/budget", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const { getPeriodStart } = await import("../lib/budget")
-  const budget = await prisma.userBudget.findUnique({ where: { userId } })
+  const { getPeriodStart } = await import("../lib/budget");
+  const budget = await prisma.userBudget.findUnique({ where: { userId } });
 
-  const periodType = budget?.periodType ?? "monthly"
-  const periodStart = getPeriodStart(periodType)
+  const periodType = budget?.periodType ?? "monthly";
+  const periodStart = getPeriodStart(periodType);
 
   const agg = await prisma.usageLog.aggregate({
     where: { userId, createdAt: { gte: periodStart }, costUsd: { not: null } },
     _sum: { costUsd: true, inputTokens: true, outputTokens: true },
-  })
-  const currentSpend = agg._sum.costUsd ?? 0
+  });
+  const currentSpend = agg._sum.costUsd ?? 0;
 
   // Calcular savings vs baseline model
-  let baselineSpend: number | null = null
-  let savings: number | null = null
-  let savingsPct: number | null = null
+  let baselineSpend: number | null = null;
+  let savings: number | null = null;
+  let savingsPct: number | null = null;
 
   if (budget?.baselineModelId) {
-    const { calculateCostUsd } = await import("../lib/model-pricing")
-    const baseProviderId = budget.baselineModelId.split("/")[0] ?? ""
+    const { calculateCostUsd } = await import("../lib/model-pricing");
+    const baseProviderId = budget.baselineModelId.split("/")[0] ?? "";
     const baseModelId =
-      budget.baselineModelId.split("/").slice(1).join("/") ??
-      budget.baselineModelId
+      budget.baselineModelId.split("/").slice(1).join("/") ?? budget.baselineModelId;
 
     const tokensLogs = await prisma.usageLog.findMany({
       where: {
@@ -607,7 +586,7 @@ app.get("/budget", async (c) => {
         inputTokens: { not: null },
       },
       select: { inputTokens: true, outputTokens: true },
-    })
+    });
 
     baselineSpend = tokensLogs.reduce((sum, log) => {
       const cost = calculateCostUsd(
@@ -615,13 +594,12 @@ app.get("/budget", async (c) => {
         baseModelId,
         log.inputTokens ?? 0,
         log.outputTokens ?? 0,
-      )
-      return sum + (cost ?? 0)
-    }, 0)
+      );
+      return sum + (cost ?? 0);
+    }, 0);
 
-    savings = baselineSpend - currentSpend
-    savingsPct =
-      baselineSpend > 0 ? Math.round((savings / baselineSpend) * 100) : null
+    savings = baselineSpend - currentSpend;
+    savingsPct = baselineSpend > 0 ? Math.round((savings / baselineSpend) * 100) : null;
   }
 
   return c.json({
@@ -634,10 +612,10 @@ app.get("/budget", async (c) => {
     baselineSpend,
     savings,
     savingsPct,
-  })
-})
+  });
+});
 
-const DEFAULT_BUDGET_ALERT_THRESHOLD = 0.8
+const DEFAULT_BUDGET_ALERT_THRESHOLD = 0.8;
 const budgetUpdateSchema = z.object({
   periodType: z.enum(["daily", "weekly", "monthly"]).optional(),
   // Aceita número ou string numérica (o formulário envia o valor do input).
@@ -645,23 +623,21 @@ const budgetUpdateSchema = z.object({
   alertThreshold: z.coerce.number().min(0).max(1).optional(),
   blocksRequests: z.boolean().optional(),
   baselineModelId: z.string().trim().min(1).max(200).nullable().optional(),
-})
+});
 
 // PATCH /user/budget
 app.patch("/budget", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const parsed = budgetUpdateSchema.safeParse(
-    await c.req.json().catch(() => null),
-  )
+  const parsed = budgetUpdateSchema.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
     return jsonErrorResponse(400, "Invalid budget payload", {
       details: z.flattenError(parsed.error).fieldErrors,
-    })
+    });
   }
 
-  const data = parsed.data
+  const data = parsed.data;
   const budget = await prisma.userBudget.upsert({
     where: { userId },
     create: {
@@ -679,19 +655,19 @@ app.patch("/budget", async (c) => {
       blocksRequests: data.blocksRequests,
       baselineModelId: data.baselineModelId,
     },
-  })
+  });
 
-  const { invalidateBudgetCache } = await import("../lib/budget")
-  invalidateBudgetCache(userId)
+  const { invalidateBudgetCache } = await import("../lib/budget");
+  invalidateBudgetCache(userId);
 
-  return c.json({ success: true, budget })
-})
+  return c.json({ success: true, budget });
+});
 
 // --- Custom Instructions (UserSettings) ---
 
 app.get("/settings", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
   const settings = await prisma.userSettings.findUnique({
     where: { userId },
@@ -700,19 +676,19 @@ app.get("/settings", async (c) => {
       customInstructionsStyle: true,
       accentColor: true,
     },
-  })
+  });
   return c.json({
     settings: settings ?? {
       customInstructionsAbout: null,
       customInstructionsStyle: null,
       accentColor: null,
     },
-  })
-})
+  });
+});
 
 app.patch("/settings", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
   const parsed = z
     .object({
@@ -720,14 +696,18 @@ app.patch("/settings", async (c) => {
       customInstructionsStyle: z.string().max(20_000).nullable().optional(),
       accentColor: z.string().max(32).nullable().optional(),
     })
-    .safeParse(await c.req.json().catch(() => null))
+    .safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) {
-    return c.json({ error: "Configurações inválidas." }, 400)
+    return c.json({ error: "Configurações inválidas." }, 400);
   }
-  const body = parsed.data
+  const body = parsed.data;
 
-  if (body.accentColor !== undefined && body.accentColor !== null && !isValidAccentColor(body.accentColor)) {
-    return c.json({ error: "Cor de destaque inválida." }, 400)
+  if (
+    body.accentColor !== undefined &&
+    body.accentColor !== null &&
+    !isValidAccentColor(body.accentColor)
+  ) {
+    return c.json({ error: "Cor de destaque inválida." }, 400);
   }
 
   const settingsData = {
@@ -738,7 +718,7 @@ app.patch("/settings", async (c) => {
       ? { customInstructionsStyle: body.customInstructionsStyle }
       : {}),
     ...(body.accentColor !== undefined ? { accentColor: body.accentColor } : {}),
-  }
+  };
 
   const settings = await prisma.userSettings.upsert({
     where: { userId },
@@ -754,66 +734,64 @@ app.patch("/settings", async (c) => {
       customInstructionsStyle: true,
       accentColor: true,
     },
-  })
+  });
 
-  return c.json({ settings })
-})
+  return c.json({ settings });
+});
 
 // --- User Memory (cross-conversation) ---
 
 app.get("/memories", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
   const memories = await prisma.userMemory.findMany({
     where: { userId },
     select: { id: true, content: true, createdAt: true, updatedAt: true },
     orderBy: { createdAt: "desc" },
     take: 200,
-  })
+  });
 
-  return c.json({ memories })
-})
+  return c.json({ memories });
+});
 
-const MAX_MEMORY_CONTENT_LENGTH = 4_000
+const MAX_MEMORY_CONTENT_LENGTH = 4_000;
 const memoryCreateSchema = z.object({
   content: z.string().trim().min(1).max(MAX_MEMORY_CONTENT_LENGTH),
-})
+});
 
 app.post("/memories", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const parsed = memoryCreateSchema.safeParse(
-    await c.req.json().catch(() => null),
-  )
-  if (!parsed.success) return jsonErrorResponse(400, "content is required")
+  const parsed = memoryCreateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return jsonErrorResponse(400, "content is required");
 
   const memory = await prisma.userMemory.create({
     data: { userId, content: parsed.data.content },
     select: { id: true, content: true, createdAt: true },
-  })
+  });
 
-  return c.json({ memory }, 201)
-})
+  return c.json({ memory }, 201);
+});
 
 app.delete("/memories/:id", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
-  const memoryId = c.req.param("id")
+  const memoryId = c.req.param("id");
   const existing = await prisma.userMemory.findFirst({
     where: { id: memoryId, userId },
-  })
-  if (!existing) return jsonErrorResponse(404, "Memory not found")
+  });
+  if (!existing) return jsonErrorResponse(404, "Memory not found");
 
-  await prisma.userMemory.delete({ where: { id: memoryId } })
-  return c.json({ success: true })
-})
+  await prisma.userMemory.delete({ where: { id: memoryId } });
+  return c.json({ success: true });
+});
 
 app.get("/me", async (c) => {
-  const userId = requireAuth(c)
-  if (typeof userId !== "string") return userId
+  const userId = requireAuth(c);
+  if (typeof userId !== "string") return userId;
 
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -832,10 +810,10 @@ app.get("/me", async (c) => {
       isAdmin: true,
       name: true,
     },
-  })
+  });
 
   if (!user) {
-    return jsonErrorResponse(404, "User not found")
+    return jsonErrorResponse(404, "User not found");
   }
 
   return c.json({
@@ -852,7 +830,7 @@ app.get("/me", async (c) => {
       isAdmin: user.isAdmin,
       name: user.name,
     },
-  })
-})
+  });
+});
 
-export default app.fetch
+export default app.fetch;

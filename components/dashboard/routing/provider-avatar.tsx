@@ -1,7 +1,7 @@
-import { cn } from "@/lib/utils"
+import { cn } from "@/lib/utils";
 
-import { providerLogoSrc } from "./provider-logos"
-import { providerHue } from "./routing-utils"
+import { providerLogoSrc } from "./provider-logos";
+import { providerHue } from "./routing-utils";
 
 /**
  * Logo oficial quando existe (public/providers/<id>.svg, ver provider-logos.ts);
@@ -14,12 +14,12 @@ export function ProviderAvatar({
   providerId,
   size = 20,
 }: {
-  className?: string
-  label: string
-  providerId: string
-  size?: number
+  className?: string;
+  label: string;
+  providerId: string;
+  size?: number;
 }) {
-  const logoSrc = providerLogoSrc(providerId)
+  const logoSrc = providerLogoSrc(providerId);
 
   if (logoSrc) {
     return (
@@ -34,10 +34,10 @@ export function ProviderAvatar({
         {/* eslint-disable-next-line @next/next/no-img-element -- ícone estático pequeno, next/image não agrega nada aqui */}
         <img alt="" className="h-[65%] w-[65%] object-contain" src={logoSrc} />
       </span>
-    )
+    );
   }
 
-  const hue = providerHue(providerId)
+  const hue = providerHue(providerId);
 
   return (
     <span
@@ -57,5 +57,5 @@ export function ProviderAvatar({
     >
       {label.charAt(0).toUpperCase()}
     </span>
-  )
+  );
 }

@@ -204,9 +204,7 @@ function getUserRateLimitMax(): number {
   return Number.isFinite(configuredValue) && configuredValue > 0 ? configuredValue : 120;
 }
 
-function getUpstashRateLimitConfig():
-  | { token: string; url: string }
-  | null {
+function getUpstashRateLimitConfig(): { token: string; url: string } | null {
   const url = process.env.UPSTASH_REDIS_REST_URL?.trim().replace(/\/+$/, "");
   const token = process.env.UPSTASH_REDIS_REST_TOKEN?.trim();
   return url && token ? { token, url } : null;
@@ -294,10 +292,7 @@ async function enforceDistributedRateLimit(
   }
 
   const ttlResult = await executeUpstashCommand(["PTTL", key]);
-  const retryAfterSeconds = Math.max(
-    1,
-    Math.ceil((Number(ttlResult) || windowMs) / 1000),
-  );
+  const retryAfterSeconds = Math.max(1, Math.ceil((Number(ttlResult) || windowMs) / 1000));
   return jsonErrorResponse(429, "Too many requests", undefined, {
     "Retry-After": String(retryAfterSeconds),
   });
@@ -329,7 +324,11 @@ function enforceInMemoryRateLimit(
   });
 }
 
-async function enforceRateLimit(c: Context, overrideKey?: string, overrideMax?: number): Promise<Response | undefined> {
+async function enforceRateLimit(
+  c: Context,
+  overrideKey?: string,
+  overrideMax?: number,
+): Promise<Response | undefined> {
   const maxRequests = overrideMax ?? getRateLimitMax();
   const windowMs = getRateLimitWindowMs();
   const rateLimitKey = overrideKey ?? getClientIdentifier(c);
@@ -361,7 +360,11 @@ export async function ensureProtectedAccess(
 
     const apiKeyId = c.get("apiKeyId") as string | undefined;
     if (apiKeyId) {
-      const keyRateLimitError = await enforceRateLimit(c, `apikey:${apiKeyId}`, getUserRateLimitMax());
+      const keyRateLimitError = await enforceRateLimit(
+        c,
+        `apikey:${apiKeyId}`,
+        getUserRateLimitMax(),
+      );
       if (keyRateLimitError) return keyRateLimitError;
     }
 
@@ -391,4 +394,3 @@ export async function ensureDebugAccess(
 
   return ensureProtectedAccess(c, options);
 }
-

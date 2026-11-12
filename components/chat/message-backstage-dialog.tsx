@@ -1,41 +1,39 @@
-"use client"
+"use client";
 
-import { Badge } from "@/components/ui/badge"
+import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog"
-import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table"
-import type { BackstageAttempt, MessageBackstage } from "@/lib/chat-utils"
-import { cn } from "@/lib/utils"
+} from "@/components/ui/dialog";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
+import type { BackstageAttempt, MessageBackstage } from "@/lib/chat-utils";
+import { cn } from "@/lib/utils";
 
 function formatMs(value: number | null | undefined) {
-  if (value === null || value === undefined) return "—"
-  return value < 1000 ? `${value}ms` : `${(value / 1000).toFixed(1)}s`
+  if (value === null || value === undefined) return "—";
+  return value < 1000 ? `${value}ms` : `${(value / 1000).toFixed(1)}s`;
 }
 
 function formatTokens(value: number | null | undefined) {
-  return value === null || value === undefined
-    ? "—"
-    : value.toLocaleString("pt-BR")
+  return value === null || value === undefined ? "—" : value.toLocaleString("pt-BR");
 }
 
 function formatCost(value: number | null | undefined) {
-  if (value === null || value === undefined) return "—"
-  return `$${value.toFixed(4)}`
+  if (value === null || value === undefined) return "—";
+  return `$${value.toFixed(4)}`;
 }
 
-const ESTIMATED_CHARS_PER_TOKEN = 4
+const ESTIMATED_CHARS_PER_TOKEN = 4;
 
 interface MessageBackstageDialogProps {
-  backstage: MessageBackstage
-  open: boolean
-  onOpenChange: (open: boolean) => void
+  backstage: MessageBackstage;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   /** Texto da resposta, usado para estimar tokens/s quando o provider não reporta uso real. */
-  responseText?: string
+  responseText?: string;
 }
 
 /**
@@ -48,32 +46,30 @@ export function MessageBackstageDialog({
   onOpenChange,
   responseText,
 }: MessageBackstageDialogProps) {
-  const attempts = backstage.attempts ?? []
+  const attempts = backstage.attempts ?? [];
   const outputTokens =
     backstage.outputTokens ??
-    (responseText
-      ? Math.round(responseText.length / ESTIMATED_CHARS_PER_TOKEN)
-      : null)
-  const isEstimated = backstage.outputTokens === null && outputTokens !== null
+    (responseText ? Math.round(responseText.length / ESTIMATED_CHARS_PER_TOKEN) : null);
+  const isEstimated = backstage.outputTokens === null && outputTokens !== null;
   const decodeMs =
     backstage.durationMs !== null &&
     backstage.ttftMs !== null &&
     backstage.durationMs > backstage.ttftMs
       ? backstage.durationMs - backstage.ttftMs
-      : (backstage.durationMs ?? null)
+      : (backstage.durationMs ?? null);
   const tokensPerSecond =
     outputTokens !== null && decodeMs !== null && decodeMs > 0
       ? outputTokens / (decodeMs / 1000)
-      : null
+      : null;
   const hasSplit =
     backstage.ttftMs !== null &&
     backstage.durationMs !== null &&
     backstage.ttftMs !== undefined &&
     backstage.durationMs !== undefined &&
-    backstage.durationMs > 0
+    backstage.durationMs > 0;
   const ttftPct = hasSplit
     ? Math.min(100, (backstage.ttftMs! / backstage.durationMs!) * 100)
-    : null
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -81,16 +77,13 @@ export function MessageBackstageDialog({
         <DialogHeader>
           <DialogTitle>Bastidores da resposta</DialogTitle>
           <DialogDescription>
-            O que aconteceu para gerar essa resposta: roteamento, tentativas e
-            custo.
+            O que aconteceu para gerar essa resposta: roteamento, tentativas e custo.
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-wrap gap-1.5">
           <Badge variant="secondary">{backstage.providerId}</Badge>
-          {backstage.modelId ? (
-            <Badge variant="outline">{backstage.modelId}</Badge>
-          ) : null}
+          {backstage.modelId ? <Badge variant="outline">{backstage.modelId}</Badge> : null}
           {backstage.routingTier ? (
             <Badge variant="outline">tier: {backstage.routingTier}</Badge>
           ) : null}
@@ -101,9 +94,7 @@ export function MessageBackstageDialog({
 
         {attempts.length > 0 && (
           <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground">
-              Tentativas de fallback
-            </p>
+            <p className="text-xs font-medium text-muted-foreground">Tentativas de fallback</p>
             <div className="flex h-6 w-full overflow-hidden rounded-md">
               {attempts.map((attempt: BackstageAttempt, index: number) => (
                 <div
@@ -126,9 +117,7 @@ export function MessageBackstageDialog({
 
         {hasSplit && attempts.length === 0 && (
           <div className="space-y-1">
-            <p className="text-xs font-medium text-muted-foreground">
-              Tempo até a resposta
-            </p>
+            <p className="text-xs font-medium text-muted-foreground">Tempo até a resposta</p>
             <div
               className="flex h-6 w-full overflow-hidden rounded-md"
               title={`TTFT ${formatMs(backstage.ttftMs)} + decode ${formatMs(backstage.durationMs! - backstage.ttftMs!)}`}
@@ -151,28 +140,18 @@ export function MessageBackstageDialog({
         <Table>
           <TableBody>
             <TableRow>
-              <TableCell className="text-muted-foreground">
-                Duração total
-              </TableCell>
-              <TableCell className="text-right">
-                {formatMs(backstage.durationMs)}
-              </TableCell>
+              <TableCell className="text-muted-foreground">Duração total</TableCell>
+              <TableCell className="text-right">{formatMs(backstage.durationMs)}</TableCell>
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">TTFT</TableCell>
-              <TableCell className="text-right">
-                {formatMs(backstage.ttftMs)}
-              </TableCell>
+              <TableCell className="text-right">{formatMs(backstage.ttftMs)}</TableCell>
             </TableRow>
             <TableRow>
-              <TableCell className="text-muted-foreground">
-                Tokens (entrada / saída)
-              </TableCell>
+              <TableCell className="text-muted-foreground">Tokens (entrada / saída)</TableCell>
               <TableCell className="text-right">
                 {formatTokens(backstage.inputTokens)} /{" "}
-                {isEstimated
-                  ? `~${outputTokens}`
-                  : formatTokens(backstage.outputTokens)}
+                {isEstimated ? `~${outputTokens}` : formatTokens(backstage.outputTokens)}
               </TableCell>
             </TableRow>
             <TableRow>
@@ -185,13 +164,11 @@ export function MessageBackstageDialog({
             </TableRow>
             <TableRow>
               <TableCell className="text-muted-foreground">Custo</TableCell>
-              <TableCell className="text-right">
-                {formatCost(backstage.costUsd)}
-              </TableCell>
+              <TableCell className="text-right">{formatCost(backstage.costUsd)}</TableCell>
             </TableRow>
           </TableBody>
         </Table>
       </DialogContent>
     </Dialog>
-  )
+  );
 }

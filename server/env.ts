@@ -27,7 +27,9 @@ function validateDatabaseUrl(databaseUrl: string | undefined, issues: string[]):
     const hostname = parsed.hostname.toLowerCase();
     const isLocalHost = hostname === "localhost" || hostname === "127.0.0.1";
     if (!isLocalHost && !hostname.includes("-pooler")) {
-      issues.push("DATABASE_URL must point to a pooled Neon endpoint (-pooler) in Vercel preview/production.");
+      issues.push(
+        "DATABASE_URL must point to a pooled Neon endpoint (-pooler) in Vercel preview/production.",
+      );
     }
   } catch {
     issues.push("DATABASE_URL must be a valid connection string.");

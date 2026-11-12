@@ -120,32 +120,38 @@ export function ChatHistorySidebar({
   const debouncedSearch = useDebouncedValue(searchQuery.trim(), 300);
   const isSearching = debouncedSearch.length >= 2;
 
-  const fetchConversations = useCallback(async (search: string) => {
-    const requestId = ++fetchRequestRef.current;
-    setLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (showArchived) params.set("archived", "true");
-      if (search) params.set("q", search);
-      const qs = params.toString();
-      const data = await apiJson<{ conversations: ConversationSummary[] }>(
-        `/conversations${qs ? `?${qs}` : ""}`,
-      );
-      if (requestId !== fetchRequestRef.current) return;
-      setConversations(data.conversations);
-      setSelectedIds(new Set());
-    } catch {
-      // silently fail
-    } finally {
-      if (requestId === fetchRequestRef.current) {
-        setLoading(false);
+  const fetchConversations = useCallback(
+    async (search: string) => {
+      const requestId = ++fetchRequestRef.current;
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (showArchived) params.set("archived", "true");
+        if (search) params.set("q", search);
+        const qs = params.toString();
+        const data = await apiJson<{ conversations: ConversationSummary[] }>(
+          `/conversations${qs ? `?${qs}` : ""}`,
+        );
+        if (requestId !== fetchRequestRef.current) return;
+        setConversations(data.conversations);
+        setSelectedIds(new Set());
+      } catch {
+        // silently fail
+      } finally {
+        if (requestId === fetchRequestRef.current) {
+          setLoading(false);
+        }
       }
-    }
-  }, [showArchived]);
+    },
+    [showArchived],
+  );
 
-  useEffect(() => () => {
-    fetchRequestRef.current += 1;
-  }, []);
+  useEffect(
+    () => () => {
+      fetchRequestRef.current += 1;
+    },
+    [],
+  );
 
   useEffect(() => {
     void fetchConversations(isSearching ? debouncedSearch : "");
@@ -196,7 +202,11 @@ export function ChatHistorySidebar({
 
     setBulkWorking(true);
     try {
-      await Promise.all(ids.map((id) => apiJsonRequest(`/conversations/${id}`, "PATCH", { archived: !showArchived })));
+      await Promise.all(
+        ids.map((id) =>
+          apiJsonRequest(`/conversations/${id}`, "PATCH", { archived: !showArchived }),
+        ),
+      );
       setSelectedIds(new Set());
       setConversations((prev) => prev.filter((c) => !selectedIds.has(c.id)));
       if (activeConversationId && selectedIds.has(activeConversationId)) onNewChat();
@@ -271,10 +281,7 @@ export function ChatHistorySidebar({
     return title.replace(/^t[ií]tulo:\s*/i, "").trim() || "Nova conversa";
   }
 
-  async function handleExportConversation(
-    conv: ConversationSummary,
-    format: "json" | "md",
-  ) {
+  async function handleExportConversation(conv: ConversationSummary, format: "json" | "md") {
     try {
       const data = await apiJson<{
         conversation: ConversationSummary;
@@ -283,10 +290,18 @@ export function ChatHistorySidebar({
 
       const filename = buildExportFilename(getConversationTitle(conv.title), format);
       if (format === "json") {
-        downloadTextFile(filename, "application/json", conversationToJson(data.conversation, data.messages));
+        downloadTextFile(
+          filename,
+          "application/json",
+          conversationToJson(data.conversation, data.messages),
+        );
         toast.success("Conversa exportada como JSON.");
       } else {
-        downloadTextFile(filename, "text/markdown", conversationToMarkdown(data.conversation, data.messages));
+        downloadTextFile(
+          filename,
+          "text/markdown",
+          conversationToMarkdown(data.conversation, data.messages),
+        );
         toast.success("Conversa exportada como Markdown.");
       }
     } catch {
@@ -304,7 +319,8 @@ export function ChatHistorySidebar({
   }, [conversations, searchQuery, isSearching]);
 
   const selectedCount = selectedIds.size;
-  const allVisibleSelected = filteredConversations.length > 0 && filteredConversations.every((c) => selectedIds.has(c.id));
+  const allVisibleSelected =
+    filteredConversations.length > 0 && filteredConversations.every((c) => selectedIds.has(c.id));
 
   function toggleConversationSelected(e: React.MouseEvent, id: string) {
     e.stopPropagation();
@@ -364,7 +380,13 @@ export function ChatHistorySidebar({
           >
             <ArchiveIcon className="size-3.5" />
           </Button>
-          <Button variant="ghost" size="icon-xs" className="size-8 md:size-7" onClick={onNewChat} title="Nova conversa">
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="size-8 md:size-7"
+            onClick={onNewChat}
+            title="Nova conversa"
+          >
             <MessageSquarePlusIcon className="size-3.5" />
           </Button>
         </div>
@@ -427,7 +449,10 @@ export function ChatHistorySidebar({
       {/* Search bar */}
       <div className="shrink-0 border-b border-border/40 px-2 py-1.5">
         <div className="relative">
-          <SearchIcon aria-hidden="true" className="absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground" />
+          <SearchIcon
+            aria-hidden="true"
+            className="absolute left-2 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+          />
           <Input
             aria-label="Buscar conversas"
             value={searchQuery}
@@ -460,7 +485,9 @@ export function ChatHistorySidebar({
             >
               {allVisibleSelected ? <CheckIcon className="size-3" /> : null}
             </span>
-            {selectedCount > 0 ? `${selectedCount} selecionada${selectedCount > 1 ? "s" : ""}` : "Selecionar todas"}
+            {selectedCount > 0
+              ? `${selectedCount} selecionada${selectedCount > 1 ? "s" : ""}`
+              : "Selecionar todas"}
           </button>
           {selectedCount > 0 && (
             <div className="flex shrink-0 items-center gap-0.5">
@@ -472,7 +499,11 @@ export function ChatHistorySidebar({
                 disabled={bulkWorking}
                 title={showArchived ? "Desarquivar selecionadas" : "Arquivar selecionadas"}
               >
-                {showArchived ? <ArchiveRestoreIcon className="size-3.5" /> : <ArchiveIcon className="size-3.5" />}
+                {showArchived ? (
+                  <ArchiveRestoreIcon className="size-3.5" />
+                ) : (
+                  <ArchiveIcon className="size-3.5" />
+                )}
               </Button>
               <Button
                 variant="ghost"
@@ -508,150 +539,158 @@ export function ChatHistorySidebar({
                 {group.items.map((conv) => {
                   const selected = selectedIds.has(conv.id);
                   return (
-                  <div
-                    key={conv.id}
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => {
-                      if (renamingId === conv.id) return;
-                      onSelectConversation(conv.id);
-                      if (isMobile) onMobileSheetOpenChange(false);
-                    }}
-                    onKeyDown={(e) => {
-                      if (renamingId === conv.id) return;
-                      if (e.key === "Enter") {
-                        e.preventDefault();
+                    <div
+                      key={conv.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => {
+                        if (renamingId === conv.id) return;
                         onSelectConversation(conv.id);
                         if (isMobile) onMobileSheetOpenChange(false);
-                      }
-                    }}
-                    className={cn(
-                      "group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted",
-                      activeConversationId === conv.id && "bg-muted font-medium",
-                      selected && "bg-muted/80",
-                    )}
-                  >
-                    <button
-                      type="button"
-                      aria-label={selected ? "Desmarcar conversa" : "Marcar conversa"}
-                      onClick={(e) => toggleConversationSelected(e, conv.id)}
+                      }}
+                      onKeyDown={(e) => {
+                        if (renamingId === conv.id) return;
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          onSelectConversation(conv.id);
+                          if (isMobile) onMobileSheetOpenChange(false);
+                        }
+                      }}
                       className={cn(
-                        "shrink-0 items-center justify-center rounded border transition-all",
-                        selected || selectedCount > 0
-                          ? "flex size-4 border-border bg-background"
-                          : "hidden h-0 w-0 border-0 md:group-hover:flex md:group-hover:size-4 md:group-hover:border-border md:group-hover:bg-background",
-                        selected && "border-primary bg-primary text-primary-foreground",
+                        "group flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted",
+                        activeConversationId === conv.id && "bg-muted font-medium",
+                        selected && "bg-muted/80",
                       )}
                     >
-                      {selected ? <CheckIcon className="size-3" /> : null}
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      {renamingId === conv.id ? (
-                        <div className="flex items-center gap-1">
-                          <input
-                            ref={renameInputRef}
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") void handleRename(conv.id);
-                              if (e.key === "Escape") setRenamingId(null);
-                              e.stopPropagation();
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="h-7 w-full rounded border border-border bg-background px-1 text-base focus:outline-none focus:ring-1 focus:ring-primary md:h-5 md:text-xs"
-                          />
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="size-7 shrink-0 md:size-5"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void handleRename(conv.id);
-                            }}
-                          >
-                            <CheckIcon className="size-3" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon-xs"
-                            className="size-7 shrink-0 md:size-5"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setRenamingId(null);
-                            }}
-                          >
-                            <XIcon className="size-3" />
-                          </Button>
-                        </div>
-                      ) : (
-                        <>
-                          <p className="truncate text-xs">{getConversationTitle(conv.title)}</p>
-                          <p className="text-[10px] text-muted-foreground">
-                            {formatDate(conv.updatedAt)}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                    {renamingId !== conv.id && (
-                      <div className="flex shrink-0 gap-0.5 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={selected ? "Desmarcar conversa" : "Marcar conversa"}
+                        onClick={(e) => toggleConversationSelected(e, conv.id)}
+                        className={cn(
+                          "shrink-0 items-center justify-center rounded border transition-all",
+                          selected || selectedCount > 0
+                            ? "flex size-4 border-border bg-background"
+                            : "hidden h-0 w-0 border-0 md:group-hover:flex md:group-hover:size-4 md:group-hover:border-border md:group-hover:bg-background",
+                          selected && "border-primary bg-primary text-primary-foreground",
+                        )}
+                      >
+                        {selected ? <CheckIcon className="size-3" /> : null}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        {renamingId === conv.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              ref={renameInputRef}
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void handleRename(conv.id);
+                                if (e.key === "Escape") setRenamingId(null);
+                                e.stopPropagation();
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="h-7 w-full rounded border border-border bg-background px-1 text-base focus:outline-none focus:ring-1 focus:ring-primary md:h-5 md:text-xs"
+                            />
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              className="size-8 md:size-6"
-                              onClick={(e) => e.stopPropagation()}
-                              title="Exportar conversa"
+                              className="size-7 shrink-0 md:size-5"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void handleRename(conv.id);
+                              }}
                             >
-                              <DownloadIcon className="size-3" />
+                              <CheckIcon className="size-3" />
                             </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                            <DropdownMenuItem onSelect={() => void handleExportConversation(conv, "json")}>
-                              Exportar (JSON)
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onSelect={() => void handleExportConversation(conv, "md")}>
-                              Exportar (Markdown)
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="size-8 md:size-6"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setRenamingId(conv.id);
-                            setRenameValue(conv.title || "");
-                          }}
-                          title="Renomear"
-                        >
-                          <PencilIcon className="size-3" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="size-8 md:size-6"
-                          onClick={(e) => void handleArchiveToggle(e, conv.id, !!conv.archived)}
-                          title={conv.archived ? "Desarquivar" : "Arquivar"}
-                        >
-                          {conv.archived ? <ArchiveRestoreIcon className="size-3" /> : <ArchiveIcon className="size-3" />}
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-xs"
-                          className="size-8 md:size-6"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPendingDelete(conv);
-                          }}
-                          title="Excluir"
-                        >
-                          <Trash2Icon className="size-3" />
-                        </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-xs"
+                              className="size-7 shrink-0 md:size-5"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setRenamingId(null);
+                              }}
+                            >
+                              <XIcon className="size-3" />
+                            </Button>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="truncate text-xs">{getConversationTitle(conv.title)}</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {formatDate(conv.updatedAt)}
+                            </p>
+                          </>
+                        )}
                       </div>
-                    )}
-                  </div>
+                      {renamingId !== conv.id && (
+                        <div className="flex shrink-0 gap-0.5 md:opacity-0 md:transition-opacity md:group-hover:opacity-100 md:group-focus-within:opacity-100">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon-xs"
+                                className="size-8 md:size-6"
+                                onClick={(e) => e.stopPropagation()}
+                                title="Exportar conversa"
+                              >
+                                <DownloadIcon className="size-3" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                              <DropdownMenuItem
+                                onSelect={() => void handleExportConversation(conv, "json")}
+                              >
+                                Exportar (JSON)
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => void handleExportConversation(conv, "md")}
+                              >
+                                Exportar (Markdown)
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="size-8 md:size-6"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setRenamingId(conv.id);
+                              setRenameValue(conv.title || "");
+                            }}
+                            title="Renomear"
+                          >
+                            <PencilIcon className="size-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="size-8 md:size-6"
+                            onClick={(e) => void handleArchiveToggle(e, conv.id, !!conv.archived)}
+                            title={conv.archived ? "Desarquivar" : "Arquivar"}
+                          >
+                            {conv.archived ? (
+                              <ArchiveRestoreIcon className="size-3" />
+                            ) : (
+                              <ArchiveIcon className="size-3" />
+                            )}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-xs"
+                            className="size-8 md:size-6"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPendingDelete(conv);
+                            }}
+                            title="Excluir"
+                          >
+                            <Trash2Icon className="size-3" />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -674,7 +713,12 @@ export function ChatHistorySidebar({
             {listContent}
           </SheetContent>
         </Sheet>
-        <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+        <AlertDialog
+          open={!!pendingDelete}
+          onOpenChange={(open) => {
+            if (!open) setPendingDelete(null);
+          }}
+        >
           <AlertDialogContent size="sm">
             <AlertDialogHeader>
               <AlertDialogTitle>Excluir conversa?</AlertDialogTitle>
@@ -688,7 +732,7 @@ export function ChatHistorySidebar({
               <AlertDialogCancel>Cancelar</AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
-                onClick={() => pendingDelete ? void handleDelete(pendingDelete.id) : undefined}
+                onClick={() => (pendingDelete ? void handleDelete(pendingDelete.id) : undefined)}
               >
                 Excluir
               </AlertDialogAction>
@@ -700,7 +744,8 @@ export function ChatHistorySidebar({
             <AlertDialogHeader>
               <AlertDialogTitle>Excluir conversas selecionadas?</AlertDialogTitle>
               <AlertDialogDescription>
-                {selectedCount} conversa{selectedCount === 1 ? "" : "s"} serão removidas do histórico.
+                {selectedCount} conversa{selectedCount === 1 ? "" : "s"} serão removidas do
+                histórico.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -720,7 +765,12 @@ export function ChatHistorySidebar({
       <div className="hidden h-full min-h-0 w-64 shrink-0 flex-col border-l border-border/60 bg-background/50 md:flex">
         {listContent}
       </div>
-      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => { if (!open) setPendingDelete(null); }}>
+      <AlertDialog
+        open={!!pendingDelete}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
         <AlertDialogContent size="sm">
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir conversa?</AlertDialogTitle>
@@ -734,7 +784,7 @@ export function ChatHistorySidebar({
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction
               variant="destructive"
-              onClick={() => pendingDelete ? void handleDelete(pendingDelete.id) : undefined}
+              onClick={() => (pendingDelete ? void handleDelete(pendingDelete.id) : undefined)}
             >
               Excluir
             </AlertDialogAction>

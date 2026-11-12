@@ -1,7 +1,20 @@
 "use client";
 
-import { createContext, startTransition, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import type { AuthUser, ProviderCatalogResponse, ProviderCredentialSummary, UiProvider } from "@/lib/contracts";
+import {
+  createContext,
+  startTransition,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import type {
+  AuthUser,
+  ProviderCatalogResponse,
+  ProviderCredentialSummary,
+  UiProvider,
+} from "@/lib/contracts";
 import { toast } from "sonner";
 
 import { apiFetch, apiJson } from "@/lib/api";
@@ -47,11 +60,7 @@ async function hydrateAppState(options: {
   // Middleware already guards these routes server-side, so the user is
   // authenticated when this runs. Fetch everything in parallel to avoid
   // the sequential waterfall (user → providers + credentials).
-  const results = await Promise.allSettled([
-    fetchUser(),
-    fetchProviders(),
-    fetchCredentials(),
-  ]);
+  const results = await Promise.allSettled([fetchUser(), fetchProviders(), fetchCredentials()]);
 
   const userResult = results[0];
   const providersResult = results[1];
@@ -134,21 +143,20 @@ export function AppStateProvider({ children }: Readonly<{ children: React.ReactN
     });
   }, []);
 
-  const value = useMemo<AppStateValue>(() => ({
-    authReady,
-    credentials,
-    providers,
-    refreshAll,
-    refreshCredentials,
-    refreshUser,
-    user,
-  }), [authReady, credentials, providers, refreshAll, refreshCredentials, refreshUser, user]);
-
-  return (
-    <AppStateContext.Provider value={value}>
-      {children}
-    </AppStateContext.Provider>
+  const value = useMemo<AppStateValue>(
+    () => ({
+      authReady,
+      credentials,
+      providers,
+      refreshAll,
+      refreshCredentials,
+      refreshUser,
+      user,
+    }),
+    [authReady, credentials, providers, refreshAll, refreshCredentials, refreshUser, user],
   );
+
+  return <AppStateContext.Provider value={value}>{children}</AppStateContext.Provider>;
 }
 
 export function useAppState() {

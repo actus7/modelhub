@@ -17,10 +17,9 @@ describe("conversationToMarkdown", () => {
   });
 
   it("inclui cabeçalho com título quando a conversa possui um", () => {
-    const md = conversationToMarkdown(
-      { title: "Revisão de código" },
-      [{ content: "olá", role: "user" }],
-    );
+    const md = conversationToMarkdown({ title: "Revisão de código" }, [
+      { content: "olá", role: "user" },
+    ]);
 
     expect(md).toBe("# Revisão de código\n\n## Você\n\nolá");
   });

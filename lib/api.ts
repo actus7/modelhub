@@ -59,7 +59,9 @@ export async function testProviderCredentials(
     },
   });
 
-  const json = (await response.json().catch(() => ({ ok: false, error: "Resposta inválida do servidor." }))) as {
+  const json = (await response
+    .json()
+    .catch(() => ({ ok: false, error: "Resposta inválida do servidor." }))) as {
     ok: boolean;
     error?: string;
     skipped?: boolean;

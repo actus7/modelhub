@@ -1,10 +1,6 @@
 export type AttachmentKind = "document" | "image";
 
-export type AttachmentExtractionStatus =
-  | "completed"
-  | "failed"
-  | "processing"
-  | "unsupported_scan";
+export type AttachmentExtractionStatus = "completed" | "failed" | "processing" | "unsupported_scan";
 
 export type ProviderModelCapabilities = {
   documents: boolean;
@@ -54,11 +50,7 @@ export type CanvasReferencePart = {
 };
 
 export type ConversationMessagePart =
-  | AttachmentReferencePart
-  | CanvasReferencePart
-  | HarnessMessagePart
-  | MetaPart
-  | TextPart;
+  AttachmentReferencePart | CanvasReferencePart | HarnessMessagePart | MetaPart | TextPart;
 
 export type ConversationAttachmentDescriptor = {
   byteSize: number;
@@ -73,15 +65,9 @@ export type ConversationAttachmentDescriptor = {
 export type HydratedAttachmentPart = AttachmentReferencePart & ConversationAttachmentDescriptor;
 
 export type HydratedConversationMessagePart =
-  | CanvasReferencePart
-  | HarnessMessagePart
-  | HydratedAttachmentPart
-  | MetaPart
-  | TextPart;
+  CanvasReferencePart | HarnessMessagePart | HydratedAttachmentPart | MetaPart | TextPart;
 
-export function createMessageContentFallback(
-  parts: readonly ConversationMessagePart[],
-): string {
+export function createMessageContentFallback(parts: readonly ConversationMessagePart[]): string {
   return parts
     .map((part) => {
       if (part.type === "text") {
@@ -107,11 +93,13 @@ export function createMessageContentFallback(
 export function extractPlainTextFromParts(
   parts: readonly ConversationMessagePart[] | readonly HydratedConversationMessagePart[],
 ): string {
-  return parts.reduce((text, part) => {
-    if (part.type !== "text") {
-      return text;
-    }
+  return parts
+    .reduce((text, part) => {
+      if (part.type !== "text") {
+        return text;
+      }
 
-    return `${text}${part.text}`;
-  }, "").trim();
+      return `${text}${part.text}`;
+    }, "")
+    .trim();
 }

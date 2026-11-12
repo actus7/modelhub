@@ -16,7 +16,14 @@ import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { apiFetch, apiJson } from "@/lib/api";
 import type { ProviderCredentialSummary, ProviderModel, UiProvider } from "@/lib/contracts";
 import { providerHasRequiredCredentials } from "@/lib/provider-credentials";
@@ -71,7 +78,9 @@ async function streamColumn(
     try {
       const j = (await response.json()) as { error?: string };
       if (j.error) msg = j.error;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     throw new Error(msg);
   }
 
@@ -91,7 +100,11 @@ async function streamColumn(
       const t = line.trim();
       if (!t) continue;
       if (t.startsWith("0:")) {
-        try { onDelta(JSON.parse(t.slice(2)) as string); } catch { /* ignore */ }
+        try {
+          onDelta(JSON.parse(t.slice(2)) as string);
+        } catch {
+          /* ignore */
+        }
       } else if (t.startsWith("d:")) {
         try {
           const payload = JSON.parse(t.slice(2)) as {
@@ -103,7 +116,9 @@ async function streamColumn(
               outputTokens: payload.usage.completionTokens ?? 0,
             });
           }
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       }
     }
   }
@@ -126,7 +141,9 @@ function ColumnCard({
   providers: UiProvider[];
   credentials: ProviderCredentialSummary[];
 }) {
-  const readyProviders = providers.filter((p) => p.hasModels && providerHasRequiredCredentials(p, credentials));
+  const readyProviders = providers.filter(
+    (p) => p.hasModels && providerHasRequiredCredentials(p, credentials),
+  );
 
   return (
     <Card className="flex min-w-0 flex-1 flex-col border-border/60">
@@ -139,7 +156,9 @@ function ColumnCard({
             <SelectContent>
               <SelectGroup>
                 {readyProviders.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
                 ))}
               </SelectGroup>
             </SelectContent>
@@ -161,7 +180,9 @@ function ColumnCard({
           <SelectContent>
             <SelectGroup>
               {col.models.map((m) => (
-                <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>
+                <SelectItem key={m.id} value={m.id}>
+                  {m.name}
+                </SelectItem>
               ))}
             </SelectGroup>
           </SelectContent>
@@ -170,7 +191,9 @@ function ColumnCard({
           <div className="flex flex-wrap gap-1.5">
             {col.durationMs != null && (
               <Badge variant="outline" className="text-[10px]">
-                {col.durationMs < 1000 ? `${col.durationMs}ms` : `${(col.durationMs / 1000).toFixed(1)}s`}
+                {col.durationMs < 1000
+                  ? `${col.durationMs}ms`
+                  : `${(col.durationMs / 1000).toFixed(1)}s`}
               </Badge>
             )}
             {col.inputTokens != null && (
@@ -209,13 +232,16 @@ function nextId() {
 export function PlaygroundPage() {
   const { providers, credentials } = useAppState();
   const [prompt, setPrompt] = useState("");
-  const [columns, setColumns] = useState<ColumnState[]>([makeColumn(nextId()), makeColumn(nextId())]);
+  const [columns, setColumns] = useState<ColumnState[]>([
+    makeColumn(nextId()),
+    makeColumn(nextId()),
+  ]);
   const abortControllersRef = useRef<Map<string, AbortController>>(new Map());
 
   const isRunning = columns.some((c) => c.streaming);
 
   function setCol(id: string, patch: Partial<ColumnState>) {
-    setColumns((prev) => prev.map((c) => c.id === id ? { ...c, ...patch } : c));
+    setColumns((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
   }
 
   function loadModels(colId: string, provider: UiProvider) {
@@ -233,7 +259,12 @@ export function PlaygroundPage() {
         setColumns((prev) =>
           prev.map((c) =>
             c.id === colId && c.providerId === provider.id
-              ? { ...c, models: p.models ?? [], modelId: p.models[0]?.id ?? "", loadingModels: false }
+              ? {
+                  ...c,
+                  models: p.models ?? [],
+                  modelId: p.models[0]?.id ?? "",
+                  loadingModels: false,
+                }
               : c,
           ),
         );
@@ -274,7 +305,7 @@ export function PlaygroundPage() {
   function handleStop() {
     abortControllersRef.current.forEach((ctrl) => ctrl.abort());
     abortControllersRef.current.clear();
-    setColumns((prev) => prev.map((c) => c.streaming ? { ...c, streaming: false } : c));
+    setColumns((prev) => prev.map((c) => (c.streaming ? { ...c, streaming: false } : c)));
   }
 
   async function handleRun() {
@@ -293,7 +324,15 @@ export function PlaygroundPage() {
     setColumns((prev) =>
       prev.map((c) =>
         c.providerId && c.modelId
-          ? { ...c, streaming: true, text: "", error: null, durationMs: null, inputTokens: null, outputTokens: null }
+          ? {
+              ...c,
+              streaming: true,
+              text: "",
+              error: null,
+              durationMs: null,
+              inputTokens: null,
+              outputTokens: null,
+            }
           : c,
       ),
     );
@@ -316,7 +355,9 @@ export function PlaygroundPage() {
             messages,
             controller.signal,
             (delta) => {
-              setColumns((prev) => prev.map((c) => c.id === col.id ? { ...c, text: c.text + delta } : c));
+              setColumns((prev) =>
+                prev.map((c) => (c.id === col.id ? { ...c, text: c.text + delta } : c)),
+              );
             },
             (usage) => {
               setCol(col.id, { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens });
@@ -327,7 +368,10 @@ export function PlaygroundPage() {
           if ((e as Error).name === "AbortError") {
             setCol(col.id, { streaming: false });
           } else {
-            setCol(col.id, { streaming: false, error: (e as Error).message ?? "Erro desconhecido." });
+            setCol(col.id, {
+              streaming: false,
+              error: (e as Error).message ?? "Erro desconhecido.",
+            });
           }
         } finally {
           abortControllersRef.current.delete(col.id);
@@ -348,7 +392,8 @@ export function PlaygroundPage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-xl font-semibold">Playground de comparação</h1>
         <p className="text-sm text-muted-foreground">
-          Envie o mesmo prompt para múltiplos modelos em paralelo e compare respostas, latência e custo.
+          Envie o mesmo prompt para múltiplos modelos em paralelo e compare respostas, latência e
+          custo.
         </p>
       </div>
 
@@ -365,12 +410,7 @@ export function PlaygroundPage() {
           }}
         />
         <div className="flex items-center justify-between gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={addColumn}
-            disabled={columns.length >= 4}
-          >
+          <Button variant="outline" size="sm" onClick={addColumn} disabled={columns.length >= 4}>
             <PlusIcon className="mr-1.5 size-3.5" />
             Adicionar coluna
           </Button>

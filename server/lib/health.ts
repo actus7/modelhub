@@ -18,7 +18,10 @@ async function isDatabaseReachable(): Promise<boolean> {
     await Promise.race([
       prisma.$queryRaw`SELECT 1`,
       new Promise((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error("database check timed out")), DATABASE_CHECK_TIMEOUT_MS);
+        timer = setTimeout(
+          () => reject(new Error("database check timed out")),
+          DATABASE_CHECK_TIMEOUT_MS,
+        );
       }),
     ]);
     return true;

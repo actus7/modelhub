@@ -46,7 +46,7 @@ describe("GET /v1/models", () => {
     ]);
 
     const response = await v1Fetch(new Request("https://modelhub.test/v1/models"));
-    const body = await response.json() as {
+    const body = (await response.json()) as {
       data: Array<{
         capabilities: { documents: boolean; images: boolean; tools?: boolean };
         id: string;

@@ -71,7 +71,13 @@ function write(level: LogLevel, event: string, fields?: LogFields): void {
     line = JSON.stringify(entry);
   } catch {
     // Campo não serializável (ciclo, BigInt): não perder o evento por causa dele.
-    line = JSON.stringify({ level, time: entry.time, event, requestId: entry.requestId, unserializable: true });
+    line = JSON.stringify({
+      level,
+      time: entry.time,
+      event,
+      requestId: entry.requestId,
+      unserializable: true,
+    });
   }
 
   console[level](line);

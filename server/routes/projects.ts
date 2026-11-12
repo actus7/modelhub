@@ -108,7 +108,14 @@ app.post("/", async (c) => {
       name: parsed.data.name,
       userId,
     },
-    select: { createdAt: true, description: true, id: true, instructions: true, name: true, updatedAt: true },
+    select: {
+      createdAt: true,
+      description: true,
+      id: true,
+      instructions: true,
+      name: true,
+      updatedAt: true,
+    },
   });
 
   return c.json({ project }, 201);
@@ -155,7 +162,14 @@ app.patch("/:id", async (c) => {
   const project = await prisma.project.update({
     where: { id: projectId },
     data: parsed.data,
-    select: { createdAt: true, description: true, id: true, instructions: true, name: true, updatedAt: true },
+    select: {
+      createdAt: true,
+      description: true,
+      id: true,
+      instructions: true,
+      name: true,
+      updatedAt: true,
+    },
   });
 
   return c.json({ project });
@@ -323,7 +337,10 @@ app.delete("/:id/files/:fileId", async (c) => {
   const { projectId } = auth;
   const fileId = c.req.param("fileId");
 
-  const file = await prisma.projectFile.findFirst({ where: { id: fileId, projectId }, select: { id: true } });
+  const file = await prisma.projectFile.findFirst({
+    where: { id: fileId, projectId },
+    select: { id: true },
+  });
   if (!file) return jsonErrorResponse(404, "File not found");
 
   await prisma.projectFile.delete({ where: { id: file.id } });
@@ -469,7 +486,9 @@ app.post("/:id/artifacts/:artifactId/refresh", async (c) => {
 
   const refreshed = await prisma.projectArtifact.findFirst({
     where: { id: artifactId, projectId },
-    include: { versions: { orderBy: { version: "desc" }, select: { createdAt: true, version: true } } },
+    include: {
+      versions: { orderBy: { version: "desc" }, select: { createdAt: true, version: true } },
+    },
   });
 
   const activeContent = await prisma.artifactVersion.findUnique({
@@ -512,7 +531,10 @@ app.get("/:id/context", async (c) => {
   const knowledge: Array<{ fileName: string; text: string }> = [];
   for (const file of files) {
     if (remaining <= 0) break;
-    const text = (file.extractedText ?? "").slice(0, Math.min(CONTEXT_PER_FILE_CHAR_CAP, remaining));
+    const text = (file.extractedText ?? "").slice(
+      0,
+      Math.min(CONTEXT_PER_FILE_CHAR_CAP, remaining),
+    );
     if (!text) continue;
     knowledge.push({ fileName: file.fileName, text });
     remaining -= text.length;
